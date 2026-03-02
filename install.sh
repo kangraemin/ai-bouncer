@@ -104,6 +104,51 @@ PYEOF
   exit 0
 fi
 
+# ── --config 모드 ──────────────────────────────────────────────
+if [ "$MODE" = "--config" ]; then
+  header "커밋 전략 재설정"
+  CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
+  if [ ! -f "$CONFIG_FILE" ]; then
+    err "ai-bouncer가 설치되어 있지 않습니다. 먼저 install.sh를 실행하세요."
+    exit 1
+  fi
+  echo "  커밋 전략:"
+  echo "  1) per-step  — Step 완료마다 즉시 커밋 + 푸시 (기본값)"
+  echo "  2) per-phase — 개발 Phase 전체 완료 시 커밋 + 푸시"
+  echo "  3) none      — 커밋하지 않음 (수동 관리)"
+  echo ""
+  printf "  선택 [1]: "
+  read -r COMMIT_CHOICE
+  COMMIT_CHOICE="${COMMIT_CHOICE:-1}"
+  case "$COMMIT_CHOICE" in
+    2) COMMIT_STRATEGY="per-phase" ;;
+    3) COMMIT_STRATEGY="none" ;;
+    *) COMMIT_STRATEGY="per-step" ;;
+  esac
+
+  # 커밋 스킬 재감지
+  if [ -f "$HOME/.claude/commands/commit.md" ] || [ -f ".claude/commands/commit.md" ]; then
+    COMMIT_SKILL_BOOL="true"
+  else
+    COMMIT_SKILL_BOOL="false"
+  fi
+
+  python3 - "$CONFIG_FILE" "$COMMIT_STRATEGY" "$COMMIT_SKILL_BOOL" <<'PYEOF'
+import json, sys
+cfg_file, strategy, skill = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+with open(cfg_file) as f: cfg = json.load(f)
+cfg["commit_strategy"] = strategy
+cfg["commit_skill"] = skill
+with open(cfg_file, "w") as f:
+    json.dump(cfg, f, indent=2)
+    f.write("\n")
+print(f"  commit_strategy = {strategy}")
+print(f"  commit_skill    = {skill}")
+PYEOF
+  ok "커밋 전략 업데이트 완료"
+  exit 0
+fi
+
 # ── 설치 범위 ──────────────────────────────────────────────────
 header "설치 범위"
 echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
@@ -248,11 +293,41 @@ else
   ok "docs/ git 미추적 (기본값)"
 fi
 
+# 커밋 전략 선택
+header "커밋 전략"
+echo "  Step/Phase 완료 시 자동 커밋 전략을 선택하세요."
+echo ""
+echo "  1) per-step  — Step 완료마다 즉시 커밋 + 푸시 (기본값)"
+echo "  2) per-phase — 개발 Phase 전체 완료 시 커밋 + 푸시"
+echo "  3) none      — 커밋하지 않음 (수동 관리)"
+echo ""
+printf "  선택 [1]: "
+read -r COMMIT_CHOICE
+COMMIT_CHOICE="${COMMIT_CHOICE:-1}"
+case "$COMMIT_CHOICE" in
+  2) COMMIT_STRATEGY="per-phase" ;;
+  3) COMMIT_STRATEGY="none" ;;
+  *) COMMIT_STRATEGY="per-step" ;;
+esac
+
+# 커밋 스킬 감지
+if [ -f "$HOME/.claude/commands/commit.md" ] || [ -f ".claude/commands/commit.md" ]; then
+  COMMIT_SKILL_BOOL="true"
+  ok "커밋 스킬 감지됨 (commit.md) — 커밋 시 /commit 스킬 활용"
+else
+  COMMIT_SKILL_BOOL="false"
+  ok "커밋 스킬 없음 — 일반 git commit 사용"
+fi
+ok "커밋 전략: $COMMIT_STRATEGY"
+
 # config.json 저장
 mkdir -p "$HOME/.claude/ai-bouncer"
 cat > "$HOME/.claude/ai-bouncer/config.json" << JSON
 {
-  "docs_git_track": $DOCS_TRACK_BOOL
+  "docs_git_track": $DOCS_TRACK_BOOL,
+  "commit_strategy": "$COMMIT_STRATEGY",
+  "commit_skill": $COMMIT_SKILL_BOOL,
+  "target_dir": "$TARGET_DIR"
 }
 JSON
 ok "config.json 저장됨"
