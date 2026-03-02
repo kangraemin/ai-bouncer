@@ -1,72 +1,229 @@
 # ai-bouncer
 
-Claude Code 개발 flow 강제 도구 (v4).
+> A Claude Code workflow enforcement toolkit that prevents unplanned code changes and ensures every implementation is planned, tested, and verified.
 
-계획 승인 없이 코드 수정 시도 → 차단.
+---
 
-## Flow
+## What is it?
+
+**ai-bouncer** forces Claude Code to follow a structured 5-phase development workflow — from intent detection to triple-verified completion. It blocks code edits without an approved plan, enforces TDD at every step, and requires 3 consecutive clean verification passes before marking work as done.
 
 ```
-요청 → 인텐트 판별 → Planning Team + Q&A → 계획 승인
-  → Dev Team (Phase 분해 + TDD) → 3회 연속 검증 → 완료
+Request → Intent Check → Planning Team + Q&A → Plan Approval
+  → Dev Team (Phase breakdown + TDD) → 3× Consecutive Verification → Done
 ```
 
-## 특징
+---
 
-- **Planning Team**: planner-lead + planner-dev + planner-qa가 팀을 이뤄 계획 수립
-- **Q&A 루프**: 연속 3회 "질문 없음" 시 계획 확정
-- **Document-Driven**: 모든 산출물을 `docs/<task>/` 에 저장, 에이전트는 파일에서만 상태 읽기
-- **개발 Phase 분해**: Lead가 고수준 계획 → 독립적 개발 단위로 분해
-- **3회 연속 검증**: verifier가 plan 대비 구현 충실도 검증, 실패 시 리셋
+## Why?
 
-## 설치
+Claude Code is powerful but unstructured by default. Without guardrails, it:
+- Jumps straight to coding without fully understanding requirements
+- Skips tests or writes them after the fact
+- Declares "done" before verifying all planned features are implemented
+- Loses context mid-session and silently resumes from a stale state
+
+ai-bouncer fixes this by enforcing a document-driven workflow where every agent is stateless and reads its context from files — making the process resilient to context window compression.
+
+---
+
+## How it works
+
+### The 5-Phase Flow
+
+**Phase 0 — Intent Detection**
+The `intent` agent classifies the request: general conversation, insufficient information, or a development task. Non-dev requests are handled immediately; dev requests proceed to planning.
+
+**Phase 1 — Planning Team**
+A 3-agent team (`planner-lead`, `planner-dev`, `planner-qa`) collaborates to build a high-level plan via a Q&A loop:
+- `planner-lead` drives the loop and asks clarifying questions
+- `planner-dev` contributes technical feasibility and risk analysis
+- `planner-qa` contributes testability and edge case analysis
+- The loop continues until 3 consecutive rounds produce **no new questions**
+- Any user answer resets the streak to 0
+
+**Phase 2 — Plan Approval**
+The finalized plan is presented to the user. Development is gated behind explicit approval.
+
+**Phase 3 — Development**
+The `lead` agent holistically determines team size (`solo` / `duo` / `team`), breaks the plan into numbered dev phases and atomic steps, then drives a strict TDD loop:
+1. QA defines test cases first → writes `step-M.md` TC section
+2. Dev implements minimum code → writes `step-M.md` implementation section
+3. QA runs tests → writes results to `step-M.md`
+4. Repeat until all steps pass
+
+**Phase 4 — Verification**
+The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes:
+- Reads only from `docs/` files (never from conversation context)
+- Checks every feature in `plan.md` is implemented
+- Validates document completeness across all step files
+- Re-runs the full test suite
+- **Any failure resets `rounds_passed` to 0** — there is no maximum attempt count
+
+---
+
+## Installation
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
 ```
 
-## 언인스톨
+Choose global (`~/.claude/`) or local (`.claude/`) scope during installation.
 
-```bash
-bash install.sh --uninstall
-```
-
-## 업데이트
+### Update
 
 ```bash
 bash install.sh --update
 ```
 
-## 포함 파일
+### Uninstall
 
-### 에이전트
-- `agents/intent.md` — Phase 0: 인텐트 판별
-- `agents/planner-lead.md` — Phase 1: Planning Team 리드
-- `agents/planner-dev.md` — Phase 1: 기술 관점 기여
-- `agents/planner-qa.md` — Phase 1: 품질/테스트 관점 기여
-- `agents/lead.md` — Phase 3: 팀 규모 판단 + Phase 분해 + 오케스트레이션
-- `agents/dev.md` — Phase 3: 구현
-- `agents/qa.md` — Phase 3: TC 작성 + 테스트 실행
-- `agents/verifier.md` — Phase 4: 종합 검증 + 3회 루프
+```bash
+bash install.sh --uninstall
+```
 
-### 커맨드 & 훅
-- `commands/dev.md` — `/dev` 스킬 (전체 플로우 오케스트레이션)
-- `hooks/plan-gate.sh` — PreToolUse: 계획 미승인 / TC 미정의 시 코드 수정 차단
-- `hooks/doc-reminder.sh` — PostToolUse: 코드 수정 후 문서 미업데이트 경고
-- `hooks/completion-gate.sh` — Stop: 검증 미완료 시 응답 종료 차단
+Uninstall reads the manifest to remove exactly the files it installed, leaves your backups intact, and removes hook entries from `settings.json`.
 
-## 문서 구조 (작업별)
+---
+
+## Usage
+
+Once installed, start any development task with:
+
+```
+/dev <your request>
+```
+
+Example:
+
+```
+/dev implement user authentication with JWT
+```
+
+---
+
+## Document-Driven Architecture
+
+All state lives in files. Agents are stateless and reconstruct context by reading docs at the start of every turn — making the workflow resilient to Claude's context window being compressed or reset.
+
+### Per-task directory structure
 
 ```
 docs/
-├── .active                    # 현재 활성 작업
+├── .active                       # name of the currently active task
 └── <task-name>/
-    ├── plan.md                # 고수준 계획
-    ├── state.json             # 작업 상태
+    ├── plan.md                   # high-level plan (written by planner-lead)
+    ├── state.json                # workflow state for this task
     ├── phase-1-<feature>/
-    │   ├── phase.md
-    │   ├── step-1.md          # TC + 구현 내용 + 테스트 결과
+    │   ├── phase.md              # scope and completion criteria for this phase
+    │   ├── step-1.md             # TC + implementation + test results
     │   └── step-2.md
+    ├── phase-2-<feature>/
+    │   ├── phase.md
+    │   └── step-1.md
     └── verifications/
-        └── round-1.md
+        ├── round-1.md
+        └── round-2.md
 ```
+
+Multiple tasks coexist without interference:
+
+```
+docs/
+├── user-auth/
+│   ├── plan.md
+│   └── ...
+└── profile-page/
+    ├── plan.md
+    └── ...
+```
+
+### state.json schema
+
+```json
+{
+  "workflow_phase": "planning",
+  "planning": {
+    "no_question_streak": 0
+  },
+  "plan_approved": false,
+  "current_dev_phase": 0,
+  "current_step": 0,
+  "dev_phases": {
+    "1": {
+      "name": "auth",
+      "folder": "phase-1-auth",
+      "steps": {
+        "1": {
+          "title": "JWT token generation",
+          "test_defined": false,
+          "passed": false,
+          "doc_path": "docs/phase-1-auth/step-1.md"
+        }
+      }
+    }
+  },
+  "verification": {
+    "rounds_passed": 0
+  }
+}
+```
+
+### Context recovery
+
+If a session is interrupted or the context window is compressed:
+
+1. `/dev` reads `docs/.active` to find the active task
+2. Reads `state.json` to determine `workflow_phase`
+3. Resumes from the correct phase — planning, development, or verification
+4. No work is lost
+
+---
+
+## Enforcement Hooks
+
+Three hooks are registered automatically into `settings.json`:
+
+| Hook | Trigger | Behavior |
+|---|---|---|
+| `plan-gate.sh` | `PreToolUse` (Write/Edit) | Blocks code edits during planning phase or before test cases are defined |
+| `doc-reminder.sh` | `PostToolUse` (Write/Edit) | Warns if a step doc hasn't been updated after a code change |
+| `completion-gate.sh` | `Stop` | Blocks response completion if verification phase hasn't reached 3 consecutive passes |
+
+---
+
+## Agents
+
+| Agent | Phase | Role |
+|---|---|---|
+| `intent` | 0 | Classify request: general / insufficient / dev task |
+| `planner-lead` | 1 | Lead the Q&A loop, finalize and write `plan.md` |
+| `planner-dev` | 1 | Contribute technical feasibility and risk analysis |
+| `planner-qa` | 1 | Contribute testability and edge case analysis |
+| `lead` | 3 | Determine team size, decompose plan into phases and steps |
+| `dev` | 3 | Implement code, update step docs |
+| `qa` | 3 | Write TCs before implementation, run tests, record results |
+| `verifier` | 4 | Verify plan vs implementation, run regression tests, manage 3× loop |
+
+---
+
+## Included Files
+
+```
+agents/
+  intent.md          planner-lead.md    planner-dev.md
+  planner-qa.md      lead.md            dev.md
+  qa.md              verifier.md
+
+commands/
+  dev.md             (/dev skill — full flow orchestration)
+
+hooks/
+  plan-gate.sh       doc-reminder.sh    completion-gate.sh
+```
+
+---
+
+## License
+
+MIT
