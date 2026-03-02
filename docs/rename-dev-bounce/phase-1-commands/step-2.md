@@ -10,11 +10,11 @@
 
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | `commands/dev-bounce.md` 5번째 줄 확인 | `# /dev-bounce` | |
-| TC-2 | frontmatter description 필드에 `/dev-bounce` 포함 여부 확인 | description에 `/dev-bounce` 문자열 존재 | |
-| TC-3 | body 내 `# /dev` (헤딩 형태) 잔존 여부 확인 | 존재하지 않음 | |
-| TC-4 | "Phase 3 Dev team" 등 내부 참조 단어 보존 확인 | `Dev` / `dev` 단어가 그대로 유지됨 | |
-| TC-5 | body 내 `/dev ` (슬래시+dev+공백) 형태 잔존 여부 확인 | 존재하지 않음 | |
+| TC-1 | `commands/dev-bounce.md` 5번째 줄 확인 | `# /dev-bounce` | ✅ PASS: `# /dev-bounce` |
+| TC-2 | frontmatter description 필드에 `/dev-bounce` 포함 여부 확인 | description에 `/dev-bounce` 문자열 존재 | ✅ PASS: `/dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)` |
+| TC-3 | body 내 `# /dev` (헤딩 형태) 잔존 여부 확인 | 존재하지 않음 | ✅ PASS: `# /dev` 없음 |
+| TC-4 | "Phase 3 Dev team" 등 내부 참조 단어 보존 확인 | `Dev` / `dev` 단어가 그대로 유지됨 | ✅ PASS: `Dev Team`, `dev_phases`, `planner-dev` 모두 보존 |
+| TC-5 | body 내 `/dev ` (슬래시+dev+공백) 형태 잔존 여부 확인 | 존재하지 않음 | ✅ PASS: `/dev ` 패턴 없음 |
 
 ## 검증 명령어
 

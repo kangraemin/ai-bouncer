@@ -5,7 +5,7 @@
   },
   "plan_approved": true,
   "current_dev_phase": 1,
-  "current_step": 2,
+  "current_step": 3,
   "dev_phases": {
     "1": {
       "name": "commands",
@@ -20,7 +20,7 @@
         "2": {
           "title": "\ud30c\uc77c \ub0b4 \ucee4\ub9e8\ub4dc\uba85 \ubcc0\uacbd (# /dev-bounce, description \uc5c5\ub370\uc774\ud2b8)",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-2.md"
         },
         "3": {
