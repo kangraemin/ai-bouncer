@@ -25,7 +25,7 @@
         },
         "3": {
           "title": "Plan mode \ud750\ub984 \ucd94\uac00 (\uae30\ub2a5 5: EnterPlanMode/ExitPlanMode)",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-3.md"
         }
