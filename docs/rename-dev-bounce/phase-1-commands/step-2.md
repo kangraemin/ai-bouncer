@@ -44,3 +44,33 @@ grep -n 'Dev Team\|Dev team\|dev_phases\|planner-dev' commands/dev-bounce.md | h
 # TC-5: ' /dev ' (슬래시+dev+공백) 패턴 확인
 grep -n ' /dev ' commands/dev-bounce.md && echo 'FAIL: /dev 공백 패턴 잔존' || echo 'PASS: /dev 공백 패턴 없음'
 ```
+
+## 구현 내용
+
+- `commands/dev-bounce.md` Line 5: `# /dev` → `# /dev-bounce`
+- frontmatter description: `구조화된 개발 flow 실행 (ai-bouncer v4)` → `/dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)`
+- 내부 참조(`Dev Team`, `dev_phases`, `planner-dev` 등)는 변경 없음
+
+## 변경 파일
+
+- `commands/dev-bounce.md`: 커맨드명 헤딩 및 frontmatter description 업데이트
+
+## 빌드
+
+빌드 명령: 검증 명령어 (bash + python3)
+결과: 성공
+- TC-1: `# /dev-bounce` 확인
+- TC-2: `description: /dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)` 확인
+- TC-3: PASS: # /dev 없음
+- TC-4: Dev Team, dev_phases, planner-dev 내부 참조 보존 확인
+- TC-5: PASS: /dev 공백 패턴 없음
+
+## 테스트 케이스 결과
+
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | `commands/dev-bounce.md` 5번째 줄 확인 | `# /dev-bounce` | `# /dev-bounce` PASS |
+| TC-2 | frontmatter description 필드에 `/dev-bounce` 포함 여부 확인 | description에 `/dev-bounce` 문자열 존재 | `/dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)` PASS |
+| TC-3 | body 내 `# /dev` (헤딩 형태) 잔존 여부 확인 | 존재하지 않음 | PASS: # /dev 없음 |
+| TC-4 | "Phase 3 Dev team" 등 내부 참조 단어 보존 확인 | `Dev` / `dev` 단어가 그대로 유지됨 | Dev Team, dev_phases, planner-dev 모두 보존 PASS |
+| TC-5 | body 내 `/dev ` (슬래시+dev+공백) 형태 잔존 여부 확인 | 존재하지 않음 | PASS: /dev 공백 패턴 없음 |

@@ -1,8 +1,8 @@
 ---
-description: 구조화된 개발 flow 실행 (ai-bouncer v4)
+description: /dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)
 ---
 
-# /dev
+# /dev-bounce
 
 Planning Team → 계획 수립 → 승인 → Dev Team → 개발 → 3회 연속 검증 → 완료.
 계획 승인 없이는 코드를 수정하지 않는다.
