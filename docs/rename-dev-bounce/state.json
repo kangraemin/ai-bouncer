@@ -37,7 +37,7 @@
       "steps": {
         "1": {
           "title": "install.sh copy_file \uacbd\ub85c \ubc0f \uc644\ub8cc \uba54\uc2dc\uc9c0 \ubcc0\uacbd",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-1.md"
         },
