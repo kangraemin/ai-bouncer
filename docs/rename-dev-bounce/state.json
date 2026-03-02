@@ -14,7 +14,7 @@
         "1": {
           "title": "commands/dev.md \u2192 commands/dev-bounce.md \ud30c\uc77c rename",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-1.md"
         },
         "2": {

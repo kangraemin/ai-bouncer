@@ -14,8 +14,17 @@
 
 ## 구현
 
-<!-- Dev 구현 후 작성 -->
+```bash
+git mv commands/dev.md commands/dev-bounce.md
+```
+
+변경 파일:
+- `commands/dev.md` → `commands/dev-bounce.md` (git rename)
 
 ## 실행 결과
 
-<!-- 테스트 실행 후 작성 -->
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | `commands/dev-bounce.md` 파일 존재 여부 확인 | 파일이 존재함 | PASS |
+| TC-2 | `commands/dev.md` 파일 존재 여부 확인 | 파일이 존재하지 않음 | PASS |
+| TC-3 | `git status` 출력에서 rename 인식 여부 확인 | `renamed: commands/dev.md -> commands/dev-bounce.md` 포함 | PASS |
