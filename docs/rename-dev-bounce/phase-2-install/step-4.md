@@ -13,11 +13,11 @@
 
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | `commands/dev-bounce.md` Phase 3 섹션에서 `commit_strategy` 키워드 검색 | `commit_strategy` 읽는 로직/설명이 Phase 3 (3-3. TDD 개발 루프 또는 3-5 이후) 섹션 내에 존재 |  |
-| TC-2 | `commands/dev-bounce.md`에서 `per-step` 전략 설명 검색 | `[STEP:N:테스트통과]` 직후 즉시 커밋 + 푸시하는 흐름이 문서에 명시되어 있음 |  |
-| TC-3 | `commands/dev-bounce.md`에서 `per-phase` 전략 설명 검색 | 개발 Phase의 마지막 Step `[STEP:N:테스트통과]` 직후에만 커밋 + 푸시하는 흐름이 문서에 명시되어 있음 |  |
-| TC-4 | `commands/dev-bounce.md`에서 `none` 전략 설명 검색 | `commit_strategy: "none"` 시 커밋을 스킵한다는 내용이 명시되어 있음 |  |
-| TC-5 | `commands/dev-bounce.md`에서 `commit_skill` 분기 설명 검색 | `commit_skill=true`이면 `/commit` 스킬 호출, `commit_skill=false`이면 `git commit` 명령 사용한다는 내용이 명시되어 있음 |  |
+| TC-1 | `commands/dev-bounce.md` Phase 3 섹션에서 `commit_strategy` 키워드 검색 | `commit_strategy` 읽는 로직/설명이 Phase 3 (3-3. TDD 개발 루프 또는 3-5 이후) 섹션 내에 존재 | ✅ PASS (line 200, 204 — `### 3-4.` under `## Phase 3`) |
+| TC-2 | `commands/dev-bounce.md`에서 `per-step` 전략 설명 검색 | `[STEP:N:테스트통과]` 직후 즉시 커밋 + 푸시하는 흐름이 문서에 명시되어 있음 | ✅ PASS (line 206-207 — `[STEP:N:테스트통과]` 직후 명시) |
+| TC-3 | `commands/dev-bounce.md`에서 `per-phase` 전략 설명 검색 | 개발 Phase의 마지막 Step `[STEP:N:테스트통과]` 직후에만 커밋 + 푸시하는 흐름이 문서에 명시되어 있음 | ✅ PASS (line 208-209 — 개발 Phase 마지막 Step 통과 후 명시) |
+| TC-4 | `commands/dev-bounce.md`에서 `none` 전략 설명 검색 | `commit_strategy: "none"` 시 커밋을 스킵한다는 내용이 명시되어 있음 | ✅ PASS (line 210 — `커밋 스킵 (수동 관리)` 명시) |
+| TC-5 | `commands/dev-bounce.md`에서 `commit_skill` 분기 설명 검색 | `commit_skill=true`이면 `/commit` 스킬 호출, `commit_skill=false`이면 `git commit` 명령 사용한다는 내용이 명시되어 있음 | ✅ PASS (line 204, 206-209 — 테이블에서 `/commit` vs `git commit` 분기 명시) |
 
 ## 검증 명령어
 

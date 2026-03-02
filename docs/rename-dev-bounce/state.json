@@ -5,7 +5,7 @@
   },
   "plan_approved": true,
   "current_dev_phase": 2,
-  "current_step": 4,
+  "current_step": 5,
   "dev_phases": {
     "1": {
       "name": "commands",
@@ -56,7 +56,7 @@
         "4": {
           "title": "dev-bounce.md \ucee4\ubc0b \uc804\ub7b5 \ucc98\ub9ac \ud750\ub984 \ucd94\uac00",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-4.md"
         },
         "5": {
