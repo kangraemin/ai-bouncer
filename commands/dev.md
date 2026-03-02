@@ -1,194 +1,191 @@
 ---
-description: 에이전트 팀으로 개발 시작
+description: 에이전트 팀으로 개발 시작 (plan-gate 적용)
 ---
 
 # /dev
 
-개발 작업의 규모를 판별하고, 적절한 방식으로 진행한다.
+구조화된 개발 flow를 실행한다. 계획 승인 없이는 코드를 수정하지 않는다.
 
 ---
 
-## 사전 확인
+## Phase 0: 인텐트 판별
 
-`$ARGUMENTS`가 비어있거나 작업 내용이 불충분하면, **반드시 사용자에게 무엇을 구현할지 되물어본다.** 충분한 정보를 얻은 후 진행한다.
+요청이 **코드 변경을 수반하는 개발 작업**인지 먼저 판별한다.
 
-## 규모 판별
+**비개발 요청** → 일반 응답으로 처리, /dev flow 시작 안 함:
+- "조사해", "알아봐", "찾아봐", "분석해", "설명해", "어떻게 생각해", "계획만"
 
-요청 내용을 분석하여 규모를 판별한다.
+**개발 요청이지만 내용 불충분** → "무엇을 구현할까요?" 되물음
 
-### 소규모 (Solo)
-- 파일 1~3개 수정
-- 단일 기능 추가/수정/버그 수정
-- 아키텍처 변경 없음
-- 예: 버튼 추가, API 엔드포인트 하나 수정, 설정값 변경
-
-→ **메인 에이전트가 직접 구현.** 팀 생성 안 함.
-
-### 중규모 (Duo)
-- 파일 4~10개 수정
-- 여러 레이어에 걸치지만 범위가 명확
-- 예: 새 화면 하나 추가, 기존 기능에 옵션 추가
-
-→ **Dev 1명만 스폰.** 메인 에이전트가 Lead 역할 겸임.
-
-### 대규모 (Team)
-- 파일 10개 이상 또는 새 모듈/피처
-- 아키텍처 변경 포함
-- 여러 Phase가 필요할 수 있음
-- 예: 새 프로젝트, 대규모 리팩토링, 복합 피처
-
-→ **풀 팀 구성** (Lead + Dev + QA).
-
-**판별이 애매하면 사용자에게 확인한다.**
+**개발 요청 + 내용 충분** → Phase 1 시작
 
 ---
 
-## 모델 배정
+## Phase 1: 계획 수립
+
+1. 관련 파일/코드 탐색 및 분석
+2. **Step 단위로 쪼개기**
+   - 한 Step = 1커밋으로 완결되는 최소 단위
+   - "A하고 B한다" 형태면 무조건 분리
+   - 각 Step마다 완료 기준 명시 (어떤 테스트가 통과해야 하는가)
+3. 아래 형식으로 출력:
+
+```
+[PLAN:승인대기]
+
+## 구현 계획
+
+### Step 1: <제목>
+- 작업: <파일명 + 무엇을>
+- 완료 기준: <어떤 테스트가 통과해야 하는가>
+
+### Step 2: <제목>
+- 작업: ...
+- 완료 기준: ...
+
+총 N개 Step. 수정 요청이 있으면 말씀해주세요. 승인하시면 시작합니다.
+```
+
+---
+
+## Phase 2: 계획 논의
+
+사용자 피드백 대기. 수정 요청이 있으면 계획 업데이트 후 `[PLAN:승인대기]` 다시 출력.
+
+**승인 신호 감지**: "승인", "시작", "ㄱㄱ", "ㅇㅇ", "진행", "go", "ok"
+→ Phase 3으로 진행
+
+---
+
+## Phase 3: 승인 처리
+
+승인 신호 감지 시 즉시 state.json 업데이트:
+
+```bash
+python3 << 'PYEOF'
+import json, os
+f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
+with open(f) as fp:
+    s = json.load(fp)
+s['plan_approved'] = True
+s['current_step'] = 1
+# TOTAL_STEPS를 실제 Step 수로 교체할 것
+TOTAL_STEPS = 3
+s['steps'] = {str(i): {'test_defined': False, 'passed': False} for i in range(1, TOTAL_STEPS + 1)}
+with open(f, 'w') as fp:
+    json.dump(s, fp, indent=2)
+print('plan_approved = true, steps initialized')
+PYEOF
+```
+
+`[PLAN:승인됨]` 출력 후 규모 판별 → Phase 4
+
+---
+
+## Phase 4: 규모 판별 및 팀 구성
+
+### 모델 배정
 
 | 에이전트 | 모델 | 용도 |
 |---------|------|------|
 | Lead | opus | 설계, 태스크 분해, 품질 판단 |
 | Dev | sonnet | 코드 구현 |
-| QA | sonnet | 테스트/빌드 검증 |
+| QA | sonnet | 테스트/검증 |
 
-Task 도구로 에이전트 스폰 시 반드시 `model` 파라미터를 지정한다.
+### 소규모 (Solo) — 파일 1~3개
+→ 메인 에이전트가 직접 Phase 5 진행
 
----
+### 중규모 (Duo) — 파일 4~10개
+→ Dev(sonnet) 1명 스폰, 메인이 Lead 겸임
 
-## 모드 판별 (중규모/대규모에서만)
+### 대규모 (Team) — 파일 10개 이상 또는 새 모듈
+→ TeamCreate + Lead(opus) + Dev(sonnet) + QA(sonnet) 스폰
 
-프로젝트 루트에 `DEVELOPMENT_GUIDE.md`가 있는지 확인한다.
+**판별 애매하면 사용자에게 확인.**
 
-- **없음** → **신규 모드**: 프로젝트 초기 설정부터 시작
-- **있음** → **피처 모드**: 사용자 지시를 피처 태스크로 바로 진행
-
----
-
-## 소규모 (Solo) 진행
-
-1. 프로젝트에 `DEVELOPMENT_GUIDE.md`가 있으면 읽고 컨벤션을 따른다.
-2. 직접 구현한다.
-3. 빌드/테스트 검증한다.
-4. 커밋 + 푸시 (로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md` 준수).
+`DEVELOPMENT_GUIDE.md` 없으면 `/init-project` 먼저 실행.
 
 ---
 
-## 중규모 (Duo) 진행
+## Phase 5: 개발 루프 (Step N 반복)
 
-### Step 1: Dev 스폰
+각 Step마다 반드시 아래 순서로 진행한다.
 
-Dev 에이전트를 **sonnet 모델**로 스폰한다 (`~/.claude/agents/dev.md`).
+### 5-1. 테스트 정의 (QA)
 
-메인 에이전트가 Lead 역할:
-- 구현 계획을 사용자에게 승인받는다.
-- Dev에게 태스크를 전달한다.
-- Dev 완료 후 직접 빌드/테스트를 검증한다.
+이 Step의 **실패하는 테스트를 먼저 작성**한다.
 
-### Step 2: 개발 루프
-
+완료 후 state.json 업데이트:
+```bash
+python3 << 'PYEOF'
+import json, os
+f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
+with open(f) as fp: s = json.load(fp)
+step = str(s['current_step'])
+s['steps'][step]['test_defined'] = True
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+print(f'step {step} test_defined = true')
+PYEOF
 ```
-메인(Lead): 계획 → 사용자 승인 → 태스크 전달
-  ↓
-Dev(sonnet): 구현 → 완료 보고
-  ↓
-메인(Lead): 빌드/테스트 검증 → 완료 또는 수정 요청
+
+`[STEP:N:테스트정의완료]` 출력
+
+### 5-2. 구현 (Dev)
+
+테스트를 통과할 **최소한의 코드만** 작성한다.
+
+완료 보고 형식 — **빌드 결과 없으면 보고 불가**:
 ```
+[STEP:N:개발완료]
+빌드 명령: <실행한 명령어>
+결과: ✅ 성공
+      (또는 ❌ 실패: <에러 내용>)
+```
+
+### 5-3. 테스트 실행 (QA)
+
+테스트 실행 후 보고 형식 — **실행 결과 없으면 보고 불가**:
+```
+[STEP:N:테스트통과]
+명령어: <실행한 명령어>
+결과: N/N 통과
+```
+
+통과 시 state.json 업데이트:
+```bash
+python3 << 'PYEOF'
+import json, os
+f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
+with open(f) as fp: s = json.load(fp)
+step = str(s['current_step'])
+s['steps'][step]['passed'] = True
+s['current_step'] = s['current_step'] + 1
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+print(f'step {step} passed, current_step -> {s["current_step"]}')
+PYEOF
+```
+
+실패 시 → Dev에게 반려, 5-2로 돌아감
 
 ---
 
-## 대규모 (Team) — 신규 모드 (DEVELOPMENT_GUIDE.md 없음)
+## Phase 6: 회귀 테스트
 
-### Step 1: 프로젝트 초기화
-
-`/init-project` 플로우를 먼저 실행한다 (대화하며 가이드 생성). 완료 후 Step 2로 진행.
-
-### Step 2: 팀 생성
-
-TeamCreate로 팀을 생성한다.
+모든 Step 완료 후 Step 1부터 전체 테스트 재실행.
 
 ```
-team_name: "<프로젝트명>-dev"
+[REGRESSION:통과]
+전체 N개 테스트 통과
 ```
 
-### Step 3: Lead 스폰
-
-Lead 에이전트를 **opus 모델**로 스폰한다 (`~/.claude/agents/lead.md`).
-
-Lead에게 전달할 지시:
-- `DEVELOPMENT_GUIDE.md`와 참조 문서들을 읽어라.
-- `docs/PHASES.md`가 없으면: 전체 Phase 계획을 설계하고, 사용자에게 승인을 요청하라.
-- `docs/PHASES.md`가 있으면: 현재 Phase에서 미완료 Step을 확인하고 이어서 진행하라.
-- 사용자 승인 후 현재 Phase의 Step을 TaskCreate로 생성하라.
-
-### Step 4: Dev / QA 스폰
-
-Lead가 태스크를 생성하면 에이전트를 스폰한다.
-
-- **Dev** (`~/.claude/agents/dev.md`): **sonnet 모델**, 구현 담당
-- **QA** (`~/.claude/agents/qa.md`): **sonnet 모델**, 테스트/검증 담당
-
-### Step 5: 개발 루프
-
-```
-Lead(opus): Phase 설계 → 사용자 승인 → 태스크 생성/배정
-  ↓
-Dev(sonnet): 태스크 구현 → 완료 보고
-  ↓
-QA(sonnet): 테스트/빌드 검증 → 통과/반려
-  ↓
-Lead(opus): Step 완료 확인 → PHASES.md 업데이트
-  ↓
-(다음 Step 또는 다음 Phase)
-```
-
----
-
-## 대규모 (Team) — 피처 모드 (DEVELOPMENT_GUIDE.md 있음)
-
-### Step 1: 팀 생성
-
-TeamCreate로 팀을 생성한다.
-
-```
-team_name: "<프로젝트명>-dev"
-```
-
-### Step 2: Lead 스폰
-
-Lead 에이전트를 **opus 모델**로 스폰한다 (`~/.claude/agents/lead.md`).
-
-Lead에게 전달할 지시:
-- `DEVELOPMENT_GUIDE.md`와 참조 문서들을 읽어라.
-- **피처 모드**로 동작하라.
-- 사용자의 요청 내용: `$ARGUMENTS`
-- 기존 코드베이스를 분석하고, 요청을 Step 단위 태스크로 분해하라.
-- 사용자에게 구현 계획을 승인받은 후 TaskCreate로 생성하라.
-
-### Step 3: Dev / QA 스폰
-
-Lead가 태스크를 생성하면 에이전트를 스폰한다.
-
-- **Dev** (`~/.claude/agents/dev.md`): **sonnet 모델**, 구현 담당
-- **QA** (`~/.claude/agents/qa.md`): **sonnet 모델**, 테스트/검증 담당
-
-### Step 4: 개발 루프
-
-```
-Lead(opus): 피처 분석 → 구현 계획 → 사용자 승인 → 태스크 생성/배정
-  ↓
-Dev(sonnet): 태스크 구현 → 완료 보고
-  ↓
-QA(sonnet): 테스트/빌드 검증 → 통과/반려
-  ↓
-Lead(opus): Step 완료 확인 → 다음 태스크 진행
-```
+실패 시 → 해당 Step으로 되돌아가기
 
 ---
 
 ## 주의사항
 
-- 구현 계획은 **반드시 사용자 승인** 후 진행한다.
-- 신규 모드: 한 번에 하나의 Phase만 진행. Phase 완료 시 다음 Phase 진행 여부 확인.
-- 피처 모드: PHASES.md 생성/수정하지 않음. 피처 완료 시 사용자에게 보고.
-- 커밋은 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md` 규칙을 따른다.
-- 규모 판별이 틀렸다고 느끼면 (작업 도중 예상보다 커지면) 사용자에게 알리고 팀 확장 여부를 확인한다.
+- `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh가 차단
+- 이전 Step 테스트 미통과 상태에서 다음 Step 코드 수정 → plan-gate.sh가 차단
+- 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
+- Step 완료 = 즉시 커밋 + 푸시
+- 규모 판별이 틀리면 사용자에게 알리고 팀 확장 여부 확인
