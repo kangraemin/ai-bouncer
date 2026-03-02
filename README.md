@@ -35,7 +35,7 @@ ai-bouncer fixes this by enforcing a document-driven workflow where every agent 
 The `intent` agent classifies the request: general conversation, insufficient information, or a development task. Non-dev requests are handled immediately; dev requests proceed to planning.
 
 **Phase 1 — Planning Team**
-A 3-agent team (`planner-lead`, `planner-dev`, `planner-qa`) collaborates to build a high-level plan via a Q&A loop:
+A 3-agent team (`planner-lead`, `planner-dev`, `planner-qa`) collaborates to build a high-level plan via a Q&A loop — running inside **plan mode** so the user gets a structured review UI:
 - `planner-lead` drives the loop and asks clarifying questions
 - `planner-dev` contributes technical feasibility and risk analysis
 - `planner-qa` contributes testability and edge case analysis
@@ -43,7 +43,7 @@ A 3-agent team (`planner-lead`, `planner-dev`, `planner-qa`) collaborates to bui
 - Any user answer resets the streak to 0
 
 **Phase 2 — Plan Approval**
-The finalized plan is presented to the user. Development is gated behind explicit approval.
+The finalized plan is presented via `ExitPlanMode`. Development is gated behind explicit approval. Revision requests re-enter plan mode automatically.
 
 **Phase 3 — Development**
 The `lead` agent holistically determines team size (`solo` / `duo` / `team`), breaks the plan into numbered dev phases and atomic steps, then drives a strict TDD loop:
@@ -51,6 +51,8 @@ The `lead` agent holistically determines team size (`solo` / `duo` / `team`), br
 2. Dev implements minimum code → writes `step-M.md` implementation section
 3. QA runs tests → writes results to `step-M.md`
 4. Repeat until all steps pass
+
+On step/phase completion, commits are made automatically according to the **commit strategy** configured at install time (`per-step`, `per-phase`, or `none`).
 
 **Phase 4 — Verification**
 The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes:
@@ -82,7 +84,7 @@ bash install.sh --update
 bash install.sh --uninstall
 ```
 
-Uninstall reads the manifest to remove exactly the files it installed, leaves your backups intact, and removes hook entries from `settings.json`.
+Uninstall reads the manifest to remove exactly the files it installed, leaves your backups intact, and removes hook entries from `settings.json` and the injected rule block from `CLAUDE.md`.
 
 ---
 
@@ -91,13 +93,19 @@ Uninstall reads the manifest to remove exactly the files it installed, leaves yo
 Once installed, start any development task with:
 
 ```
-/dev <your request>
+/dev-bounce <your request>
 ```
 
 Example:
 
 ```
-/dev implement user authentication with JWT
+/dev-bounce implement user authentication with JWT
+```
+
+### Reconfigure commit strategy
+
+```bash
+bash install.sh --config
 ```
 
 ---
@@ -173,7 +181,7 @@ docs/
 
 If a session is interrupted or the context window is compressed:
 
-1. `/dev` reads `docs/.active` to find the active task
+1. `/dev-bounce` reads `docs/.active` to find the active task
 2. Reads `state.json` to determine `workflow_phase`
 3. Resumes from the correct phase — planning, development, or verification
 4. No work is lost
@@ -207,6 +215,18 @@ Three hooks are registered automatically into `settings.json`:
 
 ---
 
+## Installation Options
+
+| Prompt | Options |
+|---|---|
+| Scope | `1) global (~/.claude/)` · `2) local (.claude/)` |
+| Commit strategy | `1) per-step` · `2) per-phase` · `3) none` |
+| Track `docs/` in git | `y / n` |
+
+Install also injects a rule into your `CLAUDE.md` so Claude automatically uses `/dev-bounce` for any coding task — even without an explicit `/dev-bounce` invocation.
+
+---
+
 ## Included Files
 
 ```
@@ -216,7 +236,7 @@ agents/
   qa.md              verifier.md
 
 commands/
-  dev.md             (/dev skill — full flow orchestration)
+  dev-bounce.md      (/dev-bounce skill — full flow orchestration)
 
 hooks/
   plan-gate.sh       doc-reminder.sh    completion-gate.sh
