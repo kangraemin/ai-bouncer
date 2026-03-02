@@ -4,8 +4,8 @@
     "no_question_streak": 3
   },
   "plan_approved": true,
-  "current_dev_phase": 1,
-  "current_step": 3,
+  "current_dev_phase": 2,
+  "current_step": 1,
   "dev_phases": {
     "1": {
       "name": "commands",
@@ -26,7 +26,7 @@
         "3": {
           "title": "Plan mode \ud750\ub984 \ucd94\uac00 (\uae30\ub2a5 5: EnterPlanMode/ExitPlanMode)",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-3.md"
         }
       }
