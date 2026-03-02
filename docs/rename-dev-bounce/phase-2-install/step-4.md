@@ -38,6 +38,25 @@ grep -n "none" /Users/ram/programming/vibecoding/ai-bouncer/commands/dev-bounce.
 grep -n "commit_skill" /Users/ram/programming/vibecoding/ai-bouncer/commands/dev-bounce.md
 ```
 
+## 구현 내용
+
+- `commands/dev-bounce.md` Phase 3 섹션의 5-3 QA 블록 직후에 `### 3-4. Step/Phase 완료 시 커밋` 섹션 추가
+- `config.json`에서 `commit_strategy`, `commit_skill` 읽는 python3 명령어 삽입
+- `per-step`, `per-phase`, `none` 전략별 커밋 시점과 방법을 표로 명시
+- 커밋 실패 시 다음 Step 진행 금지 규칙 명시
+- 기존 `3-4. 블로킹 에스컬레이션` → `3-5`, `3-5. 모든 Step 완료` → `3-6`으로 재번호 부여
+
+## 변경 파일
+
+- `commands/dev-bounce.md`: 3-4 섹션 신규 추가, 기존 3-4/3-5 → 3-5/3-6 재번호
+
+## 빌드
+
+```bash
+grep -n "commit_strategy" /Users/ram/programming/vibecoding/ai-bouncer/commands/dev-bounce.md
+```
+결과: 해당 키워드가 Phase 3 (3-4) 섹션 내 존재 확인 (line 200, 204)
+
 ## 구현 참고 (Dev용)
 
 계획(`plan.md` 기능 7) 기준 추가 내용:

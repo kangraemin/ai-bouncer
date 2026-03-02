@@ -189,7 +189,29 @@ Lead가 수행:
      실패 시 → Dev에 반려 → 5-2 반복
 ```
 
-### 3-4. 블로킹 에스컬레이션
+### 3-4. Step/Phase 완료 시 커밋
+
+`~/.claude/ai-bouncer/config.json`에서 커밋 전략 확인:
+
+```bash
+python3 -c "
+import json
+cfg = json.load(open('$HOME/.claude/ai-bouncer/config.json'))
+print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
+"
+```
+
+| commit_strategy | 커밋 시점 | commit_skill | 커밋 방법 |
+|---|---|---|---|
+| `per-step` | `[STEP:N:테스트통과]` 직후 | `true` | `/commit` 스킬 호출 |
+| `per-step` | `[STEP:N:테스트통과]` 직후 | `false` | `git add` + `git commit` + `git push` |
+| `per-phase` | 개발 Phase 마지막 Step 통과 후 | `true` | `/commit` 스킬 호출 |
+| `per-phase` | 개발 Phase 마지막 Step 통과 후 | `false` | `git add` + `git commit` + `git push` |
+| `none` | — | — | 커밋 스킵 (수동 관리) |
+
+커밋 실패 시 다음 Step 진행 금지 — 원인 해결 후 재시도.
+
+### 3-5. 블로킹 에스컬레이션
 
 Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 
@@ -201,7 +223,7 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 - `기술불가`: 사용자에게 보고, 범위 변경 필요하면 Phase 1 재시작
 - `기획질문`: state.json `workflow_phase = "planning"` 리셋 → Phase 1 재시작
 
-### 3-5. 모든 Step 완료
+### 3-6. 모든 Step 완료
 
 Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
 
