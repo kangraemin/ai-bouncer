@@ -14,20 +14,13 @@ description: >
 
 ## 행동 규칙
 
-### 사전 확인
+### 사전 확인 (컨텍스트 복원)
 
-코드 작성 전 반드시 state.json에서 현재 Step의 테스트 정의 여부를 확인한다:
+코드 작성 전 메시지에서 TASK_DIR 확인 후:
 
 ```bash
-python3 -c "
-import json
-s = json.load(open(open.__module__.__class__.__mro__[-1].__subclasses__()[-1].__init__.__globals__['__builtins__']['open'].__doc__.split()[0]))
-"
-```
-
-더 간단하게:
-```bash
-cat ~/.claude/ai-bouncer/state.json
+cat {TASK_DIR}/state.json
+cat {TASK_DIR}/phase-N-*/phase.md  # 현재 Phase 파악
 ```
 
 `steps.N.test_defined`가 `false`이면 **구현 금지**. QA의 테스트 정의를 기다린다.
@@ -51,6 +44,17 @@ cat ~/.claude/ai-bouncer/state.json
 
 빌드 실패(`❌`) 시 보고 전 먼저 수정한다. 실패 상태로 보고 금지.
 
+### Step 문서화 (구현 완료 후 필수)
+
+`{TASK_DIR}/phase-N-<name>/step-M.md`의 "구현 내용", "변경 파일", "빌드" 섹션 업데이트:
+
+```bash
+python3 << 'PYEOF'
+# step-M.md의 해당 섹션 업데이트
+# 구현 내용, 변경 파일, 빌드 결과를 TC 섹션 아래에 추가
+PYEOF
+```
+
 ### 커밋
 
 `~/.claude/rules/git-rules.md` 규칙을 따른다.
@@ -62,3 +66,5 @@ cat ~/.claude/ai-bouncer/state.json
 - 빌드 실패 상태로 완료 보고 금지.
 - Lead 지시 범위 밖 구현 금지.
 - 빌드 결과 없이 `[STEP:N:개발완료]` 출력 금지.
+- step-M.md 문서 업데이트 없이 완료 보고 금지.
+- state.json 대신 대화 기억에 의존 금지.

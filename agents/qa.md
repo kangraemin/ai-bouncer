@@ -13,22 +13,42 @@ description: >
 
 ## 5-1. 테스트 정의 (Dev 구현 전)
 
+메시지에서 TASK_DIR 확인 후 `{TASK_DIR}/state.json` 읽어 현재 Phase/Step 파악.
+
 Lead로부터 Step 완료 기준을 전달받으면, **실패하는 테스트를 먼저 작성**한다.
 
 - 이 Step에서 검증해야 할 핵심 동작만 테스트한다.
 - 테스트를 실행하면 현재는 실패해야 정상 (구현 전이므로).
+
+### TC 문서화 (테스트 정의 완료 후 필수)
+
+`{TASK_DIR}/phase-N-<name>/step-M.md` 생성 또는 업데이트:
+
+```markdown
+# Step M: <제목>
+
+## 완료 기준
+- ...
+
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | ... | ... |  |
+```
 
 테스트 작성 완료 후 state.json 업데이트:
 
 ```bash
 python3 << 'PYEOF'
 import json, os
-f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
+task_dir = os.environ.get('TASK_DIR', 'docs/current')
+f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
+dev_phase = str(s['current_dev_phase'])
 step = str(s['current_step'])
-s['steps'][step]['test_defined'] = True
+s['dev_phases'][dev_phase]['steps'][step]['test_defined'] = True
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print(f'step {step} test_defined = true')
+print(f'dev_phase {dev_phase} step {step} test_defined = true')
 PYEOF
 ```
 
@@ -52,18 +72,25 @@ Dev의 `[STEP:N:개발완료]` 확인 후 테스트를 실행한다.
 결과: N/N 통과
 ```
 
+step-M.md 실제 결과 컬럼 업데이트:
+```markdown
+| TC-1 | ... | ... | ✅ PASS |
+```
+
 state.json 업데이트:
 
 ```bash
 python3 << 'PYEOF'
 import json, os
-f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
+task_dir = os.environ.get('TASK_DIR', 'docs/current')
+f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
+dev_phase = str(s['current_dev_phase'])
 step = str(s['current_step'])
-s['steps'][step]['passed'] = True
+s['dev_phases'][dev_phase]['steps'][step]['passed'] = True
 s['current_step'] = s['current_step'] + 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print(f'step {step} passed, current_step -> {s["current_step"]}')
+print(f'dev_phase {dev_phase} step {step} passed, current_step -> {s["current_step"]}')
 PYEOF
 ```
 
@@ -80,24 +107,17 @@ Lead에게 보고 → Dev에게 반려 → 5-2로 돌아감.
 
 ---
 
-## Phase 6: 회귀 테스트
+## Phase 4: 검증 지원
 
-Lead의 요청 시 모든 Step 테스트를 처음부터 재실행한다.
-
-전체 통과 시:
-
-```
-[REGRESSION:통과]
-전체 N개 테스트 통과
-명령어: <실행한 명령어>
-```
-
-실패 시 → 해당 Step을 Lead에게 보고.
+verifier의 요청 시:
+1. 전체 테스트 스위트 재실행
+2. 결과를 verifier에게 보고
 
 ---
 
 ## 하지 말 것
 - 프로덕션 코드 수정 금지. 수정 필요하면 Dev에게 요청.
 - 실행 결과 없이 `[STEP:N:테스트통과]` 출력 금지.
-- 실행 결과 없이 `[REGRESSION:통과]` 출력 금지.
+- step-M.md TC 실제 결과 업데이트 없이 통과 보고 금지.
 - state.json 업데이트 생략 금지.
+- state.json 대신 대화 기억에 의존 금지.

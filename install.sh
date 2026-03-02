@@ -1,21 +1,108 @@
 #!/bin/bash
-# ai-bouncer install
-# Usage: bash install.sh
+# ai-bouncer install/update/uninstall
+# Usage:
+#   bash install.sh            — 신규 설치 또는 업데이트
+#   bash install.sh --update   — 최신 파일로 업데이트
+#   bash install.sh --uninstall — 제거
 
 set -euo pipefail
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
 ok()     { echo -e "${GREEN}✓${NC}  $*"; }
 info()   { echo -e "${BLUE}ℹ${NC}  $*"; }
 warn()   { echo -e "${YELLOW}⚠${NC}  $*"; }
+err()    { echo -e "${RED}✗${NC}  $*"; }
 header() { echo -e "\n${BOLD}── $* ──${NC}\n"; }
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODE="${1:-install}"
+
+# ── 언인스톨 ──────────────────────────────────────────────────
+if [ "$MODE" = "--uninstall" ]; then
+  header "ai-bouncer 제거"
+
+  # 설치 범위 감지
+  TARGET_DIR=""
+  if [ -f "$HOME/.claude/ai-bouncer/manifest.json" ]; then
+    TARGET_DIR="$HOME/.claude"
+  fi
+
+  if [ -z "$TARGET_DIR" ]; then
+    err "설치된 ai-bouncer를 찾을 수 없습니다."
+    exit 1
+  fi
+
+  MANIFEST="$HOME/.claude/ai-bouncer/manifest.json"
+  info "매니페스트에서 설치 파일 목록 읽는 중..."
+
+  python3 - "$MANIFEST" "$TARGET_DIR" <<'PYEOF'
+import json, os, sys
+
+manifest_path = sys.argv[1]
+target_dir = sys.argv[2]
+
+with open(manifest_path) as f:
+    manifest = json.load(f)
+
+removed = 0
+for rel_path in manifest.get('files', []):
+    abs_path = os.path.join(target_dir, rel_path)
+    if os.path.exists(abs_path):
+        os.remove(abs_path)
+        print(f"  삭제: {rel_path}")
+        removed += 1
+
+print(f"\n  {removed}개 파일 삭제됨 (백업 파일은 유지)")
+PYEOF
+
+  # settings.json에서 hook 제거
+  SETTINGS_FILE="$TARGET_DIR/settings.json"
+  if [ -f "$SETTINGS_FILE" ]; then
+    python3 - "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
+import json, os, sys
+
+settings_file = sys.argv[1]
+target_dir = sys.argv[2]
+
+with open(settings_file) as f:
+    cfg = json.load(f)
+
+hooks = cfg.get('hooks', {})
+for hook_type in ['PreToolUse', 'PostToolUse', 'Stop']:
+    if hook_type in hooks:
+        original = hooks[hook_type]
+        filtered = [
+            g for g in original
+            if not any('ai-bouncer' in h.get('command', '') for h in g.get('hooks', []))
+        ]
+        if len(filtered) != len(original):
+            hooks[hook_type] = filtered
+            print(f"  {hook_type} hook 제거됨")
+
+if not any(hooks.values()):
+    cfg.pop('hooks', None)
+
+with open(settings_file, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+PYEOF
+  fi
+
+  # 매니페스트 삭제
+  rm -f "$HOME/.claude/ai-bouncer/manifest.json"
+  rm -f "$HOME/.claude/ai-bouncer/config.json"
+  rmdir "$HOME/.claude/ai-bouncer" 2>/dev/null || true
+
+  echo ""
+  ok "ai-bouncer 제거 완료"
+  exit 0
+fi
 
 # ── 설치 범위 ──────────────────────────────────────────────────
 header "설치 범위"
@@ -29,7 +116,7 @@ SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
 if [ "$SCOPE_CHOICE" = "2" ]; then
   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   if [ -z "$REPO_ROOT" ]; then
-    echo "에러: git 레포 안에서 실행해주세요."
+    err "에러: git 레포 안에서 실행해주세요."
     exit 1
   fi
   TARGET_DIR="$REPO_ROOT/.claude"
@@ -42,11 +129,35 @@ fi
 info "설치 대상: $TARGET_DIR"
 mkdir -p "$TARGET_DIR"
 
-# ── 파일 복사 ──────────────────────────────────────────────────
-header "파일 설치"
+# 기존 설치 감지
+MANIFEST="$HOME/.claude/ai-bouncer/manifest.json"
+IS_UPDATE=false
+if [ -f "$MANIFEST" ]; then
+  IS_UPDATE=true
+  info "기존 설치 감지 → 업데이트 모드"
+fi
 
-# 관리 블록만 교체하는 함수 (ai-worklog 방식)
-install_file() {
+# ── 파일 복사 함수 ──────────────────────────────────────────────
+INSTALLED_FILES=()
+DATE_TAG=$(date +%Y%m%d)
+
+# 백업 후 덮어쓰기
+copy_file() {
+  local src="$1" dst="$2"
+  mkdir -p "$(dirname "$dst")"
+
+  if [ -f "$dst" ]; then
+    # 기존 파일이 ai-bouncer 파일인지 확인 (매니페스트 기반)
+    cp "$dst" "${dst}.backup-${DATE_TAG}" 2>/dev/null || true
+  fi
+
+  cp "$src" "$dst"
+  INSTALLED_FILES+=("$(realpath --relative-to="$TARGET_DIR" "$dst" 2>/dev/null || echo "$dst")")
+  ok "$(basename "$dst")"
+}
+
+# 관리 블록 교체 (hooks용)
+install_hook() {
   local src="$1" dst="$2"
   local START="# --- ai-bouncer start ---"
   local END="# --- ai-bouncer end ---"
@@ -56,11 +167,10 @@ install_file() {
   if [ ! -f "$dst" ]; then
     cp "$src" "$dst"
     ok "$(basename "$dst") (새로 설치)"
-    return
-  fi
-
-  python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
-import sys
+  else
+    cp "$dst" "${dst}.backup-${DATE_TAG}" 2>/dev/null || true
+    python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
+import sys, re
 
 src_path     = sys.argv[1]
 dst_path     = sys.argv[2]
@@ -85,7 +195,6 @@ d_end   = dst.find(end_marker)
 if d_start != -1 and d_end != -1:
     new_dst = dst[:d_start] + managed_block + dst[d_end + len(end_marker):]
 else:
-    import re
     exit_match = re.search(r'^exit\s+0\s*$', dst, re.MULTILINE)
     if exit_match:
         pos = exit_match.start()
@@ -95,57 +204,69 @@ else:
 
 open(dst_path, 'w', encoding='utf-8').write(new_dst)
 PYEOF
+    ok "$(basename "$dst") (업데이트)"
+  fi
 
-  ok "$(basename "$dst") (관리 블록 업데이트)"
+  chmod +x "$dst"
+  INSTALLED_FILES+=("$(realpath --relative-to="$TARGET_DIR" "$dst" 2>/dev/null || echo "$dst")")
 }
 
-# 덮어쓰기 복사
-copy_file() {
-  local src="$1" dst="$2"
-  mkdir -p "$(dirname "$dst")"
-  cp "$src" "$dst"
-  ok "$(basename "$dst")"
-}
+# ── 파일 설치 ──────────────────────────────────────────────────
+header "파일 설치"
 
-# agents
-copy_file "$PACKAGE_DIR/agents/lead.md"    "$TARGET_DIR/agents/lead.md"
-copy_file "$PACKAGE_DIR/agents/dev.md"     "$TARGET_DIR/agents/dev.md"
-copy_file "$PACKAGE_DIR/agents/qa.md"      "$TARGET_DIR/agents/qa.md"
+# agents — 신규 에이전트 포함
+copy_file "$PACKAGE_DIR/agents/intent.md"        "$TARGET_DIR/agents/intent.md"
+copy_file "$PACKAGE_DIR/agents/planner-lead.md"  "$TARGET_DIR/agents/planner-lead.md"
+copy_file "$PACKAGE_DIR/agents/planner-dev.md"   "$TARGET_DIR/agents/planner-dev.md"
+copy_file "$PACKAGE_DIR/agents/planner-qa.md"    "$TARGET_DIR/agents/planner-qa.md"
+copy_file "$PACKAGE_DIR/agents/verifier.md"      "$TARGET_DIR/agents/verifier.md"
+copy_file "$PACKAGE_DIR/agents/lead.md"          "$TARGET_DIR/agents/lead.md"
+copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
+copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
 
 # commands
-copy_file "$PACKAGE_DIR/commands/dev.md"   "$TARGET_DIR/commands/dev.md"
+copy_file "$PACKAGE_DIR/commands/dev.md"         "$TARGET_DIR/commands/dev.md"
 
 # hooks
-install_file "$PACKAGE_DIR/hooks/plan-gate.sh" "$TARGET_DIR/hooks/plan-gate.sh"
-chmod +x "$TARGET_DIR/hooks/plan-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"     "$TARGET_DIR/hooks/plan-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"  "$TARGET_DIR/hooks/doc-reminder.sh"
+install_hook "$PACKAGE_DIR/hooks/completion-gate.sh" "$TARGET_DIR/hooks/completion-gate.sh"
 
-# ── state.json 초기화 ──────────────────────────────────────────
-STATE_DIR="$HOME/.claude/ai-bouncer"
-STATE_FILE="$STATE_DIR/state.json"
-mkdir -p "$STATE_DIR"
+# ── docs git 추적 설정 ─────────────────────────────────────────
+header "docs/ 설정"
+echo "  ai-bouncer는 작업별로 docs/<task-name>/ 폴더에 산출물을 저장합니다."
+echo ""
+printf "  docs/ 폴더를 git으로 추적할까요? (y/n) [n]: "
+read -r DOCS_GIT_TRACK
+DOCS_GIT_TRACK="${DOCS_GIT_TRACK:-n}"
 
-if [ ! -f "$STATE_FILE" ]; then
-  cat > "$STATE_FILE" <<'JSON'
-{
-  "plan_approved": false,
-  "current_step": 0,
-  "steps": {}
-}
-JSON
-  ok "state.json 초기화"
+DOCS_TRACK_BOOL="false"
+if [[ "$DOCS_GIT_TRACK" =~ ^[yY] ]]; then
+  DOCS_TRACK_BOOL="true"
+  ok "docs/ git 추적 활성화"
+else
+  ok "docs/ git 미추적 (기본값)"
 fi
 
-# ── settings.json에 PreToolUse hook 등록 ──────────────────────
+# config.json 저장
+mkdir -p "$HOME/.claude/ai-bouncer"
+cat > "$HOME/.claude/ai-bouncer/config.json" << JSON
+{
+  "docs_git_track": $DOCS_TRACK_BOOL
+}
+JSON
+ok "config.json 저장됨"
+
+# ── settings.json에 hooks 등록 ─────────────────────────────────
 header "settings.json 설정"
 
 SETTINGS_FILE="$TARGET_DIR/settings.json"
-HOOK_CMD="$TARGET_DIR/hooks/plan-gate.sh"
 
-python3 - "$SETTINGS_FILE" "$HOOK_CMD" <<'PYEOF'
+python3 - "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
 import json, sys, os
 
 settings_file = sys.argv[1]
-hook_cmd      = sys.argv[2]
+target_dir = sys.argv[2]
 
 cfg = {}
 if os.path.exists(settings_file):
@@ -153,39 +274,75 @@ if os.path.exists(settings_file):
         cfg = json.load(f)
 
 hooks = cfg.setdefault('hooks', {})
-pre = hooks.setdefault('PreToolUse', [])
 
-# 이미 등록됐는지 확인
-for group in pre:
-    for h in group.get('hooks', []):
-        if hook_cmd in h.get('command', ''):
-            print(f'  · PreToolUse hook 이미 등록됨')
-            sys.exit(0)
+def is_registered(hook_list, cmd_fragment):
+    for group in hook_list:
+        for h in group.get('hooks', []):
+            if cmd_fragment in h.get('command', ''):
+                return True
+    return False
 
-pre.append({
-    'matcher': 'Write|Edit|MultiEdit',
-    'hooks': [{'type': 'command', 'command': hook_cmd}]
-})
+def add_hook(hook_type, matcher, cmd):
+    hook_list = hooks.setdefault(hook_type, [])
+    cmd_path = os.path.join(target_dir, 'hooks', cmd)
+    if not is_registered(hook_list, cmd):
+        entry = {'hooks': [{'type': 'command', 'command': cmd_path}]}
+        if matcher:
+            entry['matcher'] = matcher
+        hook_list.append(entry)
+        print(f"  ✓ {hook_type} hook 등록: {cmd}")
+    else:
+        print(f"  · {hook_type} hook 이미 등록됨: {cmd}")
+
+add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
+add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
+add_hook('Stop', None, 'completion-gate.sh')
 
 with open(settings_file, 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write('\n')
-
-print(f'  ✓ PreToolUse hook 등록 완료')
 PYEOF
 
-# ── 버전 기록 ──────────────────────────────────────────────────
+# ── 매니페스트 업데이트 ────────────────────────────────────────
+header "매니페스트 기록"
+
+mkdir -p "$HOME/.claude/ai-bouncer"
 INSTALLED_SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-echo "$INSTALLED_SHA" > "$TARGET_DIR/.ai-bouncer-version"
-ok "버전 기록: $INSTALLED_SHA"
+
+python3 - "$MANIFEST" "$INSTALLED_SHA" "${INSTALLED_FILES[@]}" <<'PYEOF'
+import json, sys, os
+
+manifest_path = sys.argv[1]
+version = sys.argv[2]
+files = sys.argv[3:] if len(sys.argv) > 3 else []
+
+manifest = {
+    "version": version,
+    "installed_at": __import__('datetime').datetime.now().isoformat(),
+    "files": files
+}
+
+with open(manifest_path, 'w') as f:
+    json.dump(manifest, f, indent=2)
+
+print(f"  버전: {version}")
+print(f"  파일 수: {len(files)}")
+PYEOF
+
+ok "매니페스트 저장됨"
 
 # ── 완료 ──────────────────────────────────────────────────────
 header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
-echo "  ├─ agents: lead.md, dev.md, qa.md"
-echo "  ├─ commands: dev.md"
+echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
+echo "  ├─ commands: dev.md (/dev)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse)"
-echo "  └─ state: $HOME/.claude/ai-bouncer/state.json"
+echo "  │         doc-reminder.sh (PostToolUse)"
+echo "  │         completion-gate.sh (Stop)"
+echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
+echo "  └─ 매니페스트: $MANIFEST"
+echo ""
+echo -e "  사용법: 프로젝트에서 ${BOLD}/dev <요청>${NC} 실행"
 echo ""
 ok "ai-bouncer 설치 완료!"

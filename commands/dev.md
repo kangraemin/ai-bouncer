@@ -1,184 +1,215 @@
 ---
-description: 에이전트 팀으로 개발 시작 (plan-gate 적용)
+description: 구조화된 개발 flow 실행 (ai-bouncer v4)
 ---
 
 # /dev
 
-구조화된 개발 flow를 실행한다. 계획 승인 없이는 코드를 수정하지 않는다.
+Planning Team → 계획 수립 → 승인 → Dev Team → 개발 → 3회 연속 검증 → 완료.
+계획 승인 없이는 코드를 수정하지 않는다.
+
+---
+
+## 컨텍스트 복원 (세션 재시작 시)
+
+시작 전 `docs/.active` 파일 확인:
+
+```bash
+cat docs/.active 2>/dev/null
+```
+
+- 활성 작업 있음 → 해당 `docs/<task>/state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
+- 활성 작업 없음 → 새 작업 시작 (Phase 0부터)
 
 ---
 
 ## Phase 0: 인텐트 판별
 
-요청이 **코드 변경을 수반하는 개발 작업**인지 먼저 판별한다.
-
-**비개발 요청** → 일반 응답으로 처리, /dev flow 시작 안 함:
-- "조사해", "알아봐", "찾아봐", "분석해", "설명해", "어떻게 생각해", "계획만"
-
-**개발 요청이지만 내용 불충분** → "무엇을 구현할까요?" 되물음
-
-**개발 요청 + 내용 충분** → Phase 1 시작
+1. intent 에이전트 스폰
+2. 요청 원문 전달 → `[INTENT:*]` 수신
+3. 처리:
+   - `[INTENT:일반응답]` → 일반 응답 후 종료
+   - `[INTENT:내용불충분]` → 사용자에게 되물음 후 종료
+   - `[INTENT:개발요청]` → Phase 1 진행
+4. intent 에이전트 shutdown
 
 ---
 
-## Phase 1: 계획 수립
+## Phase 1: Planning Team + Q&A 루프
 
-1. 관련 파일/코드 탐색 및 분석
-2. **Step 단위로 쪼개기**
-   - 한 Step = 1커밋으로 완결되는 최소 단위
-   - "A하고 B한다" 형태면 무조건 분리
-   - 각 Step마다 완료 기준 명시 (어떤 테스트가 통과해야 하는가)
-3. 아래 형식으로 출력:
+### 1-0. TASK_DIR 초기화
+
+요청에서 작업 이름 추출 (영어 소문자, 하이픈 구분):
+
+```bash
+TASK_NAME="user-auth"  # 예: 요청에서 핵심 키워드 추출
+TASK_DIR="docs/${TASK_NAME}"
+mkdir -p "${TASK_DIR}"
+
+# docs/.active 업데이트
+echo "${TASK_NAME}" > docs/.active
+
+# state.json 초기화
+python3 << 'PYEOF'
+import json, os
+task_dir = os.environ.get('TASK_DIR', 'docs/current')
+os.makedirs(task_dir, exist_ok=True)
+state = {
+    "workflow_phase": "planning",
+    "planning": {"no_question_streak": 0},
+    "plan_approved": False,
+    "current_dev_phase": 0,
+    "current_step": 0,
+    "dev_phases": {},
+    "verification": {"rounds_passed": 0}
+}
+with open(os.path.join(task_dir, 'state.json'), 'w') as f:
+    json.dump(state, f, indent=2)
+print(f"state.json initialized at {task_dir}")
+PYEOF
+```
+
+### 1-1. Planning Team 구성
+
+```
+TeamCreate: planning-<task>
+  - planner-lead (planner-lead.md) — 리드
+  - planner-dev (planner-dev.md) — 기술 관점
+  - planner-qa (planner-qa.md) — 품질 관점
+```
+
+팀에게 전달: 요청 원문 + TASK_DIR + 관련 코드 컨텍스트
+
+### 1-2. Q&A 루프
+
+```
+while true:
+  a. planner-lead에게 "질문 생성 시도" 요청
+  b. [QUESTIONS] 수신:
+     - 사용자에게 질문 제시 (번호 목록)
+     - 답변 수신
+     - planner-lead에게 답변 전달
+     - state.json no_question_streak = 0 업데이트
+     - a로 돌아감
+  c. [NO_QUESTIONS] 수신:
+     - no_question_streak += 1 (state.json 업데이트)
+     - streak < 3 → a로 돌아감 (재시도)
+     - streak >= 3 → 다음 단계
+```
+
+### 1-3. 계획 확정
+
+planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` + `{TASK_DIR}/plan.md` 생성 확인.
+
+Planning 팀 shutdown.
+
+### 1-4. 계획 사용자에게 표시
+
+`{TASK_DIR}/plan.md` 내용 표시:
 
 ```
 [PLAN:승인대기]
 
-## 구현 계획
+<plan.md 내용>
 
-### Step 1: <제목>
-- 작업: <파일명 + 무엇을>
-- 완료 기준: <어떤 테스트가 통과해야 하는가>
-
-### Step 2: <제목>
-- 작업: ...
-- 완료 기준: ...
-
-총 N개 Step. 수정 요청이 있으면 말씀해주세요. 승인하시면 시작합니다.
+수정 요청이 있으면 말씀해주세요. 승인하시면 개발을 시작합니다.
 ```
 
 ---
 
-## Phase 2: 계획 논의
+## Phase 2: 계획 승인 처리
 
-사용자 피드백 대기. 수정 요청이 있으면 계획 업데이트 후 `[PLAN:승인대기]` 다시 출력.
-
-**승인 신호 감지**: "승인", "시작", "ㄱㄱ", "ㅇㅇ", "진행", "go", "ok"
-→ Phase 3으로 진행
-
----
-
-## Phase 3: 승인 처리
-
-승인 신호 감지 시 즉시 state.json 업데이트:
+승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
 
 ```bash
 python3 << 'PYEOF'
 import json, os
-f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
-with open(f) as fp:
-    s = json.load(fp)
+task_dir = os.environ.get('TASK_DIR', 'docs/current')
+f = os.path.join(task_dir, 'state.json')
+with open(f) as fp: s = json.load(fp)
 s['plan_approved'] = True
-s['current_step'] = 1
-# TOTAL_STEPS를 실제 Step 수로 교체할 것
-TOTAL_STEPS = 3
-s['steps'] = {str(i): {'test_defined': False, 'passed': False} for i in range(1, TOTAL_STEPS + 1)}
-with open(f, 'w') as fp:
-    json.dump(s, fp, indent=2)
-print('plan_approved = true, steps initialized')
-PYEOF
-```
-
-`[PLAN:승인됨]` 출력 후 규모 판별 → Phase 4
-
----
-
-## Phase 4: 규모 판별 및 팀 구성
-
-### 모델 배정
-
-| 에이전트 | 모델 | 용도 |
-|---------|------|------|
-| Lead | opus | 설계, 태스크 분해, 품질 판단 |
-| Dev | sonnet | 코드 구현 |
-| QA | sonnet | 테스트/검증 |
-
-### 소규모 (Solo) — 파일 1~3개
-→ 메인 에이전트가 직접 Phase 5 진행
-
-### 중규모 (Duo) — 파일 4~10개
-→ Dev(sonnet) 1명 스폰, 메인이 Lead 겸임
-
-### 대규모 (Team) — 파일 10개 이상 또는 새 모듈
-→ TeamCreate + Lead(opus) + Dev(sonnet) + QA(sonnet) 스폰
-
-**판별 애매하면 사용자에게 확인.**
-
-`DEVELOPMENT_GUIDE.md` 없으면 `/init-project` 먼저 실행.
-
----
-
-## Phase 5: 개발 루프 (Step N 반복)
-
-각 Step마다 반드시 아래 순서로 진행한다.
-
-### 5-1. 테스트 정의 (QA)
-
-이 Step의 **실패하는 테스트를 먼저 작성**한다.
-
-완료 후 state.json 업데이트:
-```bash
-python3 << 'PYEOF'
-import json, os
-f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
-with open(f) as fp: s = json.load(fp)
-step = str(s['current_step'])
-s['steps'][step]['test_defined'] = True
+s['workflow_phase'] = 'development'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print(f'step {step} test_defined = true')
+print('plan_approved = true')
 PYEOF
 ```
 
-`[STEP:N:테스트정의완료]` 출력
-
-### 5-2. 구현 (Dev)
-
-테스트를 통과할 **최소한의 코드만** 작성한다.
-
-완료 보고 형식 — **빌드 결과 없으면 보고 불가**:
-```
-[STEP:N:개발완료]
-빌드 명령: <실행한 명령어>
-결과: ✅ 성공
-      (또는 ❌ 실패: <에러 내용>)
-```
-
-### 5-3. 테스트 실행 (QA)
-
-테스트 실행 후 보고 형식 — **실행 결과 없으면 보고 불가**:
-```
-[STEP:N:테스트통과]
-명령어: <실행한 명령어>
-결과: N/N 통과
-```
-
-통과 시 state.json 업데이트:
-```bash
-python3 << 'PYEOF'
-import json, os
-f = os.path.expanduser('~/.claude/ai-bouncer/state.json')
-with open(f) as fp: s = json.load(fp)
-step = str(s['current_step'])
-s['steps'][step]['passed'] = True
-s['current_step'] = s['current_step'] + 1
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print(f'step {step} passed, current_step -> {s["current_step"]}')
-PYEOF
-```
-
-실패 시 → Dev에게 반려, 5-2로 돌아감
+`[PLAN:승인됨]` 출력 → Phase 3 진행
 
 ---
 
-## Phase 6: 회귀 테스트
+## Phase 3: Dev Team 구성 + 개발
 
-모든 Step 완료 후 Step 1부터 전체 테스트 재실행.
+### 3-1. Lead 에이전트 스폰
+
+TASK_DIR 전달하여 Lead 스폰.
+
+Lead가 수행:
+1. `{TASK_DIR}/plan.md` 읽기
+2. 팀 규모 종합 판단 → `[TEAM:solo|duo|team]` 출력
+3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
+4. state.json `dev_phases` 초기화
+
+### 3-2. 팀 구성
+
+| Lead 출력 | 팀 구성 |
+|---|---|
+| `[TEAM:solo]` | Lead가 Dev + QA 역할 직접 수행 |
+| `[TEAM:duo]` | Dev 에이전트 1명 스폰 |
+| `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
+
+### 3-3. TDD 개발 루프 (Phase/Step 반복)
+
+각 개발 Phase의 각 Step마다:
 
 ```
-[REGRESSION:통과]
-전체 N개 테스트 통과
+5-1. QA: docs/<task>/phase-N-*/step-M.md에 TC 먼저 작성
+     → [STEP:N:테스트정의완료] 출력
+     → state.json test_defined = true
+
+5-2. Dev: TC 통과할 최소 코드 구현
+          docs/<task>/phase-N-*/step-M.md 구현 내용 업데이트
+     → [STEP:N:개발완료]
+       빌드 명령: <명령어>
+       결과: ✅ 성공
+
+5-3. QA: 테스트 실행
+     → [STEP:N:테스트통과]
+       명령어: <명령어>
+       결과: N/N 통과
+     → state.json passed = true, current_step++
+
+     실패 시 → Dev에 반려 → 5-2 반복
 ```
 
-실패 시 → 해당 Step으로 되돌아가기
+### 3-4. 블로킹 에스컬레이션
+
+Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
+
+```
+[STEP:N:블로킹:기술불가] 또는 [STEP:N:블로킹:기획질문]
+```
+
+처리:
+- `기술불가`: 사용자에게 보고, 범위 변경 필요하면 Phase 1 재시작
+- `기획질문`: state.json `workflow_phase = "planning"` 리셋 → Phase 1 재시작
+
+### 3-5. 모든 Step 완료
+
+Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
+
+---
+
+## Phase 4: 연속 3회 검증 루프
+
+1. verifier 에이전트 스폰 (TASK_DIR 전달)
+2. verifier가 검증 루프 실행 (시도 횟수 제한 없음)
+3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신:
+   - Dev/QA에게 해당 Step 재작업 지시
+   - 재작업 완료 후 verifier에게 "재검증 시작" 요청
+4. `[DONE]` 수신 (rounds_passed = 3):
+   - verifier + 전체 팀 shutdown
+   - `docs/.active` 파일 삭제 (또는 빈 파일로)
+   - 사용자에게 완료 보고
 
 ---
 
@@ -186,6 +217,7 @@ PYEOF
 
 - `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh가 차단
 - 이전 Step 테스트 미통과 상태에서 다음 Step 코드 수정 → plan-gate.sh가 차단
+- QA TC 정의 전 코드 작성 시도 → plan-gate.sh가 차단
+- 검증 미완료(rounds_passed < 3) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
 - Step 완료 = 즉시 커밋 + 푸시
-- 규모 판별이 틀리면 사용자에게 알리고 팀 확장 여부 확인
