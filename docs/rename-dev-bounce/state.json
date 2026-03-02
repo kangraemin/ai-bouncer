@@ -5,7 +5,7 @@
   },
   "plan_approved": true,
   "current_dev_phase": 2,
-  "current_step": 2,
+  "current_step": 3,
   "dev_phases": {
     "1": {
       "name": "commands",
@@ -44,7 +44,7 @@
         "2": {
           "title": "CLAUDE.md \uad00\ub9ac \ube14\ub85d \uc8fc\uc785 \ub85c\uc9c1 \ucd94\uac00",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-2.md"
         },
         "3": {
