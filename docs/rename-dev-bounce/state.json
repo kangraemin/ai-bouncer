@@ -61,7 +61,7 @@
         },
         "5": {
           "title": "uninstall \uc2dc CLAUDE.md \ube14\ub85d \uc81c\uac70",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-5.md"
         }
