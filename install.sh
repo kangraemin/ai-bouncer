@@ -225,7 +225,7 @@ copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
 copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
 
 # commands
-copy_file "$PACKAGE_DIR/commands/dev.md"         "$TARGET_DIR/commands/dev.md"
+copy_file "$PACKAGE_DIR/commands/dev-bounce.md"  "$TARGET_DIR/commands/dev-bounce.md"
 
 # hooks
 install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"     "$TARGET_DIR/hooks/plan-gate.sh"
@@ -336,7 +336,7 @@ header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
 echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
-echo "  ├─ commands: dev.md (/dev)"
+echo "  ├─ commands: dev-bounce.md (/dev-bounce)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse)"
 echo "  │         doc-reminder.sh (PostToolUse)"
 echo "  │         completion-gate.sh (Stop)"
