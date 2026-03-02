@@ -257,6 +257,46 @@ cat > "$HOME/.claude/ai-bouncer/config.json" << JSON
 JSON
 ok "config.json 저장됨"
 
+# ── CLAUDE.md 규칙 주입 ─────────────────────────────────────────
+header "CLAUDE.md 규칙 주입"
+
+CLAUDE_FILE="$TARGET_DIR/CLAUDE.md"
+
+python3 - "$CLAUDE_FILE" <<'PYEOF'
+import sys, re, os
+
+claude_file = sys.argv[1]
+
+START = "# --- ai-bouncer-rule start ---"
+END   = "# --- ai-bouncer-rule end ---"
+
+block = """\
+# --- ai-bouncer-rule start ---
+## ai-bouncer
+코드 수정 / 기능 구현 / 파일 변경 / 버그 수정 등 개발 작업 시 반드시 `/dev-bounce` 스킬을 먼저 호출할 것.
+# --- ai-bouncer-rule end ---"""
+
+if os.path.exists(claude_file):
+    content = open(claude_file, encoding='utf-8').read()
+    s = content.find(START)
+    e = content.find(END)
+    if s != -1 and e != -1:
+        # 기존 블록 교체
+        new_content = content[:s] + block + content[e + len(END):]
+        print("  기존 블록 교체됨")
+    else:
+        # 파일 끝에 추가
+        new_content = content.rstrip('\n') + '\n\n' + block + '\n'
+        print("  기존 파일에 블록 추가됨")
+else:
+    # 신규 생성
+    new_content = block + '\n'
+    print("  CLAUDE.md 신규 생성 후 블록 주입됨")
+
+os.makedirs(os.path.dirname(claude_file) if os.path.dirname(claude_file) else '.', exist_ok=True)
+open(claude_file, 'w', encoding='utf-8').write(new_content)
+PYEOF
+
 # ── settings.json에 hooks 등록 ─────────────────────────────────
 header "settings.json 설정"
 
