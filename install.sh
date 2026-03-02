@@ -94,6 +94,42 @@ with open(settings_file, 'w') as f:
 PYEOF
   fi
 
+  # CLAUDE.md 블록 제거
+  CONFIG_JSON="$HOME/.claude/ai-bouncer/config.json"
+  if [ -f "$CONFIG_JSON" ]; then
+    UNINSTALL_TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_JSON')).get('target_dir',''))" 2>/dev/null || echo "")
+    if [ -n "$UNINSTALL_TARGET_DIR" ]; then
+      CLAUDE_FILE="$UNINSTALL_TARGET_DIR/CLAUDE.md"
+      if [ -f "$CLAUDE_FILE" ]; then
+        python3 - "$CLAUDE_FILE" <<'PYEOF'
+import sys, re
+
+claude_file = sys.argv[1]
+START = "# --- ai-bouncer-rule start ---"
+END   = "# --- ai-bouncer-rule end ---"
+
+content = open(claude_file, encoding='utf-8').read()
+s = content.find(START)
+e = content.find(END)
+
+if s == -1 or e == -1:
+    print("  CLAUDE.md 블록 없음 (no-op)")
+    sys.exit(0)
+
+# 마커 포함 블록 제거, 앞뒤 빈줄 정리
+before = content[:s].rstrip('\n')
+after  = content[e + len(END):].lstrip('\n')
+new_content = (before + '\n' + after).strip('\n')
+if new_content:
+    new_content += '\n'
+
+open(claude_file, 'w', encoding='utf-8').write(new_content)
+print("  CLAUDE.md ai-bouncer 규칙 블록 제거됨")
+PYEOF
+      fi
+    fi
+  fi
+
   # 매니페스트 삭제
   rm -f "$HOME/.claude/ai-bouncer/manifest.json"
   rm -f "$HOME/.claude/ai-bouncer/config.json"
