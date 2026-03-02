@@ -12,11 +12,11 @@
 
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | install.sh --uninstall 섹션(설치 범위 감지 이후 ~ exit 0 이전) 내 CLAUDE.md 블록 제거 로직 코드 존재 확인 | `ai-bouncer-rule` 마커를 다루는 코드가 uninstall 섹션에 존재 |  |
-| TC-2 | config.json에서 target_dir을 읽어 CLAUDE.md 경로를 결정하는 로직 존재 확인 | `$HOME/.claude/ai-bouncer/config.json` 또는 동등한 경로에서 `target_dir`을 파싱하여 CLAUDE.md 경로를 구성하는 코드가 존재 |  |
-| TC-3 | 블록(start~end 마커) 제거 후 나머지 내용 보존 로직 존재 확인 | 블록 앞/뒤 문자열을 이어붙여 파일에 쓰는 코드가 존재 (마커 밖 내용 유실 없음) |  |
-| TC-4 | 블록이 없을 때 no-op(에러 없이 통과)하는 분기 존재 확인 | 마커를 찾지 못한 경우 파일을 수정하지 않고 종료하는 분기가 코드에 존재 |  |
-| TC-5 | `bash -n install.sh` 실행 | 문법 오류 없이 종료 코드 0 반환 | PASS |
+| TC-1 | install.sh --uninstall 섹션(설치 범위 감지 이후 ~ exit 0 이전) 내 CLAUDE.md 블록 제거 로직 코드 존재 확인 | `ai-bouncer-rule` 마커를 다루는 코드가 uninstall 섹션에 존재 | ✅ PASS (line 108-109: uninstall 섹션 내, line 381-382: inject 섹션 내 — 양쪽 모두 존재) |
+| TC-2 | config.json에서 target_dir을 읽어 CLAUDE.md 경로를 결정하는 로직 존재 확인 | `$HOME/.claude/ai-bouncer/config.json` 또는 동등한 경로에서 `target_dir`을 파싱하여 CLAUDE.md 경로를 구성하는 코드가 존재 | ✅ PASS (line 100: CONFIG_JSON에서 target_dir 읽어 UNINSTALL_TARGET_DIR 결정, line 102: CLAUDE_FILE 경로 구성) |
+| TC-3 | 블록(start~end 마커) 제거 후 나머지 내용 보존 로직 존재 확인 | 블록 앞/뒤 문자열을 이어붙여 파일에 쓰는 코드가 존재 (마커 밖 내용 유실 없음) | ✅ PASS (line 120-122: before=rstrip, after=lstrip, new_content=before+after 이어붙임) |
+| TC-4 | 블록이 없을 때 no-op(에러 없이 통과)하는 분기 존재 확인 | 마커를 찾지 못한 경우 파일을 수정하지 않고 종료하는 분기가 코드에 존재 | ✅ PASS (line 116-117: "CLAUDE.md 블록 없음 (no-op)" 출력 후 sys.exit(0)) |
+| TC-5 | `bash -n install.sh` 실행 | 문법 오류 없이 종료 코드 0 반환 | ✅ PASS (exit code: 0) |
 
 ## 구현 내용
 
