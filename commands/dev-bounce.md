@@ -36,7 +36,11 @@ cat docs/.active 2>/dev/null
 
 ## Phase 1: Planning Team + Q&A 루프
 
-### 1-0. TASK_DIR 초기화
+### 1-0. Plan Mode 진입
+
+EnterPlanMode 호출 — Planning 전체(Q&A + 계획 수립)를 plan mode 안에서 진행한다.
+
+### 1-1. TASK_DIR 초기화
 
 요청에서 작업 이름 추출 (영어 소문자, 하이픈 구분):
 
@@ -68,7 +72,7 @@ print(f"state.json initialized at {task_dir}")
 PYEOF
 ```
 
-### 1-1. Planning Team 구성
+### 1-2. Planning Team 구성
 
 ```
 TeamCreate: planning-<task>
@@ -79,7 +83,7 @@ TeamCreate: planning-<task>
 
 팀에게 전달: 요청 원문 + TASK_DIR + 관련 코드 컨텍스트
 
-### 1-2. Q&A 루프
+### 1-3. Q&A 루프
 
 ```
 while true:
@@ -96,13 +100,13 @@ while true:
      - streak >= 3 → 다음 단계
 ```
 
-### 1-3. 계획 확정
+### 1-4. 계획 확정
 
 planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` + `{TASK_DIR}/plan.md` 생성 확인.
 
 Planning 팀 shutdown.
 
-### 1-4. 계획 사용자에게 표시
+### 1-5. 계획 사용자에게 표시
 
 `{TASK_DIR}/plan.md` 내용 표시:
 
@@ -114,11 +118,15 @@ Planning 팀 shutdown.
 수정 요청이 있으면 말씀해주세요. 승인하시면 개발을 시작합니다.
 ```
 
+ExitPlanMode 호출 — plan.md를 플랜 파일로 사용하여 사용자 승인 요청.
+
 ---
 
 ## Phase 2: 계획 승인 처리
 
 승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
+
+수정 요청 시: EnterPlanMode 재진입 → planner-lead에게 재작업 지시 → 1-3 Q&A 루프 재시작
 
 ```bash
 python3 << 'PYEOF'
