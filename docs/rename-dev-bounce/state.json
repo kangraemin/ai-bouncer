@@ -12,19 +12,19 @@
       "folder": "phase-1-commands",
       "steps": {
         "1": {
-          "title": "commands/dev.md → commands/dev-bounce.md 파일 rename",
+          "title": "commands/dev.md \u2192 commands/dev-bounce.md \ud30c\uc77c rename",
           "test_defined": true,
           "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-1.md"
         },
         "2": {
-          "title": "파일 내 커맨드명 변경 (# /dev-bounce, description 업데이트)",
+          "title": "\ud30c\uc77c \ub0b4 \ucee4\ub9e8\ub4dc\uba85 \ubcc0\uacbd (# /dev-bounce, description \uc5c5\ub370\uc774\ud2b8)",
           "test_defined": true,
           "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-2.md"
         },
         "3": {
-          "title": "Plan mode 흐름 추가 (기능 5: EnterPlanMode/ExitPlanMode)",
+          "title": "Plan mode \ud750\ub984 \ucd94\uac00 (\uae30\ub2a5 5: EnterPlanMode/ExitPlanMode)",
           "test_defined": true,
           "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-1-commands/step-3.md"
@@ -36,31 +36,31 @@
       "folder": "phase-2-install",
       "steps": {
         "1": {
-          "title": "install.sh copy_file 경로 및 완료 메시지 변경",
+          "title": "install.sh copy_file \uacbd\ub85c \ubc0f \uc644\ub8cc \uba54\uc2dc\uc9c0 \ubcc0\uacbd",
           "test_defined": true,
           "passed": true,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-1.md"
         },
         "2": {
-          "title": "CLAUDE.md 관리 블록 주입 로직 추가",
-          "test_defined": false,
+          "title": "CLAUDE.md \uad00\ub9ac \ube14\ub85d \uc8fc\uc785 \ub85c\uc9c1 \ucd94\uac00",
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-2.md"
         },
         "3": {
-          "title": "커밋 전략 선택 + config.json 저장 + --config 플래그",
+          "title": "\ucee4\ubc0b \uc804\ub7b5 \uc120\ud0dd + config.json \uc800\uc7a5 + --config \ud50c\ub798\uadf8",
           "test_defined": false,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-3.md"
         },
         "4": {
-          "title": "dev-bounce.md 커밋 전략 처리 흐름 추가",
+          "title": "dev-bounce.md \ucee4\ubc0b \uc804\ub7b5 \ucc98\ub9ac \ud750\ub984 \ucd94\uac00",
           "test_defined": false,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-4.md"
         },
         "5": {
-          "title": "uninstall 시 CLAUDE.md 블록 제거",
+          "title": "uninstall \uc2dc CLAUDE.md \ube14\ub85d \uc81c\uac70",
           "test_defined": false,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-5.md"
