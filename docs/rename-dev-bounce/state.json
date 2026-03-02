@@ -55,7 +55,7 @@
         },
         "4": {
           "title": "dev-bounce.md \ucee4\ubc0b \uc804\ub7b5 \ucc98\ub9ac \ud750\ub984 \ucd94\uac00",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/rename-dev-bounce/phase-2-install/step-4.md"
         },
