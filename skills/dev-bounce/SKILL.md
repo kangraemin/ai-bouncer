@@ -29,7 +29,9 @@ cat docs/.active 2>/dev/null
 2. 요청 원문 전달 → `[INTENT:*]` 수신
 3. 처리:
    - `[INTENT:일반응답]` → 일반 응답 후 종료
-   - `[INTENT:내용불충분]` → 사용자에게 되물음 후 종료
+   - `[INTENT:내용불충분]` → AskUserQuestion으로 개발 내용 구체화 요청 후 Phase 0 재시도
+     (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
+     ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
    - `[INTENT:개발요청]` → Phase 1 진행
 4. intent 에이전트 shutdown
 
@@ -107,7 +109,10 @@ while true:
 
 ### 1-4. 계획 확정
 
-planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` + `{TASK_DIR}/plan.md` 생성 확인.
+planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` 수신.
+Main Claude가 planner-lead의 계획 내용을 `{TASK_DIR}/plan.md`에 Write tool로 직접 저장.
+(plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
+저장 후 파일 존재 확인 후에만 Phase 1-5 진행.
 
 Planning 팀 shutdown.
 
@@ -235,6 +240,17 @@ Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
 ---
 
 ## Phase 4: 연속 3회 검증 루프
+
+Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트:
+
+```python
+import json, os
+f = os.path.join(task_dir, 'state.json')
+with open(f) as fp: s = json.load(fp)
+s['workflow_phase'] = 'verification'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+print('workflow_phase = verification')
+```
 
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
 2. verifier가 검증 루프 실행 (시도 횟수 제한 없음)

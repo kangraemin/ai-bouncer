@@ -33,6 +33,12 @@ STATE_FILE="docs/${TASK_NAME}/state.json"
 # workflow_phase 체크
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 
+# plan.md는 planning 단계에도 항상 허용 (planner-lead가 작성해야 함)
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+if [[ "$FILE_PATH" == */plan.md ]]; then
+  exit 0
+fi
+
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   jq -n '{
     decision: "block",
