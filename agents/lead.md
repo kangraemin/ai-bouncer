@@ -89,12 +89,33 @@ s['dev_phases'] = {
         }
     }
 }
+s['team_spawned'] = True
+s['current_dev_phase'] = 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 print('dev_phases initialized')
 PYEOF
 ```
 
-5. `[DEV_PHASES:확정]` 출력 후 개발 루프 시작
+5. 각 Phase의 각 Step마다 step.md 뼈대 생성:
+
+```bash
+cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
+# Step M: <제목>
+
+## 완료 기준
+- ...
+
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 |  |  |  |
+
+## 구현 내용
+(Dev가 작성)
+EOF
+```
+
+6. `[DEV_PHASES:확정]` 출력 후 개발 루프 시작
 
 ---
 

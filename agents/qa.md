@@ -22,14 +22,9 @@ Lead로부터 Step 완료 기준을 전달받으면, **실패하는 테스트를
 
 ### TC 문서화 (테스트 정의 완료 후 필수)
 
-`{TASK_DIR}/phase-N-<name>/step-M.md` 생성 또는 업데이트:
+Lead가 생성한 `{TASK_DIR}/phase-N-<name>/step-M.md`의 TC 테이블을 채운다 (신규 생성 아님):
 
 ```markdown
-# Step M: <제목>
-
-## 완료 기준
-- ...
-
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|

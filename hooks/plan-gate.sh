@@ -39,6 +39,11 @@ if [[ "$FILE_PATH" == */plan.md ]]; then
   exit 0
 fi
 
+# step/phase doc 파일은 항상 허용 (Lead 뼈대 생성, QA TC 채우기 시 test_defined=false여도 허용)
+if [[ "$FILE_PATH" == */step-*.md ]] || [[ "$FILE_PATH" == */phase-*.md ]]; then
+  exit 0
+fi
+
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   jq -n '{
     decision: "block",

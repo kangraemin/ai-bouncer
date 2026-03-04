@@ -150,6 +150,46 @@ tc4() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-5: planning + Write to */step-1.md → ALLOW
+# ---------------------------------------------------------------------------
+tc5() {
+  local dir="$TMPDIR_ROOT/tc5"
+  setup_env "$dir" "my-task" "planning" "false" "false" "false"
+
+  local input; input=$(make_input "Write" "$dir/docs/my-task/phase-1-login/step-1.md")
+  local out; out=$(run_hook "$dir" "$input")
+
+  local decision; decision=$(echo "$out" | jq -r '.decision // "allow"' 2>/dev/null)
+
+  if [ "$decision" != "block" ]; then
+    pass "TC-5: planning + Write to */step-1.md → ALLOW"
+  else
+    local reason; reason=$(echo "$out" | jq -r '.reason // ""' 2>/dev/null)
+    fail "TC-5: planning + Write to */step-1.md → ALLOW" "got block: $reason"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# TC-6: development (plan_approved=true, team_spawned=true) + Write to */phase-*.md → ALLOW
+# ---------------------------------------------------------------------------
+tc6() {
+  local dir="$TMPDIR_ROOT/tc6"
+  setup_env "$dir" "my-task" "development" "true" "true" "false"
+
+  local input; input=$(make_input "Write" "$dir/docs/my-task/phase-1-auth/phase.md")
+  local out; out=$(run_hook "$dir" "$input")
+
+  local decision; decision=$(echo "$out" | jq -r '.decision // "allow"' 2>/dev/null)
+
+  if [ "$decision" != "block" ]; then
+    pass "TC-6: development + Write to */phase-1-auth/phase.md → ALLOW"
+  else
+    local reason; reason=$(echo "$out" | jq -r '.reason // ""' 2>/dev/null)
+    fail "TC-6: development + Write to */phase-1-auth/phase.md → ALLOW" "got block: $reason"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests ===${NC}"
@@ -159,6 +199,8 @@ tc1
 tc2
 tc3
 tc4
+tc5
+tc6
 
 echo ""
 echo "---"
