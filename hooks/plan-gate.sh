@@ -52,6 +52,17 @@ if [ "$PLAN_APPROVED" != "true" ]; then
   exit 0
 fi
 
+# Lead 에이전트 스폰 여부 체크
+TEAM_SPAWNED=$(jq -r '.team_spawned // false' "$STATE_FILE" 2>/dev/null)
+
+if [ "$WORKFLOW_PHASE" = "development" ] && [ "$TEAM_SPAWNED" != "true" ]; then
+  jq -n '{
+    decision: "block",
+    reason: "Lead 에이전트가 스폰되지 않았습니다. Phase 3-1을 따라 Lead 에이전트를 먼저 스폰하고 state.json team_spawned를 true로 설정하세요."
+  }'
+  exit 0
+fi
+
 # 현재 dev_phase와 step 체크
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
