@@ -284,18 +284,31 @@ tc_b15() {
 }
 
 # ---------------------------------------------------------------------------
+# BLOCK: .active 비우기 공격
+# ---------------------------------------------------------------------------
+
+# TC-B16: planning + echo "" > .active → BLOCK (.active는 예외 아님)
+tc_b16() {
+  local dir="$TMPDIR_ROOT/tc_b16"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input 'echo "" > docs/.active')
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B16: planning + echo > .active → BLOCK (gate 무력화 방지)" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # ALLOW: 전체 충족
 # ---------------------------------------------------------------------------
 
-# TC-B16: development + 전체 조건 충족 + echo > → ALLOW
-tc_b16() {
+# TC-B17: development + 전체 조건 충족 + echo > → ALLOW
+tc_b17() {
   local dir="$TMPDIR_ROOT/tc_b16"
-  local team="test-team-tcb16-$$"
+  local team="test-team-tcb17-$$"
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   local input; input=$(make_input "echo 'code' > /src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B16: development + 전체 조건 충족 + echo > → ALLOW" "$out"
+  assert_allow "TC-B17: development + 전체 조건 충족 + echo > → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -308,7 +321,7 @@ tc_b1; tc_b2; tc_b3; tc_b4; tc_b5
 tc_b6; tc_b7; tc_b8; tc_b9
 tc_b10; tc_b11; tc_b12; tc_b13; tc_b14
 tc_b15
-tc_b16
+tc_b16; tc_b17
 
 cleanup_teams
 

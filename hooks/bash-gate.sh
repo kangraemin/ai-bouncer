@@ -76,8 +76,8 @@ if echo "$CMD" | grep -qE '\.claude/plans/'; then
   EXCEPTION=true
 fi
 
-# state.json, .active 파일
-if echo "$CMD" | grep -qE 'state\.json|\.active'; then
+# state.json 파일 (.active는 예외 아님 — 비우기로 gate 무력화 방지)
+if echo "$CMD" | grep -qE 'state\.json'; then
   EXCEPTION=true
 fi
 
