@@ -1,5 +1,5 @@
 {
-  "workflow_phase": "development",
+  "workflow_phase": "verification",
   "planning": {
     "no_question_streak": 3
   },
@@ -50,7 +50,7 @@
         "1": {
           "title": "\uc124\uce58\ub41c \ud30c\uc77c \ub3d9\uae30\ud654 (~/.claude/hooks, agents)",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/ai-bouncer-bugfix/phase-2-installed-files/step-1.md"
         }
       }
