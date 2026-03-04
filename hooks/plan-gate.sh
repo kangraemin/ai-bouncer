@@ -95,6 +95,16 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     fi
   fi
 
+  # step.md 뼈대 생성 여부 체크 (Lead가 state.json에 doc_created=true 설정해야 함)
+  DOC_CREATED=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].steps[\"$STEP_KEY\"].doc_created // false" "$STATE_FILE" 2>/dev/null)
+  if [ "$DOC_CREATED" != "true" ]; then
+    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md 뼈대가 생성되지 않았습니다. Lead가 step.md를 먼저 생성하고 state.json doc_created를 true로 설정해야 합니다.")
+    }'
+    exit 0
+  fi
+
   # 현재 step 테스트 정의 체크
   TEST_DEFINED=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].steps[\"$STEP_KEY\"].test_defined // false" "$STATE_FILE" 2>/dev/null)
   if [ "$TEST_DEFINED" != "true" ]; then

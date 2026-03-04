@@ -33,13 +33,14 @@ setup_env() {
   local plan_approved="${4:-false}"
   local team_spawned="${5:-false}"
   local test_defined="${6:-false}"
+  local doc_created="${7:-false}"
 
   mkdir -p "$dir/docs/${task_name}"
   echo "$task_name" > "$dir/docs/.active"
 
-  python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" "$team_spawned" "$test_defined" <<'PYEOF'
+  python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" "$team_spawned" "$test_defined" "$doc_created" <<'PYEOF'
 import json, sys
-d, task, phase, approved, spawned, tdefined = sys.argv[1:]
+d, task, phase, approved, spawned, tdefined, dcreated = sys.argv[1:]
 state = {
     'workflow_phase': phase,
     'plan_approved': approved == 'true',
@@ -50,6 +51,7 @@ state = {
         '1': {
             'steps': {
                 '1': {
+                    'doc_created': dcreated == 'true',
                     'test_defined': tdefined == 'true',
                     'passed': False
                 }
@@ -134,7 +136,7 @@ tc3() {
 # ---------------------------------------------------------------------------
 tc4() {
   local dir="$TMPDIR_ROOT/tc4"
-  setup_env "$dir" "my-task" "development" "true" "true" "true"
+  setup_env "$dir" "my-task" "development" "true" "true" "true" "true"
 
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
@@ -190,6 +192,26 @@ tc6() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-7: dev + team_spawned=true + test_defined=true + doc_created=false + Write → BLOCK
+# ---------------------------------------------------------------------------
+tc7() {
+  local dir="$TMPDIR_ROOT/tc7"
+  # doc_created=false (7th arg), test_defined=true (6th arg)
+  setup_env "$dir" "my-task" "development" "true" "true" "true" "false"
+
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+
+  local decision; decision=$(echo "$out" | jq -r '.decision // "allow"' 2>/dev/null)
+
+  if [ "$decision" = "block" ]; then
+    pass "TC-7: dev + team_spawned=true + test_defined=true + doc_created=false + Write → BLOCK"
+  else
+    fail "TC-7: dev + team_spawned=true + test_defined=true + doc_created=false + Write → BLOCK" "expected block, got: $out"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests ===${NC}"
@@ -201,6 +223,7 @@ tc3
 tc4
 tc5
 tc6
+tc7
 
 echo ""
 echo "---"

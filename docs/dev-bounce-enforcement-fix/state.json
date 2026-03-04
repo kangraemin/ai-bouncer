@@ -1,0 +1,76 @@
+{
+  "workflow_phase": "development",
+  "planning": {
+    "no_question_streak": 0
+  },
+  "plan_approved": true,
+  "current_dev_phase": 1,
+  "current_step": 1,
+  "dev_phases": {
+    "1": {
+      "title": "SKILL.md persistent_mode \ub85c\uc9c1 \ubcf5\uc6d0",
+      "steps": {
+        "1": {
+          "title": "Phase 1-1 TASK_DIR \ucd08\uae30\ud654 + persistent_mode",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        },
+        "2": {
+          "title": "\ucee8\ud14d\uc2a4\ud2b8 \ubcf5\uc6d0 \ub85c\uc9c1 persistent_active \uacbd\ub85c \ucd94\uac00",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        }
+      }
+    },
+    "2": {
+      "title": "SKILL.md Phase 4-4 copy \ub85c\uc9c1 \ucd94\uac00",
+      "steps": {
+        "1": {
+          "title": "[DONE] \uc218\uc2e0 \uc139\uc158 \ubcc0\uacbd + \uc8fc\uc758\uc0ac\ud56d \ucd94\uac00",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        }
+      }
+    },
+    "3": {
+      "title": "plan-gate.sh doc_created \ud50c\ub798\uadf8 \uccb4\ud06c",
+      "steps": {
+        "1": {
+          "title": "DOC_CREATED \uccb4\ud06c \ube14\ub85d \ucd94\uac00 + \ub3d9\uae30\ud654",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        }
+      }
+    },
+    "4": {
+      "title": "lead.md doc_created \ud50c\ub798\uadf8 \uad00\ub9ac",
+      "steps": {
+        "1": {
+          "title": "step.md \ubf08\ub300 \uc0dd\uc131 \ud6c4 doc_created=true \uc124\uc815",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        }
+      }
+    },
+    "5": {
+      "title": "tests/test-plan-gate.sh TC-7 \ucd94\uac00",
+      "steps": {
+        "1": {
+          "title": "TC-7 doc_created=false BLOCK \ud14c\uc2a4\ud2b8 \ucd94\uac00",
+          "doc_created": true,
+          "test_defined": true,
+          "passed": false
+        }
+      }
+    }
+  },
+  "verification": {
+    "rounds_passed": 0
+  },
+  "team_spawned": true
+}
