@@ -5,7 +5,7 @@
   },
   "plan_approved": true,
   "current_dev_phase": 1,
-  "current_step": 4,
+  "current_step": 5,
   "dev_phases": {
     "1": {
       "name": "source-fixes",
@@ -32,12 +32,12 @@
         "4": {
           "title": "Issue 1-B: commit \uc2a4\ud0ac \uac10\uc9c0 + \uc7ac\uc2dc\uc791 \uc548\ub0b4",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-4.md"
         },
         "5": {
           "title": "Issue 4: SKILL.md ExitPlanMode \uc624\ud638\ucd9c \ubc29\uc9c0 \uacbd\uace0 \ucd94\uac00",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-5.md"
         }

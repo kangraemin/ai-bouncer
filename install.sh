@@ -358,12 +358,20 @@ case "$COMMIT_CHOICE" in
   *) COMMIT_STRATEGY="per-step" ;;
 esac
 
-# 커밋 스킬 감지
-if [ -f "$HOME/.claude/commands/commit.md" ] || [ -f ".claude/commands/commit.md" ]; then
-  COMMIT_SKILL_BOOL="true"
-  ok "커밋 스킬 감지됨 (commit.md) — 커밋 시 /commit 스킬 활용"
-else
-  COMMIT_SKILL_BOOL="false"
+# 커밋 스킬 감지 (commands/ 또는 skills/ 방식 모두 지원)
+COMMIT_SKILL_BOOL="false"
+for _commit_path in \
+  "$HOME/.claude/commands/commit.md" \
+  "$HOME/.claude/skills/commit/SKILL.md" \
+  ".claude/commands/commit.md" \
+  ".claude/skills/commit/SKILL.md"; do
+  if [ -f "$_commit_path" ]; then
+    COMMIT_SKILL_BOOL="true"
+    ok "커밋 스킬 감지됨 ($_commit_path) — 커밋 시 /commit 스킬 활용"
+    break
+  fi
+done
+if [ "$COMMIT_SKILL_BOOL" = "false" ]; then
   ok "커밋 스킬 없음 — 일반 git commit 사용"
 fi
 ok "커밋 전략: $COMMIT_STRATEGY"
@@ -507,5 +515,7 @@ echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
 echo "  └─ 매니페스트: $MANIFEST"
 echo ""
 echo -e "  사용법: 프로젝트에서 ${BOLD}/dev-bounce <요청>${NC} 실행"
+echo ""
+warn "Claude Code를 재시작해야 새로 설치된 스킬이 활성화됩니다."
 echo ""
 ok "ai-bouncer 설치 완료!"
