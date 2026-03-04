@@ -233,7 +233,7 @@ copy_file() {
   fi
 
   cp "$src" "$dst"
-  INSTALLED_FILES+=("$(realpath --relative-to="$TARGET_DIR" "$dst" 2>/dev/null || echo "$dst")")
+  INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('$dst', '$TARGET_DIR'))" 2>/dev/null || echo "$dst")")
   ok "$(basename "$dst")"
 }
 
@@ -244,7 +244,7 @@ install_skill() {
   mkdir -p "$dst_dir"
   cp -r "$src_dir/." "$dst_dir/"
   for f in "$src_dir"/*; do
-    [ -f "$f" ] && INSTALLED_FILES+=("skills/${skill_name}/$(basename "$f")")
+    [ -f "$f" ] && INSTALLED_FILES+=("$HOME/.claude/skills/${skill_name}/$(basename "$f")")
   done
   ok "${skill_name} (skill)"
 }
@@ -301,7 +301,7 @@ PYEOF
   fi
 
   chmod +x "$dst"
-  INSTALLED_FILES+=("$(realpath --relative-to="$TARGET_DIR" "$dst" 2>/dev/null || echo "$dst")")
+  INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('$dst', '$TARGET_DIR'))" 2>/dev/null || echo "$dst")")
 }
 
 # ── 파일 설치 ──────────────────────────────────────────────────

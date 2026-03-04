@@ -5,7 +5,7 @@
   },
   "plan_approved": true,
   "current_dev_phase": 1,
-  "current_step": 3,
+  "current_step": 4,
   "dev_phases": {
     "1": {
       "name": "source-fixes",
@@ -26,12 +26,12 @@
         "3": {
           "title": "Issue 1-A: install.sh realpath \ud06c\ub85c\uc2a4\ud50c\ub7ab\ud3fc \uc218\uc815",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-3.md"
         },
         "4": {
           "title": "Issue 1-B: commit \uc2a4\ud0ac \uac10\uc9c0 + \uc7ac\uc2dc\uc791 \uc548\ub0b4",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-4.md"
         },
