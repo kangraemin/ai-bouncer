@@ -4,8 +4,8 @@
     "no_question_streak": 3
   },
   "plan_approved": true,
-  "current_dev_phase": 1,
-  "current_step": 5,
+  "current_dev_phase": 2,
+  "current_step": 1,
   "dev_phases": {
     "1": {
       "name": "source-fixes",
@@ -38,7 +38,7 @@
         "5": {
           "title": "Issue 4: SKILL.md ExitPlanMode \uc624\ud638\ucd9c \ubc29\uc9c0 \uacbd\uace0 \ucd94\uac00",
           "test_defined": true,
-          "passed": false,
+          "passed": true,
           "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-5.md"
         }
       }
@@ -49,7 +49,7 @@
       "steps": {
         "1": {
           "title": "\uc124\uce58\ub41c \ud30c\uc77c \ub3d9\uae30\ud654 (~/.claude/hooks, agents)",
-          "test_defined": false,
+          "test_defined": true,
           "passed": false,
           "doc_path": "docs/ai-bouncer-bugfix/phase-2-installed-files/step-1.md"
         }

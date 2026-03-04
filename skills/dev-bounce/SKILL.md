@@ -86,11 +86,15 @@ TeamCreate: planning-<task>
 
 ### 1-3. Q&A 루프
 
+> ⚠️ **Q&A 루프 중 ExitPlanMode 절대 금지.**
+> planner-lead로부터 질문을 받아 사용자에게 전달할 때는 반드시 **AskUserQuestion** 사용.
+> ExitPlanMode는 plan.md 작성 완료 후 **Phase 1-5에서만** 호출한다.
+
 ```
 while true:
   a. planner-lead에게 "질문 생성 시도" 요청
   b. [QUESTIONS] 수신:
-     - 사용자에게 질문 제시 (번호 목록)
+     - 사용자에게 질문 제시 → AskUserQuestion 사용 (ExitPlanMode 아님!)
      - 답변 수신
      - planner-lead에게 답변 전달
      - state.json no_question_streak = 0 업데이트
