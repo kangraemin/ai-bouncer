@@ -3,28 +3,11 @@
 # Claude가 각 응답 턴을 마칠 때 실행
 # 검증 단계에서 round-*.md 아티팩트 기반으로 3회 연속 통과 여부 검증
 
-# resolve_task_dir: persistent_active 먼저 체크 → fallback docs/.active
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
-PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
-
-TASK_NAME=""
-DOCS_BASE=""
-
-if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
-  TASK_NAME=$(cat "$PERSISTENT_ACTIVE" 2>/dev/null | tr -d '[:space:]')
-  DOCS_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
-fi
-
-if [ -z "$TASK_NAME" ] && [ -f "docs/.active" ]; then
-  TASK_NAME=$(cat "docs/.active" 2>/dev/null | tr -d '[:space:]')
-  DOCS_BASE="docs"
-fi
+# resolve_task_dir: 공유 라이브러리 사용
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/resolve-task.sh"
 
 [ -z "$TASK_NAME" ] && exit 0
-
-TASK_DIR="${DOCS_BASE}/${TASK_NAME}"
-STATE_FILE="${TASK_DIR}/state.json"
 [ -f "$STATE_FILE" ] || exit 0
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)

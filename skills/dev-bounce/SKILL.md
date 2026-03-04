@@ -8,7 +8,7 @@ description: 구조화된 개발 flow 실행. 코드 수정/기능 구현/버그
 Planning Team → 계획 수립 → 승인 → Dev Team → 개발 → 3회 연속 검증 → 완료.
 계획 승인 없이는 코드를 수정하지 않는다.
 
-**주의: plan-gate.sh는 아티팩트(파일/팀 디렉토리)를 직접 검증합니다. state.json 플래그 조작으로 gate를 우회할 수 없습니다.**
+**주의: plan-gate.sh + bash-gate.sh(2-layer)는 아티팩트를 직접 검증합니다. Write/Edit뿐 아니라 Bash를 통한 파일 쓰기도 100% 차단됩니다.**
 
 ---
 
@@ -312,10 +312,13 @@ print('workflow_phase = verification')
 ## 주의사항
 
 - plan-gate.sh는 아티팩트(파일/팀 디렉토리)를 직접 검증합니다. state.json 플래그 조작으로 gate를 우회할 수 없습니다.
-- `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh가 차단
-- 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh가 차단
-- QA가 step-M.md TC 행을 채우지 않으면 코드 작성 시도 → plan-gate.sh가 차단
-- Lead가 step.md를 생성하지 않으면 코드 작성 시도 → plan-gate.sh가 차단
+- 2-layer Bash 방어: bash-gate.sh(PreToolUse)가 쓰기 패턴을 감지하여 사전 차단하고,
+  bash-audit.sh(PostToolUse)가 git diff로 모든 파일 변경을 감지하여 무단 변경을 자동 복원합니다.
+  어떤 방법으로든 Bash를 통한 gate 우회는 100% 차단됩니다.
+- `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh / bash-gate.sh가 차단
+- 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
+- QA가 step-M.md TC 행을 채우지 않으면 코드 작성 시도 → plan-gate.sh / bash-gate.sh가 차단
+- Lead가 step.md를 생성하지 않으면 코드 작성 시도 → plan-gate.sh / bash-gate.sh가 차단
 - 검증 미완료(round-*.md 3개 연속 통과 필요) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
 - Step 완료 = 즉시 커밋 + 푸시

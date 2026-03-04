@@ -321,9 +321,16 @@ copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
 install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
 
 # hooks
-install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"     "$TARGET_DIR/hooks/plan-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"  "$TARGET_DIR/hooks/doc-reminder.sh"
-install_hook "$PACKAGE_DIR/hooks/completion-gate.sh" "$TARGET_DIR/hooks/completion-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"       "$TARGET_DIR/hooks/plan-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
+install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
+install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
+
+# lib (공유 라이브러리)
+mkdir -p "$TARGET_DIR/hooks/lib"
+copy_file "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
+chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
 
 # ── docs git 추적 설정 ─────────────────────────────────────────
 header "docs/ 설정"
@@ -466,7 +473,9 @@ def add_hook(hook_type, matcher, cmd):
         print(f"  · {hook_type} hook 이미 등록됨: {cmd}")
 
 add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
+add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
 add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
+add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
 add_hook('Stop', None, 'completion-gate.sh')
 
 with open(settings_file, 'w', encoding='utf-8') as f:
@@ -508,8 +517,10 @@ echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
 echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
 echo "  ├─ skills: dev-bounce (~/.claude/skills/dev-bounce/)"
-echo "  ├─ hooks: plan-gate.sh (PreToolUse)"
-echo "  │         doc-reminder.sh (PostToolUse)"
+echo "  ├─ hooks: plan-gate.sh (PreToolUse: Write/Edit)"
+echo "  │         bash-gate.sh (PreToolUse: Bash)"
+echo "  │         doc-reminder.sh (PostToolUse: Write/Edit)"
+echo "  │         bash-audit.sh (PostToolUse: Bash)"
 echo "  │         completion-gate.sh (Stop)"
 echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
 echo "  └─ 매니페스트: $MANIFEST"

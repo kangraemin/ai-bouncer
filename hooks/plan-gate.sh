@@ -25,31 +25,14 @@ if [[ "$FILE_PATH" == */plan.md ]] || [[ "$FILE_PATH" == */step-*.md ]] || [[ "$
   exit 0
 fi
 
-# resolve_task_dir: persistent_active 먼저 체크 → fallback docs/.active
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
-PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
-
-TASK_NAME=""
-DOCS_BASE=""
-
-if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
-  TASK_NAME=$(cat "$PERSISTENT_ACTIVE" 2>/dev/null | tr -d '[:space:]')
-  DOCS_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
-fi
-
-if [ -z "$TASK_NAME" ] && [ -f "docs/.active" ]; then
-  TASK_NAME=$(cat "docs/.active" 2>/dev/null | tr -d '[:space:]')
-  DOCS_BASE="docs"
-fi
+# resolve_task_dir: 공유 라이브러리 사용
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/resolve-task.sh"
 
 # .active 없거나 비어있으면 → 통과
 if [ -z "$TASK_NAME" ]; then
   exit 0
 fi
-
-TASK_DIR="${DOCS_BASE}/${TASK_NAME}"
-STATE_FILE="${TASK_DIR}/state.json"
 
 # state.json 없으면 통과
 [ -f "$STATE_FILE" ] || exit 0
