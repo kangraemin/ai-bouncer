@@ -312,6 +312,115 @@ tc_b17() {
 }
 
 # ---------------------------------------------------------------------------
+# BLOCK: rm/rmdir/unlink, curl/wget, workflow_phase whitelist, dev+step=0
+# ---------------------------------------------------------------------------
+
+# TC-B18: rm state.json (planning) → BLOCK
+tc_b18() {
+  local dir="$TMPDIR_ROOT/tc_b18"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "rm state.json")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B18: rm state.json (planning) → BLOCK" "$out"
+}
+
+# TC-B19: rm -rf docs/task/ (planning) → BLOCK
+tc_b19() {
+  local dir="$TMPDIR_ROOT/tc_b19"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "rm -rf docs/my-task/")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B19: rm -rf docs/task/ (planning) → BLOCK" "$out"
+}
+
+# TC-B20: workflow_phase=done + echo > file → BLOCK (whitelist)
+tc_b20() {
+  local dir="$TMPDIR_ROOT/tc_b20"
+  setup_env "$dir" "my-task" "done" "true" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['workflow_phase'] = 'done'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  echo "# Plan" > "$dir/docs/my-task/plan.md"
+  local input; input=$(make_input "echo 'hack' > /src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B20: workflow_phase=done + echo > file → BLOCK (화이트리스트)" "$out"
+}
+
+# TC-B21: workflow_phase=invalid + echo > file → BLOCK
+tc_b21() {
+  local dir="$TMPDIR_ROOT/tc_b21"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['workflow_phase'] = 'invalid'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "echo 'hack' > /src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B21: workflow_phase=invalid → BLOCK" "$out"
+}
+
+# TC-B22: development + current_step=0 + echo > → BLOCK
+tc_b22() {
+  local dir="$TMPDIR_ROOT/tc_b22"
+  local team="test-team-tcb22-$$"
+  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
+  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['current_step'] = 0
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "echo 'hack' > /src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B22: development + current_step=0 → BLOCK" "$out"
+}
+
+# TC-B23: curl -o src/file.ts url (planning) → BLOCK
+tc_b23() {
+  local dir="$TMPDIR_ROOT/tc_b23"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "curl -o src/file.ts https://example.com/file")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B23: curl -o (planning) → BLOCK" "$out"
+}
+
+# TC-B24: wget -O src/file.ts url (planning) → BLOCK
+tc_b24() {
+  local dir="$TMPDIR_ROOT/tc_b24"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "wget -O src/file.ts https://example.com/file")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B24: wget -O (planning) → BLOCK" "$out"
+}
+
+# TC-B25: curl url --output src/file.ts (planning) → BLOCK
+tc_b25() {
+  local dir="$TMPDIR_ROOT/tc_b25"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "curl https://example.com/file --output src/file.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B25: curl --output (planning) → BLOCK" "$out"
+}
+
+# TC-B27: ~/.claude/ai-bouncer/sessions/ Bash 쓰기 → BLOCK
+tc_b27() {
+  local dir="$TMPDIR_ROOT/tc_b27"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  local input; input=$(make_input "echo 'hack' > ~/.claude/ai-bouncer/sessions/repo/docs/.active")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-B27: ~/.claude/ai-bouncer/sessions/ 쓰기 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== bash-gate.sh E2E Tests (Layer 1) ===${NC}"
@@ -322,6 +431,8 @@ tc_b6; tc_b7; tc_b8; tc_b9
 tc_b10; tc_b11; tc_b12; tc_b13; tc_b14
 tc_b15
 tc_b16; tc_b17
+tc_b18; tc_b19; tc_b20; tc_b21; tc_b22
+tc_b23; tc_b24; tc_b25; tc_b27
 
 cleanup_teams
 

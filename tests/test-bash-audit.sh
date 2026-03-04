@@ -186,12 +186,123 @@ tc_a6() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-A7: rm으로 state.json 삭제 → audit 복원
+# ---------------------------------------------------------------------------
+tc_a7() {
+  local dir="$TMPDIR_ROOT/tc_a7"
+  make_repo "$dir"
+
+  mkdir -p "$dir/docs/my-task"
+  echo '{"workflow_phase":"development"}' > "$dir/docs/my-task/state.json"
+  git -C "$dir" add docs/my-task/state.json
+  git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add state" -q
+
+  # Snapshot
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+
+  # Delete state.json (simulating rm attack)
+  rm -f "$dir/docs/my-task/state.json"
+
+  # audit
+  local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
+
+  if [ -f "$dir/docs/my-task/state.json" ]; then
+    pass "TC-A7: rm state.json → audit 복원"
+  else
+    fail "TC-A7: rm state.json → audit 복원" "state.json 복원 안 됨"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# TC-A8: .claude/ai-bouncer/sessions/ 경로 변경 → 감지 (no longer exception)
+# ---------------------------------------------------------------------------
+tc_a8() {
+  local dir="$TMPDIR_ROOT/tc_a8"
+  make_repo "$dir"
+
+  mkdir -p "$dir/.claude/ai-bouncer"
+  echo "original" > "$dir/.claude/ai-bouncer/data.txt"
+  git -C "$dir" add .claude/ai-bouncer/data.txt
+  git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add data" -q
+
+  # Snapshot
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+
+  # Modify
+  echo "hacked" > "$dir/.claude/ai-bouncer/data.txt"
+
+  # audit
+  local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
+
+  local content; content=$(cat "$dir/.claude/ai-bouncer/data.txt")
+  if [ "$content" = "original" ]; then
+    pass "TC-A8: .claude/ai-bouncer/ 변경 → audit 복원 (예외 축소)"
+  else
+    fail "TC-A8: .claude/ai-bouncer/ 변경 → audit 복원" "content='$content'"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# TC-A9: .claude/plans/ 경로는 여전히 예외
+# ---------------------------------------------------------------------------
+tc_a9() {
+  local dir="$TMPDIR_ROOT/tc_a9"
+  make_repo "$dir"
+
+  mkdir -p "$dir/.claude/plans"
+
+  # Snapshot
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+
+  # Write to .claude/plans/ (should be allowed)
+  echo "plan content" > "$dir/.claude/plans/my-plan.md"
+
+  # audit
+  local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
+
+  if [ -f "$dir/.claude/plans/my-plan.md" ]; then
+    pass "TC-A9: .claude/plans/ 쓰기 → 예외 유지 (복원 안 함)"
+  else
+    fail "TC-A9: .claude/plans/ 쓰기 → 예외 유지" "파일이 삭제됨"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# TC-B26: curl url > file (redirect) → 기존 패턴 BLOCK (regression)
+# ---------------------------------------------------------------------------
+tc_b26() {
+  local dir="$TMPDIR_ROOT/tc_b26"
+  make_repo "$dir"
+
+  echo "original" > "$dir/target.txt"
+  git -C "$dir" add target.txt
+  git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add target" -q
+
+  # Snapshot
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+
+  # Simulate: curl wrote to target.txt via redirect (already caught by > pattern)
+  echo "downloaded" > "$dir/target.txt"
+
+  # audit
+  local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
+
+  local content; content=$(cat "$dir/target.txt")
+  if [ "$content" = "original" ]; then
+    pass "TC-B26: curl > file redirect → audit 복원 (regression)"
+  else
+    fail "TC-B26: curl > file redirect → audit 복원" "content='$content'"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== bash-audit.sh E2E Tests (Layer 2) ===${NC}"
 echo ""
 
 tc_a1; tc_a2; tc_a3; tc_a4; tc_a5; tc_a6
+tc_a7; tc_a8; tc_a9; tc_b26
 
 echo ""
 echo "---"

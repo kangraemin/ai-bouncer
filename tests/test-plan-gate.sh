@@ -325,12 +325,72 @@ tc12() {
 }
 
 # ---------------------------------------------------------------------------
+# BLOCK: workflow_phase whitelist, development + step=0, persistent .active
+# ---------------------------------------------------------------------------
+
+# TC-P13: workflow_phase=hack + Write → BLOCK
+tc_p13() {
+  local dir="$TMPDIR_ROOT/tc_p13"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['workflow_phase'] = 'hack'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-P13: workflow_phase=hack → BLOCK" "$out"
+}
+
+# TC-P14: development + current_dev_phase=0 + Write → BLOCK
+tc_p14() {
+  local dir="$TMPDIR_ROOT/tc_p14"
+  local team="test-team-tcp14-$$"
+  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
+  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['current_dev_phase'] = 0
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-P14: development + dev_phase=0 → BLOCK" "$out"
+}
+
+# TC-P15: persistent .active 빈 파일 → local fallback → ALLOW
+tc_p15() {
+  local dir="$TMPDIR_ROOT/tc_p15"
+  local repo_name; repo_name=$(basename "$dir")
+  local persistent_dir="$HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
+  mkdir -p "$persistent_dir"
+  # persistent .active is empty → fallback to local
+  echo "" > "$persistent_dir/.active"
+
+  setup_env "$dir" "my-task" "planning" "false" ""
+  # Remove local .active → gate inactive
+  rm -f "$dir/docs/.active"
+
+  local input; input=$(make_input "Write" "/src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-P15: persistent .active 빈 → local fallback → ALLOW (gate 비활성)" "$out"
+
+  # Cleanup
+  rm -rf "$persistent_dir"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests (Artifact-based) ===${NC}"
 echo ""
 
 tc1; tc2; tc3; tc4; tc5; tc6; tc7; tc8; tc9; tc10; tc11; tc12
+tc_p13; tc_p14; tc_p15
 
 # Cleanup team directories
 cleanup_teams

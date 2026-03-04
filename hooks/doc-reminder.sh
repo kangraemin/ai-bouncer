@@ -11,14 +11,9 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
-# docs/.active 확인
-ACTIVE_FILE="docs/.active"
-[ -f "$ACTIVE_FILE" ] || exit 0
-
-TASK_NAME=$(cat "$ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/resolve-task.sh"
 [ -z "$TASK_NAME" ] && exit 0
-
-STATE_FILE="docs/${TASK_NAME}/state.json"
 [ -f "$STATE_FILE" ] || exit 0
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)

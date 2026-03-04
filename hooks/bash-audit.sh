@@ -33,9 +33,10 @@ while IFS= read -r file; do
   [ -z "$file" ] && continue
 
   case "$file" in
-    */plan.md|*/step-*.md|*/phase-*.md|*/state.json|*/round-*.md) continue ;;
-    plan.md|state.json) continue ;;
-    .claude/*|*/.claude/*) continue ;;
+    */plan.md|*/step-*.md|*/phase-*.md|*/round-*.md) continue ;;
+    plan.md) continue ;;
+    .claude/plans/*|*/.claude/plans/*) continue ;;
+    .claude/teams/*|*/.claude/teams/*) continue ;;
     docs/*/verifications/round-*.md) continue ;;
   esac
 

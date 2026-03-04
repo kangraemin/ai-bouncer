@@ -14,7 +14,7 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 # --- ai-bouncer start ---
 
 # 1. Fast exit: 쓰기 패턴 미포함 → exit 0
-if ! echo "$CMD" | grep -qE '>[^&]|>>|\btee\b|\bsed\b.*-i|\bcp\b|\bmv\b|\btouch\b|\bdd\b.*of=|\bpython|\bnode\b.*-e|\bruby\b.*-e|\bperl\b.*-e'; then
+if ! echo "$CMD" | grep -qE '>[^&]|>>|\btee\b|\bsed\b.*-i|\bcp\b|\bmv\b|\btouch\b|\bdd\b.*of=|\bpython|\bnode\b.*-e|\bruby\b.*-e|\bperl\b.*-e|\brm\b|\brmdir\b|\bunlink\b|\bcurl\b.*(-o|--output)|\bwget\b'; then
   exit 0
 fi
 
@@ -66,6 +66,21 @@ if echo "$CMD" | grep -qE '\bcat\b.*>|\becho\b.*>|\bprintf\b.*>'; then
   IS_WRITE=true
 fi
 
+# rm, rmdir, unlink (파일/디렉토리 삭제)
+if echo "$CMD" | grep -qE '\brm\b|\brmdir\b|\bunlink\b'; then
+  IS_WRITE=true
+fi
+
+# curl -o/--output (파일 다운로드)
+if echo "$CMD" | grep -qE '\bcurl\b.*(-o|--output)'; then
+  IS_WRITE=true
+fi
+
+# wget (항상 파일 저장)
+if echo "$CMD" | grep -qE '\bwget\b'; then
+  IS_WRITE=true
+fi
+
 [ "$IS_WRITE" = "false" ] && exit 0
 
 # 4. 예외 경로 — gate 관리 파일은 항상 허용
@@ -77,7 +92,8 @@ if echo "$CMD" | grep -qE '\.claude/plans/'; then
 fi
 
 # state.json 파일 (.active는 예외 아님 — 비우기로 gate 무력화 방지)
-if echo "$CMD" | grep -qE 'state\.json'; then
+# rm/rmdir/unlink은 state.json도 예외 아님 (삭제 방지)
+if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brmdir\b|\bunlink\b'; then
   EXCEPTION=true
 fi
 
@@ -111,6 +127,15 @@ CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
 save_snapshot() {
   { git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort > /tmp/.ai-bouncer-snapshot 2>/dev/null
 }
+
+# CHECK 1.5: workflow_phase 화이트리스트
+case "$WORKFLOW_PHASE" in
+  planning|development|verification) ;;
+  *)
+    save_snapshot
+    jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 허용되지 않는 값입니다."}'
+    exit 0 ;;
+esac
 
 # CHECK 2: planning → BLOCK
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
@@ -170,6 +195,15 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
       decision: "block",
       reason: "⛔ [bash-gate] 팀 멤버 부족 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
     }'
+    exit 0
+  fi
+fi
+
+# CHECK 6.5: development + step=0 방어
+if [ "$WORKFLOW_PHASE" = "development" ]; then
+  if [ "$CURRENT_DEV_PHASE" -le 0 ] 2>/dev/null || [ "$CURRENT_STEP" -le 0 ] 2>/dev/null; then
+    save_snapshot
+    jq -n '{decision:"block", reason:"⛔ [bash-gate] development이지만 dev_phase/step 미설정"}'
     exit 0
   fi
 fi

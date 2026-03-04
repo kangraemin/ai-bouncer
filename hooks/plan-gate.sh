@@ -44,6 +44,14 @@ TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
 
+# CHECK 1.5: workflow_phase 화이트리스트
+case "$WORKFLOW_PHASE" in
+  planning|development|verification) ;;
+  *)
+    jq -n '{decision:"block", reason:"⛔ workflow_phase가 허용되지 않는 값입니다."}'
+    exit 0 ;;
+esac
+
 # CHECK 2: planning 단계 → BLOCK
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   jq -n '{
@@ -97,6 +105,14 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
       decision: "block",
       reason: "팀 멤버가 부족합니다 (최소 2명). Lead/Dev/QA 에이전트를 스폰하세요."
     }'
+    exit 0
+  fi
+fi
+
+# CHECK 6.5: development + step=0 방어
+if [ "$WORKFLOW_PHASE" = "development" ]; then
+  if [ "$CURRENT_DEV_PHASE" -le 0 ] 2>/dev/null || [ "$CURRENT_STEP" -le 0 ] 2>/dev/null; then
+    jq -n '{decision:"block", reason:"⛔ development이지만 dev_phase/step 미설정"}'
     exit 0
   fi
 fi
