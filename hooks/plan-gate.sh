@@ -1,6 +1,6 @@
 #!/bin/bash
 # plan-gate: PreToolUse hook
-# Write/Edit 시도 전 plan_approved 상태 체크, 미승인 시 차단
+# Write/Edit 시도 전 아티팩트 기반 검증 — state.json 플래그만으로 우회 불가
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
@@ -13,37 +13,55 @@ esac
 
 # --- ai-bouncer start ---
 
-# docs/.active에서 현재 작업 이름 찾기
-ACTIVE_FILE="docs/.active"
-if [ ! -f "$ACTIVE_FILE" ]; then
-  # .active 없으면 ai-bouncer 미실행 환경 → 통과
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
+
+# CHECK 0: ~/.claude/plans/ 경로 → 즉시 ALLOW (Claude Code 내부 plan 파일)
+if [[ "$FILE_PATH" == "$HOME/.claude/plans/"* ]] || [[ "$FILE_PATH" == *"/.claude/plans/"* ]]; then
   exit 0
 fi
 
-TASK_NAME=$(cat "$ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
+# CHECK 1: 예외 패턴 (*/plan.md, */step-*.md, */phase-*.md) → 즉시 ALLOW
+if [[ "$FILE_PATH" == */plan.md ]] || [[ "$FILE_PATH" == */step-*.md ]] || [[ "$FILE_PATH" == */phase-*.md ]]; then
+  exit 0
+fi
+
+# resolve_task_dir: persistent_active 먼저 체크 → fallback docs/.active
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
+PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
+
+TASK_NAME=""
+DOCS_BASE=""
+
+if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
+  TASK_NAME=$(cat "$PERSISTENT_ACTIVE" 2>/dev/null | tr -d '[:space:]')
+  DOCS_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+fi
+
+if [ -z "$TASK_NAME" ] && [ -f "docs/.active" ]; then
+  TASK_NAME=$(cat "docs/.active" 2>/dev/null | tr -d '[:space:]')
+  DOCS_BASE="docs"
+fi
+
+# .active 없거나 비어있으면 → 통과
 if [ -z "$TASK_NAME" ]; then
   exit 0
 fi
 
-STATE_FILE="docs/${TASK_NAME}/state.json"
+TASK_DIR="${DOCS_BASE}/${TASK_NAME}"
+STATE_FILE="${TASK_DIR}/state.json"
 
-# state.json 없으면 통과 (ai-bouncer 미설치 환경)
+# state.json 없으면 통과
 [ -f "$STATE_FILE" ] || exit 0
 
-# workflow_phase 체크
+# state.json 값 읽기
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
+PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
+TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
+CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
 
-# plan.md는 planning 단계에도 항상 허용 (planner-lead가 작성해야 함)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')
-if [[ "$FILE_PATH" == */plan.md ]]; then
-  exit 0
-fi
-
-# step/phase doc 파일은 항상 허용 (Lead 뼈대 생성, QA TC 채우기 시 test_defined=false여도 허용)
-if [[ "$FILE_PATH" == */step-*.md ]] || [[ "$FILE_PATH" == */phase-*.md ]]; then
-  exit 0
-fi
-
+# CHECK 2: planning 단계 → BLOCK
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   jq -n '{
     decision: "block",
@@ -52,9 +70,7 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
   exit 0
 fi
 
-# plan_approved 체크
-PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
-
+# CHECK 3: plan_approved 체크 + plan.md 파일 실존 이중 체크
 if [ "$PLAN_APPROVED" != "true" ]; then
   jq -n '{
     decision: "block",
@@ -63,56 +79,100 @@ if [ "$PLAN_APPROVED" != "true" ]; then
   exit 0
 fi
 
-# Lead 에이전트 스폰 여부 체크
-TEAM_SPAWNED=$(jq -r '.team_spawned // false' "$STATE_FILE" 2>/dev/null)
-
-if [ "$WORKFLOW_PHASE" = "development" ] && [ "$TEAM_SPAWNED" != "true" ]; then
+if [ ! -f "${TASK_DIR}/plan.md" ]; then
   jq -n '{
     decision: "block",
-    reason: "Lead 에이전트가 스폰되지 않았습니다. Phase 3-1을 따라 Lead 에이전트를 먼저 스폰하고 state.json team_spawned를 true로 설정하세요."
+    reason: "plan.md 파일이 존재하지 않습니다. 계획 문서가 실제로 작성되어야 합니다."
   }'
   exit 0
 fi
 
-# 현재 dev_phase와 step 체크
-CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
-CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
+# CHECK 4: development + team_name 비어있음 → BLOCK
+if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
+  jq -n '{
+    decision: "block",
+    reason: "팀이 구성되지 않았습니다. TeamCreate로 팀을 먼저 생성하고 state.json team_name을 설정하세요."
+  }'
+  exit 0
+fi
 
-if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
+# CHECK 5: development + team config.json 미존재 → BLOCK
+if [ "$WORKFLOW_PHASE" = "development" ]; then
+  TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
+  if [ ! -f "$TEAM_CONFIG" ]; then
+    jq -n '{
+      decision: "block",
+      reason: "팀 디렉토리가 존재하지 않습니다. TeamCreate로 팀을 먼저 생성하세요."
+    }'
+    exit 0
+  fi
+
+  # CHECK 6: team members < 2 → BLOCK
+  MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
+  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 2 ] 2>/dev/null; then
+    jq -n '{
+      decision: "block",
+      reason: "팀 멤버가 부족합니다 (최소 2명). Lead/Dev/QA 에이전트를 스폰하세요."
+    }'
+    exit 0
+  fi
+fi
+
+# CHECK 7: current_dev_phase > 0 AND current_step > 0
+if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/dev/null; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"
   STEP_KEY="$CURRENT_STEP"
 
-  # 이전 step 테스트 통과 여부 체크
-  PREV_STEP=$((CURRENT_STEP - 1))
-  if [ "$PREV_STEP" -gt 0 ]; then
-    PREV_PASSED=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].steps[\"$PREV_STEP\"].passed // false" "$STATE_FILE" 2>/dev/null)
-    if [ "$PREV_PASSED" != "true" ]; then
-      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
+  # phase_folder 조회
+  PHASE_FOLDER=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+
+  if [ -n "$PHASE_FOLDER" ]; then
+    PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
+
+    # 이전 step 검증 (M > 1일 때)
+    PREV_STEP=$((CURRENT_STEP - 1))
+    if [ "$PREV_STEP" -gt 0 ]; then
+      PREV_STEP_FILE="${PHASE_DIR}/step-${PREV_STEP}.md"
+
+      # CHECK 7b: 이전 step 파일 미존재 → BLOCK
+      if [ ! -f "$PREV_STEP_FILE" ]; then
+        jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
+          decision: "block",
+          reason: ("Dev Phase " + $phase + " Step " + $step + " 문서가 존재하지 않습니다.")
+        }'
+        exit 0
+      fi
+
+      # CHECK 7c: 이전 step에 ✅ 미포함 → BLOCK
+      if ! grep -q '✅' "$PREV_STEP_FILE" 2>/dev/null; then
+        jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
+          decision: "block",
+          reason: ("Dev Phase " + $phase + " Step " + $step + " 테스트가 통과되지 않았습니다 (✅ 없음). 테스트를 먼저 통과시킨 후 진행하세요.")
+        }'
+        exit 0
+      fi
+    fi
+
+    # 현재 step 검증
+    CURRENT_STEP_FILE="${PHASE_DIR}/step-${STEP_KEY}.md"
+
+    # CHECK 7d: 현재 step 파일 미존재 → BLOCK
+    if [ ! -f "$CURRENT_STEP_FILE" ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + " Step " + $step + " 테스트가 통과되지 않았습니다. 테스트를 먼저 통과시킨 후 진행하세요.")
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
       }'
       exit 0
     fi
-  fi
 
-  # step.md 뼈대 생성 여부 체크 (Lead가 state.json에 doc_created=true 설정해야 함)
-  DOC_CREATED=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].steps[\"$STEP_KEY\"].doc_created // false" "$STATE_FILE" 2>/dev/null)
-  if [ "$DOC_CREATED" != "true" ]; then
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md 뼈대가 생성되지 않았습니다. Lead가 step.md를 먼저 생성하고 state.json doc_created를 true로 설정해야 합니다.")
-    }'
-    exit 0
-  fi
-
-  # 현재 step 테스트 정의 체크
-  TEST_DEFINED=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].steps[\"$STEP_KEY\"].test_defined // false" "$STATE_FILE" 2>/dev/null)
-  if [ "$TEST_DEFINED" != "true" ]; then
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 테스트를 먼저 작성해야 합니다.")
-    }'
-    exit 0
+    # CHECK 7e: 현재 step에 TC 행 내용 없음 → BLOCK
+    if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")
+      }'
+      exit 0
+    fi
   fi
 fi
 

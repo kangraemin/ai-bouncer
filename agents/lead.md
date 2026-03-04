@@ -70,7 +70,7 @@ cat > {TASK_DIR}/phase-N-<feature-name>/phase.md << 'EOF'
 EOF
 ```
 
-4. state.json `dev_phases` 초기화:
+4. state.json `dev_phases` 초기화 + `team_name` 설정:
 
 ```bash
 python3 << 'PYEOF'
@@ -84,19 +84,19 @@ s['dev_phases'] = {
         "name": "login",
         "folder": "phase-1-login",
         "steps": {
-            "1": {"title": "...", "doc_created": False, "test_defined": False, "passed": False,
+            "1": {"title": "...",
                   "doc_path": f"{task_dir}/phase-1-login/step-1.md"}
         }
     }
 }
-s['team_spawned'] = True
+s['team_name'] = '<TeamCreate에서 사용한 팀 이름>'
 s['current_dev_phase'] = 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 print('dev_phases initialized')
 PYEOF
 ```
 
-5. 각 Phase의 각 Step마다 step.md 뼈대 생성 후 `doc_created=true` 설정:
+5. 각 Phase의 각 Step마다 step.md 뼈대 생성:
 
 ```bash
 cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
@@ -113,17 +113,6 @@ cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
 ## 구현 내용
 (Dev가 작성)
 EOF
-```
-
-step.md 생성 직후 state.json에 `doc_created=true` 설정:
-
-```python
-import json, os
-f = os.path.join(task_dir, 'state.json')
-with open(f) as fp: s = json.load(fp)
-s['dev_phases'][dev_phase_key]['steps'][step_key]['doc_created'] = True
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print(f'doc_created=true for phase {dev_phase_key} step {step_key}')
 ```
 
 6. `[DEV_PHASES:확정]` 출력 후 개발 루프 시작

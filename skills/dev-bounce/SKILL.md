@@ -8,6 +8,8 @@ description: 구조화된 개발 flow 실행. 코드 수정/기능 구현/버그
 Planning Team → 계획 수립 → 승인 → Dev Team → 개발 → 3회 연속 검증 → 완료.
 계획 승인 없이는 코드를 수정하지 않는다.
 
+**주의: plan-gate.sh는 아티팩트(파일/팀 디렉토리)를 직접 검증합니다. state.json 플래그 조작으로 gate를 우회할 수 없습니다.**
+
 ---
 
 ## 컨텍스트 복원 (세션 재시작 시)
@@ -89,6 +91,7 @@ state = {
     "workflow_phase": "planning",
     "planning": {"no_question_streak": 0},
     "plan_approved": False,
+    "team_name": "",
     "current_dev_phase": 0,
     "current_step": 0,
     "dev_phases": {},
@@ -186,13 +189,13 @@ PYEOF
 
 ### 3-1. Lead 에이전트 스폰
 
-TASK_DIR 전달하여 Lead 스폰.
+TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
 2. 팀 규모 종합 판단 → `[TEAM:solo|duo|team]` 출력
 3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
-4. state.json `dev_phases` 초기화
+4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
 
 ### 3-2. 팀 구성
 
@@ -209,7 +212,6 @@ Lead가 수행:
 ```
 5-1. QA: docs/<task>/phase-N-*/step-M.md에 TC 먼저 작성
      → [STEP:N:테스트정의완료] 출력
-     → state.json test_defined = true
 
 5-2. Dev: TC 통과할 최소 코드 구현
           docs/<task>/phase-N-*/step-M.md 구현 내용 업데이트
@@ -221,7 +223,8 @@ Lead가 수행:
      → [STEP:N:테스트통과]
        명령어: <명령어>
        결과: N/N 통과
-     → state.json passed = true, current_step++
+     → step-M.md 실제 결과에 ✅ 기록
+     → state.json current_step++
 
      실패 시 → Dev에 반려 → 5-2 반복
 ```
@@ -284,7 +287,7 @@ print('workflow_phase = verification')
 3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신:
    - Dev/QA에게 해당 Step 재작업 지시
    - 재작업 완료 후 verifier에게 "재검증 시작" 요청
-4. `[DONE]` 수신 (rounds_passed = 3):
+4. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
    - verifier + 전체 팀 shutdown
    - persistent_mode이면 Phase 4-4 실행: main repo의 `docs/<task>/`로 복사:
      ```python
@@ -308,11 +311,12 @@ print('workflow_phase = verification')
 
 ## 주의사항
 
+- plan-gate.sh는 아티팩트(파일/팀 디렉토리)를 직접 검증합니다. state.json 플래그 조작으로 gate를 우회할 수 없습니다.
 - `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh가 차단
-- 이전 Step 테스트 미통과 상태에서 다음 Step 코드 수정 → plan-gate.sh가 차단
-- QA TC 정의 전 코드 작성 시도 → plan-gate.sh가 차단
-- Lead가 step.md 뼈대 생성 전 코드 작성 시도 → plan-gate.sh가 차단 (doc_created 체크)
-- 검증 미완료(rounds_passed < 3) 상태에서 응답 종료 → completion-gate.sh가 차단
+- 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh가 차단
+- QA가 step-M.md TC 행을 채우지 않으면 코드 작성 시도 → plan-gate.sh가 차단
+- Lead가 step.md를 생성하지 않으면 코드 작성 시도 → plan-gate.sh가 차단
+- 검증 미완료(round-*.md 3개 연속 통과 필요) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
 - Step 완료 = 즉시 커밋 + 푸시
 - 완료 후 task_dir(source) 삭제 금지 — active_file(.active)만 비운다

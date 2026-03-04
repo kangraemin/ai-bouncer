@@ -1,28 +1,73 @@
 #!/bin/bash
 # completion-gate: Stop hook
 # Claude가 각 응답 턴을 마칠 때 실행
-# 검증 미완료(rounds_passed < 3) 상태에서 응답 종료 시 차단
+# 검증 단계에서 round-*.md 아티팩트 기반으로 3회 연속 통과 여부 검증
 
-# docs/.active 확인
-ACTIVE_FILE="docs/.active"
-[ -f "$ACTIVE_FILE" ] || exit 0
+# resolve_task_dir: persistent_active 먼저 체크 → fallback docs/.active
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
+PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
 
-TASK_NAME=$(cat "$ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
+TASK_NAME=""
+DOCS_BASE=""
+
+if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
+  TASK_NAME=$(cat "$PERSISTENT_ACTIVE" 2>/dev/null | tr -d '[:space:]')
+  DOCS_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+fi
+
+if [ -z "$TASK_NAME" ] && [ -f "docs/.active" ]; then
+  TASK_NAME=$(cat "docs/.active" 2>/dev/null | tr -d '[:space:]')
+  DOCS_BASE="docs"
+fi
+
 [ -z "$TASK_NAME" ] && exit 0
 
-STATE_FILE="docs/${TASK_NAME}/state.json"
+TASK_DIR="${DOCS_BASE}/${TASK_NAME}"
+STATE_FILE="${TASK_DIR}/state.json"
 [ -f "$STATE_FILE" ] || exit 0
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 
-# 개발 승인됐고 검증 단계에서만 체크
+# 검증 단계에서만 체크
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
-  ROUNDS_PASSED=$(jq -r '.verification.rounds_passed // 0' "$STATE_FILE" 2>/dev/null)
-  if [ "$ROUNDS_PASSED" -lt 3 ]; then
-    jq -n --arg rounds "$ROUNDS_PASSED" --arg task "$TASK_NAME" '{
+  VERIFY_DIR="${TASK_DIR}/verifications"
+
+  # round-*.md 파일 수집 (숫자 순 정렬)
+  if [ -d "$VERIFY_DIR" ]; then
+    ROUND_FILES=$(ls "$VERIFY_DIR"/round-*.md 2>/dev/null | sort -t- -k2 -n)
+  else
+    ROUND_FILES=""
+  fi
+
+  TOTAL_ROUNDS=$(echo "$ROUND_FILES" | grep -c 'round-' 2>/dev/null || echo 0)
+
+  if [ "$TOTAL_ROUNDS" -lt 3 ]; then
+    jq -n --arg rounds "$TOTAL_ROUNDS" --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3회 연속 검증 통과 필요 (현재: " + $rounds + "/3). verifier 에이전트를 통해 검증을 완료하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3회 연속 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요.")
+    }'
+    exit 0
+  fi
+
+  # 마지막 3개 round 파일 체크: "통과" 포함 + "실패" 미포함
+  LAST_3=$(echo "$ROUND_FILES" | tail -3)
+  CONSECUTIVE_PASS=0
+
+  while IFS= read -r rfile; do
+    [ -z "$rfile" ] && continue
+    if grep -q '통과' "$rfile" 2>/dev/null && ! grep -q '실패' "$rfile" 2>/dev/null; then
+      CONSECUTIVE_PASS=$((CONSECUTIVE_PASS + 1))
+    else
+      CONSECUTIVE_PASS=0
+    fi
+  done <<< "$LAST_3"
+
+  if [ "$CONSECUTIVE_PASS" -lt 3 ]; then
+    jq -n --arg task "$TASK_NAME" '{
+      decision: "block",
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 마지막 3회 연속 round가 모두 통과해야 합니다. verifier 에이전트를 통해 검증을 완료하세요.")
     }'
     exit 0
   fi
