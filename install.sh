@@ -237,6 +237,18 @@ copy_file() {
   ok "$(basename "$dst")"
 }
 
+# skills 디렉토리 설치 (~/.claude/skills/<name>/ 에 직접 복사, 항상 글로벌)
+install_skill() {
+  local src_dir="$1" skill_name="$2"
+  local dst_dir="$HOME/.claude/skills/${skill_name}"
+  mkdir -p "$dst_dir"
+  cp -r "$src_dir/." "$dst_dir/"
+  for f in "$src_dir"/*; do
+    [ -f "$f" ] && INSTALLED_FILES+=("skills/${skill_name}/$(basename "$f")")
+  done
+  ok "${skill_name} (skill)"
+}
+
 # 관리 블록 교체 (hooks용)
 install_hook() {
   local src="$1" dst="$2"
@@ -305,8 +317,8 @@ copy_file "$PACKAGE_DIR/agents/lead.md"          "$TARGET_DIR/agents/lead.md"
 copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
 copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
 
-# commands
-copy_file "$PACKAGE_DIR/commands/dev-bounce.md"  "$TARGET_DIR/commands/dev-bounce.md"
+# skills (항상 글로벌 ~/.claude/skills/ 에 설치)
+install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
 
 # hooks
 install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"     "$TARGET_DIR/hooks/plan-gate.sh"
@@ -487,7 +499,7 @@ header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
 echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
-echo "  ├─ commands: dev-bounce.md (/dev-bounce)"
+echo "  ├─ skills: dev-bounce (~/.claude/skills/dev-bounce/)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse)"
 echo "  │         doc-reminder.sh (PostToolUse)"
 echo "  │         completion-gate.sh (Stop)"

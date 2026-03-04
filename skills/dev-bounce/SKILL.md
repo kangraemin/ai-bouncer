@@ -1,8 +1,9 @@
 ---
-description: /dev-bounce — 구조화된 개발 flow 실행 (ai-bouncer v4)
+name: dev-bounce
+description: 구조화된 개발 flow 실행. 코드 수정/기능 구현/버그 수정 등 개발 작업 시 사용. Planning Team → 계획 수립 → 사용자 승인 → Dev Team → TDD 개발 → 3회 연속 검증 → 완료 순서로 진행.
 ---
 
-# /dev-bounce
+# dev-bounce
 
 Planning Team → 계획 수립 → 승인 → Dev Team → 개발 → 3회 연속 검증 → 완료.
 계획 승인 없이는 코드를 수정하지 않는다.
