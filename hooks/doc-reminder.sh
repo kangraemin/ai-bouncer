@@ -44,8 +44,8 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     # 문서 파일의 최근 수정 시간 확인
     if [ ! -f "$DOC_PATH" ]; then
       jq -n --arg doc "$DOC_PATH" '{
-        decision: "warn",
-        message: ("코드를 수정했습니다. 문서를 업데이트하세요: " + $doc)
+        decision: "block",
+        reason: ("Step 문서가 없습니다. 먼저 문서를 작성한 후 코드를 수정하세요: " + $doc)
       }'
     fi
   fi

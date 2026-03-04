@@ -1,0 +1,62 @@
+{
+  "workflow_phase": "development",
+  "planning": {
+    "no_question_streak": 3
+  },
+  "plan_approved": true,
+  "current_dev_phase": 1,
+  "current_step": 3,
+  "dev_phases": {
+    "1": {
+      "name": "source-fixes",
+      "folder": "phase-1-source-fixes",
+      "steps": {
+        "1": {
+          "title": "Issue 3: /dev \u2192 /dev-bounce \ucc38\uc870 \uc218\uc815 (4\uacf3)",
+          "test_defined": true,
+          "passed": true,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-1.md"
+        },
+        "2": {
+          "title": "Issue 2: doc-reminder.sh warn\u2192block",
+          "test_defined": true,
+          "passed": true,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-2.md"
+        },
+        "3": {
+          "title": "Issue 1-A: install.sh realpath \ud06c\ub85c\uc2a4\ud50c\ub7ab\ud3fc \uc218\uc815",
+          "test_defined": true,
+          "passed": false,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-3.md"
+        },
+        "4": {
+          "title": "Issue 1-B: commit \uc2a4\ud0ac \uac10\uc9c0 + \uc7ac\uc2dc\uc791 \uc548\ub0b4",
+          "test_defined": false,
+          "passed": false,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-4.md"
+        },
+        "5": {
+          "title": "Issue 4: SKILL.md ExitPlanMode \uc624\ud638\ucd9c \ubc29\uc9c0 \uacbd\uace0 \ucd94\uac00",
+          "test_defined": false,
+          "passed": false,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-1-source-fixes/step-5.md"
+        }
+      }
+    },
+    "2": {
+      "name": "installed-files-sync",
+      "folder": "phase-2-installed-files",
+      "steps": {
+        "1": {
+          "title": "\uc124\uce58\ub41c \ud30c\uc77c \ub3d9\uae30\ud654 (~/.claude/hooks, agents)",
+          "test_defined": false,
+          "passed": false,
+          "doc_path": "docs/ai-bouncer-bugfix/phase-2-installed-files/step-1.md"
+        }
+      }
+    }
+  },
+  "verification": {
+    "rounds_passed": 0
+  }
+}
