@@ -1,5 +1,5 @@
 {
-  "workflow_phase": "verification",
+  "workflow_phase": "done",
   "planning": {
     "no_question_streak": 3
   },
@@ -57,6 +57,6 @@
     }
   },
   "verification": {
-    "rounds_passed": 0
+    "rounds_passed": 3
   }
 }
