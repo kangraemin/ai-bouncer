@@ -47,7 +47,7 @@ PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 if [ "$PLAN_APPROVED" != "true" ]; then
   jq -n '{
     decision: "block",
-    reason: "계획이 승인되지 않았습니다. /dev로 계획을 수립하고 승인 후 개발을 시작하세요."
+    reason: "계획이 승인되지 않았습니다. /dev-bounce로 계획을 수립하고 승인 후 개발을 시작하세요."
   }'
   exit 0
 fi

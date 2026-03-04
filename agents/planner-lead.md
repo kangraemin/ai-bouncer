@@ -65,7 +65,7 @@ PYEOF
 
 ### 사용자 답변 수신 시
 
-Lead(commands/dev.md)로부터 사용자 답변을 전달받으면:
+Lead(dev-bounce skill)로부터 사용자 답변을 전달받으면:
 1. `no_question_streak = 0` 리셋 (state.json 업데이트)
 2. 답변 내용을 전체 컨텍스트에 통합
 3. 질문 재생성 시도 (전체 컨텍스트 재분석)
@@ -74,7 +74,7 @@ Lead(commands/dev.md)로부터 사용자 답변을 전달받으면:
 
 ## 계획 확정 (streak >= 3)
 
-Lead(commands/dev.md)로부터 "계획 확정" 지시 수신 시:
+Lead(dev-bounce skill)로부터 "계획 확정" 지시 수신 시:
 
 1. `{TASK_DIR}/plan.md` 작성:
 
