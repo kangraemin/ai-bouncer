@@ -13,6 +13,9 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 
+# cancelled 상태 → 즉시 통과 (사용자가 작업 포기 선택)
+[ "$WORKFLOW_PHASE" = "cancelled" ] && exit 0
+
 # 검증 단계에서만 체크
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   VERIFY_DIR="${TASK_DIR}/verifications"
@@ -29,7 +32,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   if [ "$TOTAL_ROUNDS" -lt 3 ]; then
     jq -n --arg rounds "$TOTAL_ROUNDS" --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3회 연속 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3회 연속 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
     }'
     exit 0
   fi
@@ -50,7 +53,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   if [ "$CONSECUTIVE_PASS" -lt 3 ]; then
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 마지막 3회 연속 round가 모두 통과해야 합니다. verifier 에이전트를 통해 검증을 완료하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 마지막 3회 연속 round가 모두 통과해야 합니다. verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
     }'
     exit 0
   fi
