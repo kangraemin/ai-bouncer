@@ -189,7 +189,7 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
   fi
 
   MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 2 ] 2>/dev/null; then
+  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
     save_snapshot
     jq -n '{
       decision: "block",

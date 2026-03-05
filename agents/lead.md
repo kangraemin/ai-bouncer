@@ -72,28 +72,30 @@ EOF
 
 4. state.json `dev_phases` 초기화 + `team_name` 설정:
 
+> ⚠️ **TASK_DIR는 반드시 메시지에서 받은 실제 절대경로를 사용한다. `os.environ` 사용 금지.**
+
 ```bash
-python3 << 'PYEOF'
-import json, os
-task_dir = os.environ.get('TASK_DIR', 'docs/current')
-f = os.path.join(task_dir, 'state.json')
+# ↓ Lead: <TASK_DIR>와 <팀이름>을 메시지에서 받은 실제 값으로 대체 후 실행
+python3 -c "
+import json, sys
+task_dir = sys.argv[1]          # 실제 TASK_DIR 경로
+team_name = sys.argv[2]         # TeamCreate에서 사용한 팀 이름
+f = task_dir + '/state.json'
 with open(f) as fp: s = json.load(fp)
-# dev_phases 초기화 예시
 s['dev_phases'] = {
-    "1": {
-        "name": "login",
-        "folder": "phase-1-login",
-        "steps": {
-            "1": {"title": "...",
-                  "doc_path": f"{task_dir}/phase-1-login/step-1.md"}
+    '1': {
+        'name': '<feature>',
+        'folder': 'phase-1-<feature>',
+        'steps': {
+            '1': {'title': '...', 'doc_path': task_dir + '/phase-1-<feature>/step-1.md'}
         }
     }
 }
-s['team_name'] = '<TeamCreate에서 사용한 팀 이름>'
+s['team_name'] = team_name
 s['current_dev_phase'] = 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print('dev_phases initialized')
-PYEOF
+print('dev_phases initialized, team_name:', team_name)
+" "<TASK_DIR>" "<팀이름>"
 ```
 
 5. 각 Phase의 각 Step마다 step.md 뼈대 생성:
