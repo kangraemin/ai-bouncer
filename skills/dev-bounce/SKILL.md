@@ -83,7 +83,9 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 1. EnterPlanMode 호출
 2. 관련 코드 탐색 (Read/Grep/Glob)
 3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. `{TASK_DIR}/plan.md` 직접 작성 — 간결하게:
+4. 계획 내용을 plan mode 내부 plan 파일에 정리
+5. ExitPlanMode 호출 (plan mode 종료)
+6. `{TASK_DIR}/plan.md` 직접 작성 (plan mode 밖에서 Write 사용):
    ```markdown
    # <작업 제목>
    ## 변경 사항
@@ -91,8 +93,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    ## 검증
    - 검증 방법
    ```
-5. 사용자에게 계획 표시 + ExitPlanMode
-6. 승인 대기
+7. 사용자에게 계획 표시 + 승인 대기
 
 ### Phase S2: 승인 + 개발
 
@@ -203,7 +204,8 @@ TeamCreate: planning-<task>
 
 > ⚠️ **Q&A 루프 중 ExitPlanMode 절대 금지.**
 > planner-lead로부터 질문을 받아 사용자에게 전달할 때는 반드시 **AskUserQuestion** 사용.
-> ExitPlanMode는 plan.md 작성 완료 후 **Phase 1-5에서만** 호출한다.
+> ExitPlanMode는 계획 확정 후 **Phase 1-4에서만** 호출한다.
+> ⚠️ **plan mode에서 Write/Edit 도구 사용 금지** — 자동으로 plan mode가 해제됨.
 
 ```
 while true:
@@ -220,16 +222,19 @@ while true:
      - streak >= 3 → 다음 단계
 ```
 
-#### 1-4. 계획 확정
+#### 1-4. 계획 확정 + Plan Mode 종료
 
 planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` 수신.
-Main Claude가 planner-lead의 계획 내용을 `{TASK_DIR}/plan.md`에 Write tool로 직접 저장.
-(plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
-저장 후 파일 존재 확인 후에만 Phase 1-5 진행.
-
+계획 내용을 plan mode 내부 plan 파일에 정리.
 Planning 팀 shutdown.
 
-#### 1-5. 계획 사용자에게 표시
+ExitPlanMode 호출 (plan mode 종료).
+
+#### 1-5. plan.md 저장 + 사용자에게 표시
+
+plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
+(plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
+저장 후 파일 존재 확인.
 
 `{TASK_DIR}/plan.md` 내용 표시:
 
@@ -240,8 +245,6 @@ Planning 팀 shutdown.
 
 수정 요청이 있으면 말씀해주세요. 승인하시면 개발을 시작합니다.
 ```
-
-ExitPlanMode 호출 — plan.md를 플랜 파일로 사용하여 사용자 승인 요청.
 
 ---
 
