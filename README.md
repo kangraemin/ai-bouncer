@@ -115,6 +115,12 @@ bash update.sh
 ### Uninstall
 
 ```bash
+bash uninstall.sh
+```
+
+Or via install.sh (backward compatible):
+
+```bash
 bash install.sh --uninstall
 ```
 
