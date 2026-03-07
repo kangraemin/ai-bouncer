@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # E2E tests for SKILL.md dev-bounce logic
-# Tests: Phase 1-1 path selection, context restore, Phase 4-4 copy
+# Tests: Phase 0-B path selection, context restore, Phase 4-4 copy
 # Usage: bash tests/e2e-skill.sh
 
 set -uo pipefail
@@ -16,6 +16,7 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) 
 
 TMPDIR_ROOT=$(mktemp -d)
 FAKE_HOME=$(mktemp -d)
+FAKE_DATE="2026-01-15"
 
 cleanup() { rm -rf "$TMPDIR_ROOT" "$FAKE_HOME"; }
 trap cleanup EXIT
@@ -31,38 +32,35 @@ make_repo() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 1-1 Python logic (verbatim from SKILL.md, with FAKE_HOME injection)
+# Phase 0-B Python logic (from SKILL.md — date-based, worktree-only persistent)
 # ---------------------------------------------------------------------------
-PHASE11_PY='
+PHASE0B_PY='
 import json, os, subprocess, sys
 
-home     = os.environ["FAKE_HOME"]
+home      = os.environ["FAKE_HOME"]
 task_name = sys.argv[1]
+date_str  = os.environ.get("FAKE_DATE", "2026-01-15")
 
 git_dir = subprocess.run(["git", "rev-parse", "--git-dir"],
     capture_output=True, text=True).stdout.strip()
 is_worktree = "worktrees" in git_dir
 
-cfg_path = os.path.join(home, ".claude/ai-bouncer/config.json")
-cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {}
-docs_git_track = cfg.get("docs_git_track", True)
-
 repo_root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
     capture_output=True, text=True).stdout.strip()
 repo_name = os.path.basename(repo_root)
 
-persistent_mode = is_worktree or not docs_git_track
+persistent_mode = is_worktree  # worktree만 예외
 if persistent_mode:
     docs_base = os.path.join(home, f".claude/ai-bouncer/sessions/{repo_name}/docs")
 else:
-    docs_base = os.path.join(repo_root, "docs")
+    docs_base = os.path.join(repo_root, "docs", date_str)
 
 task_dir    = os.path.join(docs_base, task_name)
-active_file = os.path.join(docs_base, ".active")
+active_file = os.path.join(task_dir, ".active")
 
 os.makedirs(task_dir, exist_ok=True)
 with open(active_file, "w") as f:
-    f.write(task_name)
+    f.write("")
 
 state = {
     "workflow_phase": "planning",
@@ -87,12 +85,13 @@ print(f"active_file={active_file}")
 '
 
 # ---------------------------------------------------------------------------
-# Phase 4-4 copy Python logic (verbatim from SKILL.md, with FAKE_HOME injection)
+# Phase 4-4 copy Python logic (from SKILL.md — date-based destination)
 # ---------------------------------------------------------------------------
 PHASE44_PY='
 import json, os, shutil, subprocess, sys
 
 task_dir  = sys.argv[1]
+date_str  = os.environ.get("FAKE_DATE", "2026-01-15")
 
 state = json.load(open(os.path.join(task_dir, "state.json")))
 if state.get("persistent_mode"):
@@ -100,7 +99,8 @@ if state.get("persistent_mode"):
         capture_output=True, text=True).stdout.strip()
     main_root = os.path.dirname(os.path.abspath(git_common))
     task_name = os.path.basename(state["task_dir"])
-    dst = os.path.join(main_root, "docs", task_name)
+    dst = os.path.join(main_root, "docs", date_str, task_name)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.exists(dst):
         shutil.rmtree(dst)
     shutil.copytree(state["task_dir"], dst)
@@ -110,25 +110,63 @@ if state.get("persistent_mode"):
 '
 
 # ---------------------------------------------------------------------------
-# Context restore bash logic (verbatim from SKILL.md)
+# Context restore bash logic (updated for date-based docs/*/*/.active)
 # Runs inside repo dir; FAKE_HOME replaces $HOME
 # ---------------------------------------------------------------------------
 context_restore_bash() {
   local repo_dir="$1"
   local fake_home="$2"
-  # Run exactly the SKILL.md snippet with HOME overridden
   (cd "$repo_dir" && HOME="$fake_home" bash -c '
     REPO_NAME=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
-    PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
 
+    TASK_NAME=""
     STATE_JSON=""
-    if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
-      TASK_NAME=$(cat "$PERSISTENT_ACTIVE")
-      STATE_JSON="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/${TASK_NAME}/state.json"
-    elif [ -f "docs/.active" ] && [ -s "docs/.active" ]; then
-      TASK_NAME=$(cat "docs/.active")
-      STATE_JSON="docs/${TASK_NAME}/state.json"
+    TASK_DIR=""
+
+    # 1. persistent dir (worktree용)
+    PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+    if [ -d "$PERSISTENT_BASE" ]; then
+      for active_file in "$PERSISTENT_BASE"/*/.active; do
+        [ -f "$active_file" ] || continue
+        task_folder=$(basename "$(dirname "$active_file")")
+        state_json="${PERSISTENT_BASE}/${task_folder}/state.json"
+        [ -f "$state_json" ] || continue
+        TASK_NAME="$task_folder"
+        STATE_JSON="$state_json"
+        TASK_DIR="${PERSISTENT_BASE}/${task_folder}"
+        break
+      done
     fi
+
+    # 2. local docs/ — 날짜별 구조 (docs/YYYY-MM-DD/task-name/.active)
+    if [ -z "$TASK_NAME" ] && [ -d "docs" ]; then
+      for date_dir in docs/*/; do
+        [ -d "$date_dir" ] || continue
+        for active_file in "$date_dir"*/.active; do
+          [ -f "$active_file" ] || continue
+          task_folder=$(basename "$(dirname "$active_file")")
+          state_json="$(dirname "$active_file")/state.json"
+          [ -f "$state_json" ] || continue
+          TASK_NAME="$task_folder"
+          STATE_JSON="$state_json"
+          break 2
+        done
+      done
+    fi
+
+    # 3. fallback: 기존 flat 구조 (docs/task-name/.active — 하위 호환)
+    if [ -z "$TASK_NAME" ] && [ -d "docs" ]; then
+      for active_file in docs/*/.active; do
+        [ -f "$active_file" ] || continue
+        task_folder=$(basename "$(dirname "$active_file")")
+        state_json="docs/${task_folder}/state.json"
+        [ -f "$state_json" ] || continue
+        TASK_NAME="$task_folder"
+        STATE_JSON="$state_json"
+        break
+      done
+    fi
+
     echo "$STATE_JSON"
   ')
 }
@@ -143,24 +181,21 @@ tc1() {
   make_repo "$main_repo"
   git -C "$main_repo" worktree add "$worktree_dir" -q
 
-  # From within a worktree, git rev-parse --show-toplevel returns the worktree path.
-  # So repo_name = basename(worktree_dir), not basename(main_repo).
   local repo_name; repo_name=$(basename "$worktree_dir")
   local expected_task_dir="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs/my-task"
-  local expected_active="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs/.active"
 
   local out
-  out=$(cd "$worktree_dir" && FAKE_HOME="$FAKE_HOME" python3 -c "$PHASE11_PY" "my-task")
+  out=$(cd "$worktree_dir" && FAKE_HOME="$FAKE_HOME" FAKE_DATE="$FAKE_DATE" python3 -c "$PHASE0B_PY" "my-task")
 
   local pm; pm=$(echo "$out" | grep "^persistent_mode=" | cut -d= -f2)
   local td; td=$(echo "$out" | grep "^task_dir=" | cut -d= -f2)
   local af; af=$(echo "$out" | grep "^active_file=" | cut -d= -f2)
+  local expected_active="$expected_task_dir/.active"
 
   if [ "$pm" = "True" ] && \
      [ "$td" = "$expected_task_dir" ] && \
      [ "$af" = "$expected_active" ] && \
      [ -f "$expected_task_dir/state.json" ]; then
-    # Verify state.json persistent_mode field
     local pm_json; pm_json=$(python3 -c "import json; print(json.load(open('$expected_task_dir/state.json'))['persistent_mode'])")
     if [ "$pm_json" = "True" ]; then
       pass "TC-1: worktree → persistent path"
@@ -174,52 +209,47 @@ tc1() {
 }
 
 # ---------------------------------------------------------------------------
-# TC-2: normal repo → local path
+# TC-2: normal repo → local date-based path
 # ---------------------------------------------------------------------------
 tc2() {
   local repo="$TMPDIR_ROOT/tc2-repo"
   make_repo "$repo"
 
-  # No config.json → docs_git_track defaults to true
   local out
-  out=$(cd "$repo" && FAKE_HOME="$FAKE_HOME" python3 -c "$PHASE11_PY" "my-task")
+  out=$(cd "$repo" && FAKE_HOME="$FAKE_HOME" FAKE_DATE="$FAKE_DATE" python3 -c "$PHASE0B_PY" "my-task")
 
   local pm; pm=$(echo "$out" | grep "^persistent_mode=" | cut -d= -f2)
   local td; td=$(echo "$out" | grep "^task_dir=" | cut -d= -f2)
 
-  # On macOS, /var is a symlink to /private/var; resolve to match Python's os.path output
-  local expected_task_dir; expected_task_dir=$(python3 -c "import os; print(os.path.realpath('$repo'))")/docs/my-task
+  local expected_task_dir; expected_task_dir=$(python3 -c "import os; print(os.path.realpath('$repo'))")/docs/${FAKE_DATE}/my-task
 
   if [ "$pm" = "False" ] && [ "$td" = "$expected_task_dir" ] && \
      [ -f "$expected_task_dir/state.json" ]; then
     local pm_json; pm_json=$(python3 -c "import json; print(json.load(open('$expected_task_dir/state.json'))['persistent_mode'])")
     if [ "$pm_json" = "False" ]; then
-      pass "TC-2: normal repo → local path"
+      pass "TC-2: normal repo → local date-based path"
     else
-      fail "TC-2: normal repo → local path" "state.json persistent_mode=$pm_json (expected False)"
+      fail "TC-2: normal repo → local date-based path" "state.json persistent_mode=$pm_json (expected False)"
     fi
   else
-    fail "TC-2: normal repo → local path" \
+    fail "TC-2: normal repo → local date-based path" \
          "persistent_mode=$pm, task_dir=$td (expected $expected_task_dir)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# TC-3: docs_git_track=false → persistent mode
+# TC-3: docs_git_track=false → still local (no longer triggers persistent)
 # ---------------------------------------------------------------------------
 tc3() {
   local repo="$TMPDIR_ROOT/tc3-repo"
   make_repo "$repo"
 
-  # Write config with docs_git_track=false
+  # Write config with docs_git_track=false — should NOT trigger persistent anymore
   mkdir -p "$FAKE_HOME/.claude/ai-bouncer"
   echo '{"docs_git_track": false}' > "$FAKE_HOME/.claude/ai-bouncer/config.json"
 
-  local repo_name; repo_name=$(basename "$repo")
-  local expected_task_dir="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs/my-task"
-
   local out
-  out=$(cd "$repo" && FAKE_HOME="$FAKE_HOME" python3 -c "$PHASE11_PY" "my-task")
+  out=$(cd "$repo" && FAKE_HOME="$FAKE_HOME" FAKE_DATE="$FAKE_DATE" python3 -c "$PHASE0B_PY" "my-task")
 
   local pm; pm=$(echo "$out" | grep "^persistent_mode=" | cut -d= -f2)
   local td; td=$(echo "$out" | grep "^task_dir=" | cut -d= -f2)
@@ -227,11 +257,13 @@ tc3() {
   # Clean up config for other tests
   rm "$FAKE_HOME/.claude/ai-bouncer/config.json"
 
-  if [ "$pm" = "True" ] && [ "$td" = "$expected_task_dir" ] && \
+  local expected_task_dir; expected_task_dir=$(python3 -c "import os; print(os.path.realpath('$repo'))")/docs/${FAKE_DATE}/my-task
+
+  if [ "$pm" = "False" ] && [ "$td" = "$expected_task_dir" ] && \
      [ -f "$expected_task_dir/state.json" ]; then
-    pass "TC-3: docs_git_track=false → persistent mode"
+    pass "TC-3: docs_git_track=false → still local (worktree-only persistent)"
   else
-    fail "TC-3: docs_git_track=false → persistent mode" \
+    fail "TC-3: docs_git_track=false → still local" \
          "persistent_mode=$pm, task_dir=$td (expected $expected_task_dir)"
   fi
 }
@@ -245,16 +277,17 @@ tc4() {
 
   local repo_name; repo_name=$(basename "$repo")
   local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  local local_docs="$repo/docs"
+  local local_docs="$repo/docs/$FAKE_DATE"
 
-  # Create both .active files
+  # Create persistent task with per-task .active
   mkdir -p "$persistent_docs/persistent-task"
-  echo "persistent-task" > "$persistent_docs/.active"
+  touch "$persistent_docs/persistent-task/.active"
   local persistent_state="$persistent_docs/persistent-task/state.json"
   echo '{"task":"persistent"}' > "$persistent_state"
 
+  # Create local date-based task with per-task .active
   mkdir -p "$local_docs/local-task"
-  echo "local-task" > "$local_docs/.active"
+  touch "$local_docs/local-task/.active"
   echo '{"task":"local"}' > "$local_docs/local-task/state.json"
 
   local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
@@ -268,37 +301,66 @@ tc4() {
 }
 
 # ---------------------------------------------------------------------------
-# TC-5: context restore — no persistent → local fallback
+# TC-5: context restore — no persistent → local date-based fallback
 # ---------------------------------------------------------------------------
 tc5() {
   local repo="$TMPDIR_ROOT/tc5-repo"
   make_repo "$repo"
 
   local repo_name; repo_name=$(basename "$repo")
-  local local_docs="$repo/docs"
+  local local_docs="$repo/docs/$FAKE_DATE"
 
-  # Only local .active (no persistent)
+  # Only local date-based .active (no persistent)
   mkdir -p "$local_docs/local-task"
-  echo "local-task" > "$local_docs/.active"
+  touch "$local_docs/local-task/.active"
   echo '{"task":"local"}' > "$local_docs/local-task/state.json"
 
   # Ensure no persistent .active exists
   local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  rm -f "$persistent_docs/.active" 2>/dev/null || true
+  rm -rf "$persistent_docs" 2>/dev/null || true
 
   local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
-  local expected="docs/local-task/state.json"
+  local expected="docs/$FAKE_DATE/local-task/state.json"
 
   if [ "$result" = "$expected" ]; then
-    pass "TC-5: context restore — local fallback"
+    pass "TC-5: context restore — local date-based fallback"
   else
-    fail "TC-5: context restore — local fallback" \
+    fail "TC-5: context restore — local date-based fallback" \
          "STATE_JSON=$result (expected $expected)"
   fi
 }
 
 # ---------------------------------------------------------------------------
-# TC-6: Phase 4-4 — persistent task_dir copied to main repo
+# TC-5b: context restore — flat fallback (legacy docs/task/.active)
+# ---------------------------------------------------------------------------
+tc5b() {
+  local repo="$TMPDIR_ROOT/tc5b-repo"
+  make_repo "$repo"
+
+  local repo_name; repo_name=$(basename "$repo")
+
+  # Only legacy flat .active (no persistent, no date-based)
+  mkdir -p "$repo/docs/legacy-task"
+  touch "$repo/docs/legacy-task/.active"
+  echo '{"task":"legacy"}' > "$repo/docs/legacy-task/state.json"
+
+  # Ensure no persistent .active exists
+  local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
+  rm -rf "$persistent_docs" 2>/dev/null || true
+
+  local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
+  local expected="docs/legacy-task/state.json"
+
+  if [ "$result" = "$expected" ]; then
+    pass "TC-5b: context restore — flat fallback (legacy)"
+  else
+    fail "TC-5b: context restore — flat fallback (legacy)" \
+         "STATE_JSON=$result (expected $expected)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# TC-6: Phase 4-4 — persistent task_dir copied to main repo (date-based dst)
 # ---------------------------------------------------------------------------
 tc6() {
   local main_repo="$TMPDIR_ROOT/tc6-main"
@@ -325,20 +387,20 @@ json.dump(state, open('$persistent_task/state.json','w'), indent=2)
 
   # Run Phase 4-4 copy from within the worktree
   local out
-  out=$(cd "$worktree_dir" && FAKE_HOME="$FAKE_HOME" python3 -c "$PHASE44_PY" "$persistent_task")
+  out=$(cd "$worktree_dir" && FAKE_HOME="$FAKE_HOME" FAKE_DATE="$FAKE_DATE" python3 -c "$PHASE44_PY" "$persistent_task")
 
   local dst; dst=$(echo "$out" | grep "^dst=" | cut -d= -f2)
-  local expected_dst; expected_dst=$(python3 -c "import os; print(os.path.realpath('$main_repo'))")/docs/my-task
+  local expected_dst; expected_dst=$(python3 -c "import os; print(os.path.realpath('$main_repo'))")/docs/${FAKE_DATE}/my-task
 
   if [ "$dst" = "$expected_dst" ] && \
      [ -f "$expected_dst/state.json" ] && \
      [ -f "$expected_dst/plan.md" ]; then
-    pass "TC-6: Phase 4-4 copy to main repo"
+    pass "TC-6: Phase 4-4 copy to main repo (date-based)"
   else
-    fail "TC-6: Phase 4-4 copy to main repo" \
+    fail "TC-6: Phase 4-4 copy to main repo (date-based)" \
          "dst=$dst (expected $expected_dst), state.json exists=$([ -f "$expected_dst/state.json" ] && echo yes || echo no)"
   fi
-  # Store resolved dst for TC-7 (use actual dst from Python output which is already resolved)
+  # Store resolved dst for TC-7
   echo "$dst" > "$TMPDIR_ROOT/tc6-dst"
 }
 
@@ -378,6 +440,7 @@ tc2
 tc3
 tc4
 tc5
+tc5b
 tc6
 tc7
 

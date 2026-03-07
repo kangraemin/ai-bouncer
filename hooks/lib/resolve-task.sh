@@ -78,35 +78,31 @@ _resolve_from_base() {
   return 1
 }
 
-# 하위 호환: 기존 docs/.active 방식 체크
-_resolve_legacy() {
-  local base="$1" active="$2"
-  [ -f "$active" ] && [ -s "$active" ] || return 1
-  local name
-  name=$(cat "$active" 2>/dev/null | tr -d '[:space:]')
-  [ -z "$name" ] && return 1
-  TASK_NAME="$name"
-  DOCS_BASE="$base"
-  return 0
+# 날짜별 구조 스캔: docs/YYYY-MM-DD/ 하위 각 디렉토리에서 _resolve_from_base 호출
+_resolve_date_dirs() {
+  local root="$1"
+  [ -d "$root" ] || return 1
+
+  for date_dir in "$root"/*/; do
+    [ -d "$date_dir" ] || continue
+    _resolve_from_base "$date_dir" && return 0
+  done
+
+  return 1
 }
 
-# 1. persistent dir — 새 방식 (docs/<task>/.active)
+# 1. persistent dir (worktree용)
 PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
 _resolve_from_base "$PERSISTENT_BASE"
 
-# 2. local docs/ — 새 방식
+# 2. local docs/ — 날짜별 구조 (docs/YYYY-MM-DD/task-name/.active)
+if [ -z "$TASK_NAME" ]; then
+  _resolve_date_dirs "docs"
+fi
+
+# 3. fallback: 기존 flat 구조 (docs/task-name/.active — 하위 호환)
 if [ -z "$TASK_NAME" ]; then
   _resolve_from_base "docs"
-fi
-
-# 3. fallback: 기존 방식 (docs/.active에 task name)
-if [ -z "$TASK_NAME" ]; then
-  PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
-  _resolve_legacy "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs" "$PERSISTENT_ACTIVE"
-fi
-
-if [ -z "$TASK_NAME" ]; then
-  _resolve_legacy "docs" "docs/.active"
 fi
 
 # 결과 설정

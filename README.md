@@ -150,38 +150,44 @@ All state lives in files. Agents are stateless and reconstruct context by readin
 
 ### Per-task directory structure
 
+Tasks are organized by date under `docs/YYYY-MM-DD/`:
+
 ```
 docs/
-└── <task-name>/
-    ├── .active                   # session marker (contains session_id)
-    ├── plan.md                   # high-level plan (written by planner-lead)
-    ├── state.json                # workflow state for this task
-    ├── phase-1-<feature>/
-    │   ├── phase.md              # scope and completion criteria
-    │   ├── step-1.md             # TC + implementation + test results
-    │   └── step-2.md
-    ├── phase-2-<feature>/
-    │   ├── phase.md
-    │   └── step-1.md
-    └── verifications/
-        ├── round-1.md
-        ├── round-2.md
-        └── round-3.md
+└── 2026-03-07/
+    └── <task-name>/
+        ├── .active                   # session marker (contains session_id)
+        ├── plan.md                   # high-level plan (written by planner-lead)
+        ├── state.json                # workflow state for this task
+        ├── phase-1-<feature>/
+        │   ├── phase.md              # scope and completion criteria
+        │   ├── step-1.md             # TC + implementation + test results
+        │   └── step-2.md
+        ├── phase-2-<feature>/
+        │   ├── phase.md
+        │   └── step-1.md
+        └── verifications/
+            ├── round-1.md
+            ├── round-2.md
+            └── round-3.md
 ```
 
 Session isolation — each task has its own `.active` file:
 
 ```
 docs/
-├── user-auth/
-│   ├── .active           # session A
-│   ├── plan.md
-│   └── ...
-└── profile-page/
-    ├── .active           # session B
-    ├── plan.md
-    └── ...
+└── 2026-03-07/
+    ├── user-auth/
+    │   ├── .active           # session A
+    │   ├── plan.md
+    │   └── ...
+    └── profile-page/
+        ├── .active           # session B
+        ├── plan.md
+        └── ...
 ```
+
+**Worktree exception**: When running in a git worktree, docs are stored in `~/.claude/ai-bouncer/sessions/<repo>/docs/` and copied to the main repo on completion.
 
 ### state.json schema
 
@@ -196,8 +202,8 @@ docs/
   "current_step": 0,
   "dev_phases": {},
   "verification": { "rounds_passed": 0 },
-  "task_dir": "docs/user-auth",
-  "active_file": "docs/user-auth/.active",
+  "task_dir": "docs/2026-03-07/user-auth",
+  "active_file": "docs/2026-03-07/user-auth/.active",
   "persistent_mode": false
 }
 ```
@@ -206,7 +212,7 @@ docs/
 
 If a session is interrupted or the context window is compressed:
 
-1. `/dev-bounce` scans `docs/<task>/.active` files to find the active task for this session
+1. `/dev-bounce` scans `docs/YYYY-MM-DD/<task>/.active` files to find the active task for this session
 2. Reads `state.json` to determine `workflow_phase`
 3. Resumes from the correct phase — planning, development, or verification
 4. Stale tasks (other session's unapproved planning tasks) are auto-cleaned

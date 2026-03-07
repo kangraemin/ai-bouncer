@@ -37,12 +37,13 @@ setup_env() {
   local fill_tc="${7:-no}"
   local prev_passed="${8:-no}"
 
-  mkdir -p "$dir/docs/${task_name}"
-  touch "$dir/docs/${task_name}/.active"
+  local date_dir="2026-01-01"
+  mkdir -p "$dir/docs/${date_dir}/${task_name}"
+  touch "$dir/docs/${date_dir}/${task_name}/.active"
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then
-    echo "# Plan" > "$dir/docs/${task_name}/plan.md"
+    echo "# Plan" > "$dir/docs/${date_dir}/${task_name}/plan.md"
   fi
 
   # team config 생성 (team_name이 있을 때)
@@ -52,15 +53,15 @@ setup_env() {
   fi
 
   local phase_folder="phase-1-test"
-  mkdir -p "$dir/docs/${task_name}/${phase_folder}"
+  mkdir -p "$dir/docs/${date_dir}/${task_name}/${phase_folder}"
 
   # phase.md 생성
-  echo "# 개발 Phase 1: test" > "$dir/docs/${task_name}/${phase_folder}/phase.md"
+  echo "# 개발 Phase 1: test" > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/phase.md"
 
   # step 파일 생성
   if [ "$create_step" = "yes" ]; then
     if [ "$fill_tc" = "yes" ]; then
-      cat > "$dir/docs/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
+      cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -68,7 +69,7 @@ setup_env() {
 | TC-1 | 로그인 성공 | 토큰 반환 |  |
 STEPEOF
     else
-      cat > "$dir/docs/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
+      cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -80,7 +81,7 @@ STEPEOF
 
   # 이전 step (prev_passed 용)
   if [ "$prev_passed" = "yes" ]; then
-    cat > "$dir/docs/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
+    cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -95,7 +96,7 @@ STEPEOF
     current_step=2
     if [ "$create_step" = "yes" ]; then
       if [ "$fill_tc" = "yes" ]; then
-        cat > "$dir/docs/${task_name}/${phase_folder}/step-2.md" << 'STEPEOF'
+        cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-2.md" << 'STEPEOF'
 # Step 2: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -106,9 +107,9 @@ STEPEOF
     fi
   fi
 
-  python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" "$team_name" "$current_step" <<'PYEOF'
+  python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" "$team_name" "$current_step" "$date_dir" <<'PYEOF'
 import json, sys
-d, task, phase, approved, team_name, current_step = sys.argv[1:]
+d, task, phase, approved, team_name, current_step, date_dir = sys.argv[1:]
 state = {
     'workflow_phase': phase,
     'plan_approved': approved == 'true',
@@ -120,13 +121,13 @@ state = {
             'name': 'test',
             'folder': 'phase-1-test',
             'steps': {
-                '1': {'title': 'Test step', 'doc_path': f'docs/{task}/phase-1-test/step-1.md'}
+                '1': {'title': 'Test step', 'doc_path': f'docs/{date_dir}/{task}/phase-1-test/step-1.md'}
             }
         }
     },
     'verification': {'rounds_passed': 0}
 }
-with open(f'{d}/docs/{task}/state.json', 'w') as f:
+with open(f'{d}/docs/{date_dir}/{task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 PYEOF
 }
@@ -172,7 +173,7 @@ cleanup_teams() {
 tc1() {
   local dir="$TMPDIR_ROOT/tc1"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "Write" "$dir/docs/my-task/plan.md")
+  local input; input=$(make_input "Write" "$dir/docs/2026-01-01/my-task/plan.md")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-1: planning + Write plan.md → ALLOW" "$out"
 }
@@ -218,7 +219,7 @@ tc4() {
 tc5() {
   local dir="$TMPDIR_ROOT/tc5"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "Write" "$dir/docs/my-task/phase-1/step-1.md")
+  local input; input=$(make_input "Write" "$dir/docs/2026-01-01/my-task/phase-1/step-1.md")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-5: planning + Write step-*.md → ALLOW" "$out"
 }
@@ -231,7 +232,7 @@ tc6() {
   local team="test-team-tc6-$$"
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team"
-  local input; input=$(make_input "Write" "$dir/docs/my-task/phase-1-auth/phase.md")
+  local input; input=$(make_input "Write" "$dir/docs/2026-01-01/my-task/phase-1-auth/phase.md")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-6: development + Write phase-*.md → ALLOW" "$out"
 }
@@ -285,7 +286,7 @@ tc10() {
   # prev_passed=no_check → current_step=2, step-1.md 있지만 ✅ 없음
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes" "no_check"
   # step-1.md에 ✅ 없는 상태로 만듦
-  cat > "$dir/docs/my-task/phase-1-test/step-1.md" << 'EOF'
+  cat > "$dir/docs/2026-01-01/my-task/phase-1-test/step-1.md" << 'EOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -306,7 +307,7 @@ tc11() {
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   # plan.md 삭제
-  rm -f "$dir/docs/my-task/plan.md"
+  rm -f "$dir/docs/2026-01-01/my-task/plan.md"
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
   assert_block "TC-11: development + plan.md 없음 → BLOCK" "$out"
@@ -337,7 +338,7 @@ tc_p13() {
   setup_env "$dir" "my-task" "planning" "false" ""
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/docs/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['workflow_phase'] = 'hack'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -355,7 +356,7 @@ tc_p14() {
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/docs/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_dev_phase'] = 0
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -370,7 +371,7 @@ tc_p15() {
   local dir="$TMPDIR_ROOT/tc_p15"
   setup_env "$dir" "my-task" "planning" "false" ""
   # .active 제거 → gate 비활성
-  rm -f "$dir/docs/my-task/.active"
+  rm -f "$dir/docs/2026-01-01/my-task/.active"
 
   local input; input=$(make_input "Write" "/src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
@@ -388,7 +389,7 @@ tc_s1() {
   # mode=simple, team_name 비어있음, step/phase 없음
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/docs/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 s['team_name'] = ''
@@ -407,7 +408,7 @@ tc_s2() {
   setup_env "$dir" "my-task" "planning" "false" ""
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/docs/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -423,7 +424,7 @@ tc_s3() {
   setup_env "$dir" "my-task" "development" "true" ""
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/docs/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 s['plan_approved'] = False
@@ -452,7 +453,7 @@ tc_ph1() {
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   # phase.md 삭제
-  rm -f "$dir/docs/my-task/phase-1-test/phase.md"
+  rm -f "$dir/docs/2026-01-01/my-task/phase-1-test/phase.md"
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
   assert_block "TC-PH1: development + phase.md 없음 → BLOCK" "$out"

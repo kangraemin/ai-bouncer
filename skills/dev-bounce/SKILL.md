@@ -17,26 +17,42 @@ description: 구조화된 개발 flow 실행. 코드 수정/기능 구현/버그
 
 ## 컨텍스트 복원 (세션 재시작 시)
 
-시작 전 활성 작업 확인 (세션별 격리 — `docs/<task>/.active` 방식):
+시작 전 활성 작업 확인 (세션별 격리 — `docs/YYYY-MM-DD/<task>/.active` 방식):
 
 ```bash
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
 
-# docs/<task>/.active 스캔 (persistent → local 순서)
+# docs/YYYY-MM-DD/<task>/.active 스캔 (persistent → local 순서)
 TASK_NAME=""
-for base in "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs" "docs"; do
-  [ -d "$base" ] || continue
-  for active_file in "$base"/*/.active; do
-    [ -f "$active_file" ] || continue
-    task_folder=$(basename "$(dirname "$active_file")")
-    state_json="${base}/${task_folder}/state.json"
-    [ -f "$state_json" ] || continue
-    TASK_NAME="$task_folder"
-    STATE_JSON="$state_json"
-    TASK_DIR="${base}/${task_folder}"
-    break 2
-  done
+# 1. persistent (worktree용)
+for active_file in "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"/*/.active; do
+  [ -f "$active_file" ] || continue
+  task_folder=$(basename "$(dirname "$active_file")")
+  base="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+  state_json="${base}/${task_folder}/state.json"
+  [ -f "$state_json" ] || continue
+  TASK_NAME="$task_folder"
+  STATE_JSON="$state_json"
+  TASK_DIR="${base}/${task_folder}"
+  break
 done
+# 2. local (날짜별 구조: docs/YYYY-MM-DD/task-name/.active)
+if [ -z "$TASK_NAME" ]; then
+  for date_dir in docs/*/; do
+    [ -d "$date_dir" ] || continue
+    for active_file in "$date_dir"*/.active; do
+      [ -f "$active_file" ] || continue
+      task_folder=$(basename "$(dirname "$active_file")")
+      task_dir="$(dirname "$active_file")"
+      state_json="${task_dir}/state.json"
+      [ -f "$state_json" ] || continue
+      TASK_NAME="$task_folder"
+      STATE_JSON="$state_json"
+      TASK_DIR="$task_dir"
+      break 2
+    done
+  done
+fi
 ```
 
 - 활성 작업 있음 → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
@@ -70,7 +86,7 @@ done
 판별 후 TASK_DIR 초기화 + state.json 생성:
 
 ```python
-import json, os, subprocess
+import json, os, subprocess, datetime
 
 TASK_NAME = "user-auth"  # 예: 요청에서 핵심 키워드 추출
 MODE = "simple"  # 또는 "normal" — 위 판별 결과
@@ -79,19 +95,17 @@ git_dir = subprocess.run(["git", "rev-parse", "--git-dir"],
     capture_output=True, text=True).stdout.strip()
 is_worktree = "worktrees" in git_dir
 
-cfg_path = os.path.expanduser("~/.claude/ai-bouncer/config.json")
-cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {}
-docs_git_track = cfg.get("docs_git_track", True)
-
 repo_root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
     capture_output=True, text=True).stdout.strip()
 repo_name = os.path.basename(repo_root)
 
-persistent_mode = is_worktree or not docs_git_track
+date_str = datetime.date.today().isoformat()  # YYYY-MM-DD
+
+persistent_mode = is_worktree  # worktree만 예외
 if persistent_mode:
     docs_base = os.path.expanduser(f"~/.claude/ai-bouncer/sessions/{repo_name}/docs")
 else:
-    docs_base = os.path.join(repo_root, "docs")
+    docs_base = os.path.join(repo_root, "docs", date_str)
 
 task_dir = os.path.join(docs_base, TASK_NAME)
 active_file = os.path.join(task_dir, ".active")
@@ -385,16 +399,18 @@ print('workflow_phase = verification')
    - 재작업 완료 후 verifier에게 "재검증 시작" 요청
 4. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
    - verifier + 전체 팀 shutdown
-   - persistent_mode이면 Phase 4-4 실행: main repo의 `docs/<task>/`로 복사:
+   - persistent_mode(worktree)이면 Phase 4-4 실행: main repo의 `docs/YYYY-MM-DD/<task>/`로 복사:
      ```python
-     import json, os, shutil, subprocess
+     import json, os, shutil, subprocess, datetime
      with open(os.path.join(task_dir, "state.json")) as fp: state = json.load(fp)
      if state.get("persistent_mode"):
          git_common = subprocess.run(["git", "rev-parse", "--git-common-dir"],
              capture_output=True, text=True).stdout.strip()
          main_root = os.path.dirname(os.path.abspath(git_common))
          task_name = os.path.basename(state["task_dir"])
-         dst = os.path.join(main_root, "docs", task_name)
+         date_str = datetime.date.today().isoformat()
+         dst = os.path.join(main_root, "docs", date_str, task_name)
+         os.makedirs(os.path.dirname(dst), exist_ok=True)
          if os.path.exists(dst):
              shutil.rmtree(dst)   # destination(main repo)만 삭제, source(persistent)는 보존
          shutil.copytree(state["task_dir"], dst)
@@ -417,6 +433,7 @@ print('workflow_phase = verification')
 - NORMAL 모드: 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
 - 검증 미완료(NORMAL: round-*.md 3개 연속 통과) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
-- 완료 후 task_dir(source) 삭제 금지 — active_file(`docs/<task>/.active`)만 삭제한다
-- 세션 격리: `.active` 파일은 `docs/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
-- persistent_mode에서 `shutil.rmtree(dst)`는 destination(main repo)만 삭제, source(persistent)는 보존
+- 완료 후 task_dir(source) 삭제 금지 — active_file(`docs/YYYY-MM-DD/<task>/.active`)만 삭제한다
+- 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
+- persistent_mode(worktree만 해당)에서 `shutil.rmtree(dst)`는 destination(main repo)만 삭제, source(persistent)는 보존
+- docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
