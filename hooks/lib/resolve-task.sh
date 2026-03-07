@@ -47,6 +47,19 @@ _resolve_from_base() {
       return 0
     fi
 
+    # 다른 세션의 태스크 → stale 여부 확인
+    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
+      local phase
+      phase=$(jq -r '.workflow_phase // ""' "$state_file" 2>/dev/null)
+      local approved
+      approved=$(jq -r '.plan_approved // false' "$state_file" 2>/dev/null)
+      # 미승인 planning 태스크 → stale, .active 삭제하여 자동 정리
+      if [ "$phase" = "planning" ] && [ "$approved" != "true" ]; then
+        rm -f "$active_file"
+        continue
+      fi
+    fi
+
     # 미클레임 태스크 (빈 .active) 기록
     if [ -z "$stored_sid" ] && [ -z "$found_unclaimed_task" ]; then
       found_unclaimed_task="$task_folder"

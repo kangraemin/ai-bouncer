@@ -110,7 +110,7 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
     exit 0
   fi
 
-  # CHECK 6: team members < 2 → BLOCK
+  # CHECK 6: team members < 1 → BLOCK
   MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
   if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
     jq -n '{

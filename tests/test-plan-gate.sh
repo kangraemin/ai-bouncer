@@ -310,18 +310,18 @@ tc11() {
 }
 
 # ---------------------------------------------------------------------------
-# TC-12: development + 팀 멤버 1명 (부족) → BLOCK
+# TC-12: development + 팀 멤버 1명 (solo) → ALLOW
 # ---------------------------------------------------------------------------
 tc12() {
   local dir="$TMPDIR_ROOT/tc12"
   local team="test-team-tc12-$$"
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  # 팀 멤버를 1명으로 변경
+  # 팀 멤버를 1명으로 변경 (solo 팀은 유효)
   echo '{"members":[{"name":"lead"}]}' > "$HOME/.claude/teams/${team}/config.json"
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-12: development + 팀 멤버 1명 → BLOCK" "$out"
+  assert_allow "TC-12: development + 팀 멤버 1명 (solo) → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------

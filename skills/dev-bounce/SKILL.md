@@ -67,7 +67,56 @@ done
 | 구현 방향 | 명확 | 설계 토론 필요 |
 | 테스트 | 기존 테스트로 검증 가능 | 새 테스트 케이스 필요 |
 
-판별 후 state.json에 `"mode": "simple"` 또는 `"mode": "normal"` 설정.
+판별 후 TASK_DIR 초기화 + state.json 생성:
+
+```python
+import json, os, subprocess
+
+TASK_NAME = "user-auth"  # 예: 요청에서 핵심 키워드 추출
+MODE = "simple"  # 또는 "normal" — 위 판별 결과
+
+git_dir = subprocess.run(["git", "rev-parse", "--git-dir"],
+    capture_output=True, text=True).stdout.strip()
+is_worktree = "worktrees" in git_dir
+
+cfg_path = os.path.expanduser("~/.claude/ai-bouncer/config.json")
+cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {}
+docs_git_track = cfg.get("docs_git_track", True)
+
+repo_root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True).stdout.strip()
+repo_name = os.path.basename(repo_root)
+
+persistent_mode = is_worktree or not docs_git_track
+if persistent_mode:
+    docs_base = os.path.expanduser(f"~/.claude/ai-bouncer/sessions/{repo_name}/docs")
+else:
+    docs_base = os.path.join(repo_root, "docs")
+
+task_dir = os.path.join(docs_base, TASK_NAME)
+active_file = os.path.join(task_dir, ".active")
+os.makedirs(task_dir, exist_ok=True)
+with open(active_file, "w") as f:
+    f.write("")
+
+state = {
+    "workflow_phase": "planning",
+    "mode": MODE,
+    "planning": {"no_question_streak": 0},
+    "plan_approved": False,
+    "team_name": "",
+    "current_dev_phase": 0,
+    "current_step": 0,
+    "dev_phases": {},
+    "verification": {"rounds_passed": 0},
+    "task_dir": task_dir,
+    "active_file": active_file,
+    "persistent_mode": persistent_mode,
+}
+with open(os.path.join(task_dir, "state.json"), "w") as f:
+    json.dump(state, f, indent=2)
+print(f"state.json initialized at {task_dir} (persistent_mode={persistent_mode})")
+```
 
 - `mode: simple` → Phase S1 진행
 - `mode: normal` → Phase 1 진행
@@ -132,64 +181,10 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ### Phase 1: Planning Team + Q&A 루프
 
-#### 1-0. Plan Mode 진입
+#### 1-0. Planning Team 구성
 
-EnterPlanMode 호출 — Planning 전체(Q&A + 계획 수립)를 plan mode 안에서 진행한다.
-
-#### 1-1. TASK_DIR 초기화
-
-요청에서 작업 이름 추출 (영어 소문자, 하이픈 구분):
-
-```python
-import json, os, subprocess
-
-TASK_NAME = "user-auth"  # 예: 요청에서 핵심 키워드 추출
-
-git_dir = subprocess.run(["git", "rev-parse", "--git-dir"],
-    capture_output=True, text=True).stdout.strip()
-is_worktree = "worktrees" in git_dir
-
-cfg_path = os.path.expanduser("~/.claude/ai-bouncer/config.json")
-cfg = json.load(open(cfg_path)) if os.path.exists(cfg_path) else {}
-docs_git_track = cfg.get("docs_git_track", True)
-
-repo_root = subprocess.run(["git", "rev-parse", "--show-toplevel"],
-    capture_output=True, text=True).stdout.strip()
-repo_name = os.path.basename(repo_root)
-
-persistent_mode = is_worktree or not docs_git_track
-if persistent_mode:
-    docs_base = os.path.expanduser(f"~/.claude/ai-bouncer/sessions/{repo_name}/docs")
-else:
-    docs_base = os.path.join(repo_root, "docs")
-
-task_dir = os.path.join(docs_base, TASK_NAME)
-active_file = os.path.join(task_dir, ".active")  # 태스크 폴더 안에 .active
-os.makedirs(task_dir, exist_ok=True)
-# .active는 빈 마커로 생성 — 첫 hook이 session_id를 기록 (자동 claim)
-with open(active_file, "w") as f:
-    f.write("")
-
-state = {
-    "workflow_phase": "planning",
-    "mode": "normal",
-    "planning": {"no_question_streak": 0},
-    "plan_approved": False,
-    "team_name": "",
-    "current_dev_phase": 0,
-    "current_step": 0,
-    "dev_phases": {},
-    "verification": {"rounds_passed": 0},
-    "task_dir": task_dir,
-    "active_file": active_file,
-    "persistent_mode": persistent_mode,
-}
-with open(os.path.join(task_dir, "state.json"), "w") as f:
-    json.dump(state, f, indent=2)
-print(f"state.json initialized at {task_dir} (persistent_mode={persistent_mode})")
-```
-
-#### 1-2. Planning Team 구성
+> TASK_DIR은 Phase 0-B에서 이미 초기화됨. plan mode 진입 전에 팀부터 구성한다.
+> (TeamCreate는 plan mode에서 사용 불가)
 
 ```
 TeamCreate: planning-<task>
@@ -200,11 +195,15 @@ TeamCreate: planning-<task>
 
 팀에게 전달: 요청 원문 + TASK_DIR + 관련 코드 컨텍스트
 
-#### 1-3. Q&A 루프
+#### 1-1. Plan Mode 진입
+
+EnterPlanMode 호출 — Q&A + 계획 수립을 plan mode 안에서 진행한다.
+
+#### 1-2. Q&A 루프
 
 > ⚠️ **Q&A 루프 중 ExitPlanMode 절대 금지.**
 > planner-lead로부터 질문을 받아 사용자에게 전달할 때는 반드시 **AskUserQuestion** 사용.
-> ExitPlanMode는 계획 확정 후 **Phase 1-4에서만** 호출한다.
+> ExitPlanMode는 계획 확정 후 **Phase 1-3에서만** 호출한다.
 > ⚠️ **plan mode에서 Write/Edit 도구 사용 금지** — 자동으로 plan mode가 해제됨.
 
 ```
@@ -222,7 +221,7 @@ while true:
      - streak >= 3 → 다음 단계
 ```
 
-#### 1-4. 계획 확정 + Plan Mode 종료
+#### 1-3. 계획 확정 + Plan Mode 종료
 
 planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` 수신.
 계획 내용을 plan mode 내부 plan 파일에 정리.
@@ -230,7 +229,7 @@ Planning 팀 shutdown.
 
 ExitPlanMode 호출 (plan mode 종료).
 
-#### 1-5. plan.md 저장 + 사용자에게 표시
+#### 1-4. plan.md 저장 + 사용자에게 표시
 
 plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 (plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
@@ -252,7 +251,7 @@ plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 
 승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
 
-수정 요청 시: EnterPlanMode 재진입 → planner-lead에게 재작업 지시 → 1-3 Q&A 루프 재시작
+수정 요청 시: EnterPlanMode 재진입 → planner-lead에게 재작업 지시 → 1-2 Q&A 루프 재시작
 
 ```bash
 python3 << 'PYEOF'
