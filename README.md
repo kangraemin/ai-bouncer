@@ -52,8 +52,8 @@ The `intent` agent classifies the request (general / insufficient / dev task). D
 Main Claude handles everything directly — no team spawn, no phase/step structure:
 
 1. **Plan** — Explore code, write `plan.md`, get approval
-2. **Develop** — Implement freely
-3. **Verify** — Run tests once, done
+2. **TC + Develop** — Write test cases in `tests.md` if applicable (`[TC:스킵]` if not), then implement
+3. **Verify** — Run tests, lightweight plan-vs-diff check, done
 
 #### NORMAL Mode
 
@@ -83,12 +83,11 @@ Then drives a strict TDD loop per step:
 4. Repeat until all steps pass
 
 **Phase 4 — Verification**
-The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes:
-- Reads only from `docs/` files (never from conversation context)
-- Checks every feature in `plan.md` is implemented
-- Validates document completeness across all step files
-- Re-runs the full test suite
-- **Any failure resets `rounds_passed` to 0**
+The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, each from a different perspective:
+- **Round 1 — 기능 충실도**: plan.md compliance, doc completeness, feature coverage
+- **Round 2 — 코드 품질**: code review, bugs, edge cases, naming/style
+- **Round 3 — 통합 & 회귀**: full test suite, cross-file interactions, regression check
+- **Any failure resets `rounds_passed` to 0** and restarts from Round 1
 
 ---
 
@@ -291,7 +290,8 @@ tests/
   test-bash-audit.sh test-completion-gate.sh
   e2e-skill.sh
 
-install.sh           (install/update/uninstall/config)
+install.sh           (install/update/config)
+uninstall.sh         (standalone uninstall)
 update.sh            (dev-time sync to ~/.claude/)
 ```
 
