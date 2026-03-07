@@ -119,6 +119,7 @@ fi
 # state.json 값 읽기
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
+MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
@@ -165,6 +166,13 @@ if [ ! -f "${TASK_DIR}/plan.md" ]; then
   }'
   exit 0
 fi
+
+# SIMPLE 모드: plan_approved + plan.md 존재만으로 통과
+if [ "$MODE" = "simple" ]; then
+  exit 0
+fi
+
+# --- 이하 NORMAL 모드 전용 ---
 
 # CHECK 4: development + team_name
 if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then

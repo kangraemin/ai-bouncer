@@ -12,11 +12,15 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
+MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 
 # cancelled 상태 → 즉시 통과 (사용자가 작업 포기 선택)
 [ "$WORKFLOW_PHASE" = "cancelled" ] && exit 0
 
-# 검증 단계에서만 체크
+# SIMPLE 모드: 3회 연속 검증 불필요
+[ "$MODE" = "simple" ] && exit 0
+
+# 검증 단계에서만 체크 (NORMAL 모드)
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   VERIFY_DIR="${TASK_DIR}/verifications"
 

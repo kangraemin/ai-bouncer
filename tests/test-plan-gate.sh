@@ -384,6 +384,72 @@ tc_p15() {
 }
 
 # ---------------------------------------------------------------------------
+# SIMPLE 모드 테스트
+# ---------------------------------------------------------------------------
+
+# TC-S1: simple + development + plan_approved + 팀/step 없음 → ALLOW
+tc_s1() {
+  local dir="$TMPDIR_ROOT/tc_s1"
+  setup_env "$dir" "my-task" "development" "true" ""
+  # mode=simple, team_name 비어있음, step/phase 없음
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+s['team_name'] = ''
+s['current_dev_phase'] = 0
+s['current_step'] = 0
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-S1: simple + development + 팀/step 없음 → ALLOW" "$out"
+}
+
+# TC-S2: simple + planning → BLOCK (plan 승인 전)
+tc_s2() {
+  local dir="$TMPDIR_ROOT/tc_s2"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-S2: simple + planning → BLOCK" "$out"
+}
+
+# TC-S3: simple + plan_approved=false → BLOCK
+tc_s3() {
+  local dir="$TMPDIR_ROOT/tc_s3"
+  setup_env "$dir" "my-task" "development" "true" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+s['plan_approved'] = False
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-S3: simple + plan_approved=false → BLOCK" "$out"
+}
+
+# TC-S4: normal (default) + development + 팀 없음 → BLOCK (기존 동작 유지)
+tc_s4() {
+  local dir="$TMPDIR_ROOT/tc_s4"
+  setup_env "$dir" "my-task" "development" "true" ""
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-S4: normal + development + 팀 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests (Artifact-based) ===${NC}"
@@ -391,6 +457,7 @@ echo ""
 
 tc1; tc2; tc3; tc4; tc5; tc6; tc7; tc8; tc9; tc10; tc11; tc12
 tc_p13; tc_p14; tc_p15
+tc_s1; tc_s2; tc_s3; tc_s4
 
 # Cleanup team directories
 cleanup_teams

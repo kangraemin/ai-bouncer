@@ -136,12 +136,40 @@ tc_c5() {
 }
 
 # ---------------------------------------------------------------------------
+# SIMPLE 모드 테스트
+# ---------------------------------------------------------------------------
+
+# TC-CS1: simple + verification + round 없음 → ALLOW (3회 검증 불필요)
+tc_cs1() {
+  local dir="$TMPDIR_ROOT/tc_cs1"
+  setup_env "$dir" "my-task" "verification" "true"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-CS1: simple + verification + round 없음 → ALLOW" "$out"
+}
+
+# TC-CS2: normal + verification + round 없음 → BLOCK (기존 동작 유지)
+tc_cs2() {
+  local dir="$TMPDIR_ROOT/tc_cs2"
+  setup_env "$dir" "my-task" "verification" "true"
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-CS2: normal + verification + round 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== completion-gate.sh E2E Tests (Artifact-based) ===${NC}"
 echo ""
 
 tc_c1; tc_c2; tc_c3; tc_c4; tc_c5
+tc_cs1; tc_cs2
 
 echo ""
 echo "---"

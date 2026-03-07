@@ -421,6 +421,54 @@ tc_b27() {
 }
 
 # ---------------------------------------------------------------------------
+# SIMPLE 모드 테스트
+# ---------------------------------------------------------------------------
+
+# TC-BS1: simple + development + 팀/step 없음 + echo > → ALLOW
+tc_bs1() {
+  local dir="$TMPDIR_ROOT/tc_bs1"
+  setup_env "$dir" "my-task" "development" "true" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+s['team_name'] = ''
+s['current_dev_phase'] = 0
+s['current_step'] = 0
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "echo 'code' > /src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-BS1: simple + development + 팀/step 없음 → ALLOW" "$out"
+}
+
+# TC-BS2: simple + planning + echo > → BLOCK (plan 미승인)
+tc_bs2() {
+  local dir="$TMPDIR_ROOT/tc_bs2"
+  setup_env "$dir" "my-task" "planning" "false" ""
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "echo 'hack' > /src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-BS2: simple + planning + echo > → BLOCK" "$out"
+}
+
+# TC-BS3: normal (default) + development + 팀 없음 + echo > → BLOCK
+tc_bs3() {
+  local dir="$TMPDIR_ROOT/tc_bs3"
+  setup_env "$dir" "my-task" "development" "true" ""
+  local input; input=$(make_input "echo 'code' > /src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-BS3: normal + development + 팀 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== bash-gate.sh E2E Tests (Layer 1) ===${NC}"
@@ -433,6 +481,7 @@ tc_b15
 tc_b16; tc_b17
 tc_b18; tc_b19; tc_b20; tc_b21; tc_b22
 tc_b23; tc_b24; tc_b25; tc_b27
+tc_bs1; tc_bs2; tc_bs3
 
 cleanup_teams
 
