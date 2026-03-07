@@ -21,6 +21,17 @@ err()    { echo -e "${RED}✗${NC}  $*"; }
 header() { echo -e "\n${BOLD}── $* ──${NC}\n"; }
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# PACKAGE_DIR 유효성 검사 (curl 원격 실행 대응)
+if [ ! -f "$PACKAGE_DIR/agents/intent.md" ]; then
+  info "원격 실행 감지 — 레포를 다운로드합니다..."
+  TMPDIR_INSTALL=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR_INSTALL"' EXIT
+  git clone --depth 1 "${AI_BOUNCER_REPO:-https://github.com/kangraemin/ai-bouncer.git}" "$TMPDIR_INSTALL/ai-bouncer" -q
+  PACKAGE_DIR="$TMPDIR_INSTALL/ai-bouncer"
+  ok "다운로드 완료"
+fi
+
 MODE="${1:-install}"
 
 # ── 언인스톨 ──────────────────────────────────────────────────
