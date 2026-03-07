@@ -114,7 +114,8 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 개발 완료 후:
 
 1. 테스트 실행 (pytest, lint 등) — 1회 통과면 OK
-2. state.json `workflow_phase`를 `"done"`으로 업데이트:
+2. active_file 삭제 (workflow_phase가 아직 whitelisted일 때): `rm -f {active_file}`
+3. state.json `workflow_phase`를 `"done"`으로 업데이트 (state.json은 bash-gate 예외 경로):
    ```python
    import json, os
    f = os.path.join(task_dir, 'state.json')
@@ -122,7 +123,6 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
    s['workflow_phase'] = 'done'
    with open(f, 'w') as fp: json.dump(s, fp, indent=2)
    ```
-3. active_file 삭제: `rm -f {active_file}`  (태스크 폴더 안의 `.active` 제거)
 4. 사용자에게 완료 보고
 
 ---
@@ -386,7 +386,8 @@ print('workflow_phase = verification')
              shutil.rmtree(dst)   # destination(main repo)만 삭제, source(persistent)는 보존
          shutil.copytree(state["task_dir"], dst)
      ```
-   - active_file 삭제: `rm -f {active_file}`  (태스크 폴더 안의 `.active` 제거)
+   - active_file 삭제 (workflow_phase가 아직 verification일 때): `rm -f {active_file}`
+   - state.json `workflow_phase`를 `"done"`으로 업데이트 (state.json은 bash-gate 예외 경로)
      ⚠️ task_dir(source) 자체는 절대 삭제하지 않는다. 모든 문서 보존.
    - 사용자에게 완료 보고
 
