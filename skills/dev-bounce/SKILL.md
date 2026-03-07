@@ -171,6 +171,25 @@ s['workflow_phase'] = 'development'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 ```
 
+#### TC 판단 + 작성
+
+승인 후 plan.md의 검증 섹션을 확인하여 TC 작성 여부를 판단:
+
+- **TC 작성 대상**: 테스트 가능한 항목이 있는 경우 (함수 동작, CLI 출력, API 응답 등)
+  1. `{TASK_DIR}/tests.md`에 TC 작성:
+     ```markdown
+     ## TC-1: <테스트 이름>
+     - 입력: ...
+     - 기대결과: ...
+     - 검증명령: `<실행할 명령어>`
+     - 결과: (개발 후 기록)
+     ```
+  2. TC 기반으로 코드 개발
+  3. 개발 완료 후 TC 실행 → tests.md에 결과(✅/❌) 기록
+
+- **TC 스킵**: 테스트할 게 없는 경우 (설정 변경, 문서 수정, 단순 리팩토링 등)
+  - `[TC:스킵]` 명시 후 바로 개발
+
 Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ### Phase S3: 검증 + 완료
