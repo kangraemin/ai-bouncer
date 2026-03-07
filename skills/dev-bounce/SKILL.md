@@ -164,7 +164,18 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 개발 완료 후:
 
 1. 테스트 실행 (pytest, lint 등) — 1회 통과면 OK
-2. active_file 삭제 (workflow_phase가 아직 whitelisted일 때): `rm -f {active_file}`
+2. 경량 검증: plan.md 대비 실제 변경 확인
+   - `{TASK_DIR}/plan.md` 읽어 변경 예정 파일 파악
+   - `git diff HEAD~1 --name-only`로 실제 변경 파일 확인
+   - 계획됐으나 미변경 파일이 있으면 사용자에게 경고 표시 (차단은 안 함)
+   - 간단한 체크리스트 출력:
+     ```
+     [경량 검증]
+     ✅ 테스트 통과
+     ✅/⚠️ plan.md 대비 변경 확인: N/M 파일 일치
+     (⚠️ 미변경: 파일명 — 의도된 것인지 확인 필요)
+     ```
+3. active_file 삭제 (workflow_phase가 아직 whitelisted일 때): `rm -f {active_file}`
 3. state.json `workflow_phase`를 `"done"`으로 업데이트 (state.json은 bash-gate 예외 경로):
    ```python
    import json, os

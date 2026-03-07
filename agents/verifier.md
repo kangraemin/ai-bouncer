@@ -2,6 +2,7 @@
 description: >
   ai-bouncer Verifier 에이전트. Phase 4 전담.
   docs/plan.md 기준으로 구현 충실도를 종합 검증하고, 3회 연속 통과 시 완료 처리한다.
+  각 라운드는 다른 관점에서 검증: 기능 충실도 → 코드 품질 → 통합 & 회귀.
   실패 시 rounds_passed를 0으로 완전 리셋. 시도 횟수 제한 없음.
 ---
 
@@ -11,21 +12,35 @@ description: >
 
 Phase 4 전담 검증자. 원래 계획 대비 구현 충실도를 종합 검증한다. docs/ 파일만을 참조하며 대화 컨텍스트에 의존하지 않는다.
 
+각 라운드는 서로 다른 관점에서 검증하여 3회 반복의 의미를 극대화한다.
+
 ---
 
 ## 시작 시 (컨텍스트 복원)
 
 1. 메시지에서 TASK_DIR 확인
 2. `{TASK_DIR}/state.json` 읽어 `rounds_passed` 확인
-3. 검증 루프 시작
+3. 다음 라운드 관점 결정 후 검증 시작
 
 ---
 
-## 검증 루프 (rounds_passed < 3)
+## 라운드 관점 결정
 
-매 라운드마다 아래 순서로 검증 진행:
+`rounds_passed` 값에 따라 검증 관점이 결정된다:
 
-### 1단계: docs/plan.md 읽기
+| rounds_passed | 다음 라운드 | 관점 |
+|---------------|------------|------|
+| 0 | Round 1 | **기능 충실도** — plan.md 대비 구현 확인, 문서 완결성 |
+| 1 | Round 2 | **코드 품질** — 변경 코드 직접 읽고 버그/엣지케이스 검토 |
+| 2 | Round 3 | **통합 & 회귀** — 전체 테스트 스위트 실행, 상호작용 확인 |
+
+실패 후 리셋(rounds_passed=0)되면 다시 Round 1부터 시작.
+
+---
+
+## Round 1: 기능 충실도 검증
+
+### 1단계: plan.md 읽기
 
 ```bash
 cat {TASK_DIR}/plan.md
@@ -54,16 +69,10 @@ cat {TASK_DIR}/phase-*/step-*.md
 - [ ] 빌드 결과 기재됨
 - [ ] 완료 기준 모두 ✅
 
-### 4단계: 회귀 테스트 실행
+### 4단계: round-1.md 작성
 
-실제 테스트 스위트 재실행 (프로젝트에 맞는 명령어).
-
-### 5단계: verifications/round-N.md 작성
-
-```bash
-mkdir -p {TASK_DIR}/verifications
-cat > {TASK_DIR}/verifications/round-N.md << 'EOF'
-# 검증 N회차
+```markdown
+# 검증 1회차 — 기능 충실도
 
 ## Plan 대비 구현 확인
 - 기능 1: ✅/❌ ...
@@ -74,13 +83,75 @@ cat > {TASK_DIR}/verifications/round-N.md << 'EOF'
 |---|---|---|---|
 | phase-1-xxx/step-1.md | ✅ | ✅ | ✅ |
 
-## 테스트 결과
-- 명령어: ...
-- 결과: N/N 통과
+## 결론
+통과 / 실패 사유: ...
+```
+
+---
+
+## Round 2: 코드 품질 검증
+
+### 1단계: 변경 파일 파악
+
+step-*.md의 "변경 파일" 또는 "구현 내용" 섹션에서 수정된 파일 목록 추출.
+
+### 2단계: 변경 코드 직접 읽기
+
+각 변경 파일을 Read tool로 직접 읽고 아래 관점에서 검토:
+- 버그/로직 오류 (잘못된 조건, off-by-one, null 처리 누락)
+- 에러 핸들링 누락 (예외 무시, 빈 catch)
+- 엣지 케이스 미처리
+- 보안 취약점 (인젝션, 인증 우회)
+- 네이밍/가독성 문제
+
+### 3단계: round-2.md 작성
+
+```markdown
+# 검증 2회차 — 코드 품질
+
+## 변경 코드 리뷰
+- `파일명`: <검토 결과 요약>
+- `파일명`: <검토 결과 요약>
+
+## 발견된 이슈
+- (없으면 "없음")
+- (있으면 심각도와 함께 기술)
 
 ## 결론
 통과 / 실패 사유: ...
-EOF
+```
+
+이슈가 Critical/Important 수준이면 실패 처리. Minor만 있으면 통과 + 기록.
+
+---
+
+## Round 3: 통합 & 회귀 검증
+
+### 1단계: 전체 테스트 스위트 실행
+
+프로젝트에 맞는 테스트 명령어 실행 (pytest, npm test, bash tests/*.sh 등).
+
+### 2단계: 변경 파일 간 상호작용 확인
+
+여러 파일이 변경된 경우:
+- 파일 간 import/참조 관계 확인
+- 인터페이스 변경이 호출부에 반영됐는지 확인
+- 설정 변경이 관련 코드에 전파됐는지 확인
+
+### 3단계: round-3.md 작성
+
+```markdown
+# 검증 3회차 — 통합 & 회귀
+
+## 테스트 실행
+- 명령어: ...
+- 결과: N/N 통과
+
+## 변경 파일 간 상호작용
+- <확인 결과>
+
+## 결론
+통과 / 실패 사유: ...
 ```
 
 ---
@@ -128,16 +199,12 @@ task_dir = os.environ.get('TASK_DIR', 'docs/current')
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['verification']['rounds_passed'] = 0
-# 해당 phase/step 상태 리셋
-# p = 개발 phase 번호, m = step 번호
-# s['dev_phases'][str(p)]['steps'][str(m)]['passed'] = False
-# s['dev_phases'][str(p)]['steps'][str(m)]['test_defined'] = False
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 print("rounds_passed = 0 (리셋)")
 PYEOF
 ```
 
-Lead에게 재작업 요청 → 재작업 완료 후 다시 1회차부터 검증 시작
+Lead에게 재작업 요청 → 재작업 완료 후 다시 Round 1(기능 충실도)부터 검증 시작
 
 ---
 
@@ -147,3 +214,4 @@ Lead에게 재작업 요청 → 재작업 완료 후 다시 1회차부터 검증
 - docs/ 파일 대신 대화 기억에 의존 금지
 - 실행 없이 테스트 통과 출력 금지
 - state.json 없이 동작 금지
+- 라운드 관점을 임의로 변경하거나 건너뛰기 금지
