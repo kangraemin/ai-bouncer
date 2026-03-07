@@ -54,6 +54,9 @@ setup_env() {
   local phase_folder="phase-1-test"
   mkdir -p "$dir/docs/${task_name}/${phase_folder}"
 
+  # phase.md 생성
+  echo "# 개발 Phase 1: test" > "$dir/docs/${task_name}/${phase_folder}/phase.md"
+
   # step 파일 생성
   if [ "$create_step" = "yes" ]; then
     if [ "$fill_tc" = "yes" ]; then
@@ -441,6 +444,21 @@ tc_s4() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-PH1: development + phase.md 없음 → BLOCK
+# ---------------------------------------------------------------------------
+tc_ph1() {
+  local dir="$TMPDIR_ROOT/tc_ph1"
+  local team="test-team-tcph1-$$"
+  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
+  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
+  # phase.md 삭제
+  rm -f "$dir/docs/my-task/phase-1-test/phase.md"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-PH1: development + phase.md 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests (Artifact-based) ===${NC}"
@@ -449,6 +467,7 @@ echo ""
 tc1; tc2; tc3; tc4; tc5; tc6; tc7; tc8; tc9; tc10; tc11; tc12
 tc_p13; tc_p14; tc_p15
 tc_s1; tc_s2; tc_s3; tc_s4
+tc_ph1
 
 # Cleanup team directories
 cleanup_teams

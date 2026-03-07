@@ -49,6 +49,9 @@ setup_env() {
   local phase_folder="phase-1-test"
   mkdir -p "$dir/docs/${task_name}/${phase_folder}"
 
+  # phase.md 생성
+  echo "# 개발 Phase 1: test" > "$dir/docs/${task_name}/${phase_folder}/phase.md"
+
   if [ "$create_step" = "yes" ]; then
     if [ "$fill_tc" = "yes" ]; then
       cat > "$dir/docs/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
@@ -469,6 +472,21 @@ tc_bs3() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-BPH1: development + phase.md 없음 + echo > → BLOCK
+# ---------------------------------------------------------------------------
+tc_bph1() {
+  local dir="$TMPDIR_ROOT/tc_bph1"
+  local team="test-team-tcbph1-$$"
+  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
+  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
+  # phase.md 삭제
+  rm -f "$dir/docs/my-task/phase-1-test/phase.md"
+  local input; input=$(make_input "echo 'code' > /src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-BPH1: development + phase.md 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== bash-gate.sh E2E Tests (Layer 1) ===${NC}"
@@ -482,6 +500,7 @@ tc_b16; tc_b17
 tc_b18; tc_b19; tc_b20; tc_b21; tc_b22
 tc_b23; tc_b24; tc_b25; tc_b27
 tc_bs1; tc_bs2; tc_bs3
+tc_bph1
 
 cleanup_teams
 

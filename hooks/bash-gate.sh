@@ -230,6 +230,16 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
   if [ -n "$PHASE_FOLDER" ]; then
     PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
+    # CHECK 7a: phase.md 존재 검증
+    if [ ! -f "${PHASE_DIR}/phase.md" ]; then
+      save_snapshot
+      jq -n --arg phase "$DEV_PHASE_KEY" '{
+        decision: "block",
+        reason: ("⛔ [bash-gate] Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+      }'
+      exit 0
+    fi
+
     PREV_STEP=$((CURRENT_STEP - 1))
     if [ "$PREV_STEP" -gt 0 ]; then
       PREV_STEP_FILE="${PHASE_DIR}/step-${PREV_STEP}.md"
