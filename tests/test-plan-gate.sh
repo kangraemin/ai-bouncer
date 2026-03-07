@@ -38,7 +38,7 @@ setup_env() {
   local prev_passed="${8:-no}"
 
   mkdir -p "$dir/docs/${task_name}"
-  echo "$task_name" > "$dir/docs/.active"
+  touch "$dir/docs/${task_name}/.active"
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then
@@ -362,25 +362,16 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   assert_block "TC-P14: development + dev_phase=0 → BLOCK" "$out"
 }
 
-# TC-P15: persistent .active 빈 파일 → local fallback → ALLOW
+# TC-P15: .active 없음 → gate 비활성 → ALLOW
 tc_p15() {
   local dir="$TMPDIR_ROOT/tc_p15"
-  local repo_name; repo_name=$(basename "$dir")
-  local persistent_dir="$HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  mkdir -p "$persistent_dir"
-  # persistent .active is empty → fallback to local
-  echo "" > "$persistent_dir/.active"
-
   setup_env "$dir" "my-task" "planning" "false" ""
-  # Remove local .active → gate inactive
-  rm -f "$dir/docs/.active"
+  # .active 제거 → gate 비활성
+  rm -f "$dir/docs/my-task/.active"
 
   local input; input=$(make_input "Write" "/src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-P15: persistent .active 빈 → local fallback → ALLOW (gate 비활성)" "$out"
-
-  # Cleanup
-  rm -rf "$persistent_dir"
+  assert_allow "TC-P15: .active 없음 → ALLOW (gate 비활성)" "$out"
 }
 
 # ---------------------------------------------------------------------------

@@ -11,6 +11,10 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
+# 세션 격리: session_id 추출
+export SESSION_ID
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 [ -z "$TASK_NAME" ] && exit 0

@@ -11,6 +11,10 @@ case "$TOOL" in
   *) exit 0 ;;
 esac
 
+# 세션 격리: session_id 추출
+export SESSION_ID
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
 # --- ai-bouncer start ---
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""')

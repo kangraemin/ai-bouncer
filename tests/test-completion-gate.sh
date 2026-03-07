@@ -23,7 +23,7 @@ setup_env() {
   local plan_approved="${4:-true}"
 
   mkdir -p "$dir/docs/${task_name}"
-  echo "$task_name" > "$dir/docs/.active"
+  touch "$dir/docs/${task_name}/.active"
 
   python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" <<'PYEOF'
 import json, sys

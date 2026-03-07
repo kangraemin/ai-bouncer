@@ -3,6 +3,11 @@
 # Claude가 각 응답 턴을 마칠 때 실행
 # 검증 단계에서 round-*.md 아티팩트 기반으로 3회 연속 통과 여부 검증
 
+# 세션 격리: session_id 추출 (Stop hook도 stdin JSON 수신)
+INPUT=$(cat)
+export SESSION_ID
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
 # resolve_task_dir: 공유 라이브러리 사용
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"

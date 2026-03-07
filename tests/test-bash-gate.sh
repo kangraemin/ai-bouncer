@@ -33,7 +33,7 @@ setup_env() {
   local fill_tc="${7:-no}"
 
   mkdir -p "$dir/docs/${task_name}"
-  echo "$task_name" > "$dir/docs/.active"
+  touch "$dir/docs/${task_name}/.active"
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then

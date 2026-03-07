@@ -17,19 +17,26 @@ description: 구조화된 개발 flow 실행. 코드 수정/기능 구현/버그
 
 ## 컨텍스트 복원 (세션 재시작 시)
 
-시작 전 활성 작업 확인 (persistent_mode 지원):
+시작 전 활성 작업 확인 (세션별 격리 — `docs/<task>/.active` 방식):
 
 ```bash
 REPO_NAME=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null)
-PERSISTENT_ACTIVE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/.active"
 
-if [ -f "$PERSISTENT_ACTIVE" ] && [ -s "$PERSISTENT_ACTIVE" ]; then
-  TASK_NAME=$(cat "$PERSISTENT_ACTIVE")
-  STATE_JSON="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs/${TASK_NAME}/state.json"
-elif [ -f "docs/.active" ] && [ -s "docs/.active" ]; then
-  TASK_NAME=$(cat "docs/.active")
-  STATE_JSON="docs/${TASK_NAME}/state.json"
-fi
+# docs/<task>/.active 스캔 (persistent → local 순서)
+TASK_NAME=""
+for base in "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs" "docs"; do
+  [ -d "$base" ] || continue
+  for active_file in "$base"/*/.active; do
+    [ -f "$active_file" ] || continue
+    task_folder=$(basename "$(dirname "$active_file")")
+    state_json="${base}/${task_folder}/state.json"
+    [ -f "$state_json" ] || continue
+    TASK_NAME="$task_folder"
+    STATE_JSON="$state_json"
+    TASK_DIR="${base}/${task_folder}"
+    break 2
+  done
+done
 ```
 
 - 활성 작업 있음 → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
@@ -115,7 +122,7 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
    s['workflow_phase'] = 'done'
    with open(f, 'w') as fp: json.dump(s, fp, indent=2)
    ```
-3. active_file 비우기: `echo "" > {active_file}`
+3. active_file 삭제: `rm -f {active_file}`  (태스크 폴더 안의 `.active` 제거)
 4. 사용자에게 완료 보고
 
 ---
@@ -156,10 +163,11 @@ else:
     docs_base = os.path.join(repo_root, "docs")
 
 task_dir = os.path.join(docs_base, TASK_NAME)
-active_file = os.path.join(docs_base, ".active")
+active_file = os.path.join(task_dir, ".active")  # 태스크 폴더 안에 .active
 os.makedirs(task_dir, exist_ok=True)
+# .active는 빈 마커로 생성 — 첫 hook이 session_id를 기록 (자동 claim)
 with open(active_file, "w") as f:
-    f.write(TASK_NAME)
+    f.write("")
 
 state = {
     "workflow_phase": "planning",
@@ -378,7 +386,7 @@ print('workflow_phase = verification')
              shutil.rmtree(dst)   # destination(main repo)만 삭제, source(persistent)는 보존
          shutil.copytree(state["task_dir"], dst)
      ```
-   - active_file만 비우기: `echo "" > {active_file}`
+   - active_file 삭제: `rm -f {active_file}`  (태스크 폴더 안의 `.active` 제거)
      ⚠️ task_dir(source) 자체는 절대 삭제하지 않는다. 모든 문서 보존.
    - 사용자에게 완료 보고
 
@@ -395,5 +403,6 @@ print('workflow_phase = verification')
 - NORMAL 모드: 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
 - 검증 미완료(NORMAL: round-*.md 3개 연속 통과) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
-- 완료 후 task_dir(source) 삭제 금지 — active_file(.active)만 비운다
+- 완료 후 task_dir(source) 삭제 금지 — active_file(`docs/<task>/.active`)만 삭제한다
+- 세션 격리: `.active` 파일은 `docs/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
 - persistent_mode에서 `shutil.rmtree(dst)`는 destination(main repo)만 삭제, source(persistent)는 보존

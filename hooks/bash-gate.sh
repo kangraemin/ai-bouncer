@@ -11,6 +11,10 @@ TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 [ -z "$CMD" ] && exit 0
 
+# 세션 격리: session_id 추출
+export SESSION_ID
+SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
 # --- ai-bouncer start ---
 
 # 1. Fast exit: 쓰기 패턴 미포함 → exit 0
