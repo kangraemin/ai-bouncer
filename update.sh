@@ -14,16 +14,30 @@ ok()  { echo -e "${GREEN}✓${NC}  $*"; }
 err() { echo -e "${RED}✗${NC}  $*"; }
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
 
-if [ -f "$CONFIG_FILE" ]; then
+# 설치 경로 감지: 로컬(.claude/) 우선, 글로벌(~/.claude/) fallback
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+
+TARGET_DIR=""
+
+# 1. 로컬 설치 확인
+if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/config.json" ]; then
+  CONFIG_FILE="$REPO_ROOT/.claude/ai-bouncer/config.json"
+  TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('target_dir','$REPO_ROOT/.claude'))")
+fi
+
+# 2. 글로벌 설치 확인 (하위 호환)
+if [ -z "$TARGET_DIR" ] && [ -f "$HOME/.claude/ai-bouncer/config.json" ]; then
+  CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
   TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('target_dir','$HOME/.claude'))")
-elif [ -d "$HOME/.claude/hooks" ]; then
-  TARGET_DIR="$HOME/.claude"
-else
+fi
+
+if [ -z "$TARGET_DIR" ]; then
   err "ai-bouncer가 설치되어 있지 않습니다. install.sh를 먼저 실행하세요."
   exit 1
 fi
+
+BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
 
 echo -e "${BOLD}ai-bouncer 업데이트${NC} → $TARGET_DIR"
 echo ""
@@ -39,8 +53,8 @@ for agent in intent planner-lead planner-dev planner-qa verifier lead dev qa; do
   fi
 done
 
-# skills
-SKILL_DST="$HOME/.claude/skills/dev-bounce"
+# skills (로컬 설치)
+SKILL_DST="$TARGET_DIR/skills/dev-bounce"
 mkdir -p "$SKILL_DST"
 cp -r "$PACKAGE_DIR/skills/dev-bounce/." "$SKILL_DST/"
 ok "dev-bounce (skill)"
@@ -103,15 +117,23 @@ install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-aud
 install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
 install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
 
+# subagent hooks
+cp "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
+chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
+ok "subagent-track.sh (hook)"
+cp "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
+chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
+ok "subagent-cleanup.sh (hook)"
+
 # lib
 mkdir -p "$TARGET_DIR/hooks/lib"
 cp "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
 chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
 ok "resolve-task.sh (lib)"
 
-# 매니페스트 업데이트
-MANIFEST="$HOME/.claude/ai-bouncer/manifest.json"
-mkdir -p "$HOME/.claude/ai-bouncer"
+# 매니페스트 업데이트 (로컬 우선)
+MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
+mkdir -p "$BOUNCER_DATA_DIR"
 SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 python3 -c "
 import json, datetime, os

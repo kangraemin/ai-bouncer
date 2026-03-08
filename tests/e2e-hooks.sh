@@ -27,7 +27,7 @@ s['plan_approved'] = ('$approved' == 'true')
 with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
 "
   echo "$TEST_SID" > "$ACTIVE_FILE"
-  rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
+  rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 }
 
 # 헬퍼: hook 실행 후 차단 여부 확인
@@ -198,12 +198,12 @@ echo ""
 echo "─── bash-audit.sh ───"
 
 # 스냅샷 없으면 스킵
-rm -f /tmp/.ai-bouncer-snapshot
+rm -f /tmp/.ai-bouncer-snapshot-*
 R=$(run_hook bash-audit.sh "{\"tool_name\":\"Bash\",\"session_id\":\"$TEST_SID\"}")
 assert_pass "스냅샷 없음 → audit 스킵" "$R"
 
 # 승인된 에이전트는 스킵
-touch /tmp/.ai-bouncer-snapshot
+touch "/tmp/.ai-bouncer-snapshot-${TEST_SID}-sub"
 echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
 R=$(run_hook bash-audit.sh "{\"tool_name\":\"Bash\",\"session_id\":\"${TEST_SID}-sub\"}")
 assert_pass "승인된 에이전트 → audit 스킵" "$R"
