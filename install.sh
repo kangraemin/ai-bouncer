@@ -353,6 +353,14 @@ if os.path.exists(settings_file):
 
 hooks = cfg.setdefault('hooks', {})
 
+# Agent Teams env 설정 (NORMAL 모드 TeamCreate 필수)
+env = cfg.setdefault('env', {})
+if env.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') != '1':
+    env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+    print('  ✓ env 설정: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
+else:
+    print('  · env 이미 설정됨: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
+
 def is_registered(hook_list, cmd_fragment):
     for group in hook_list:
         for h in group.get('hooks', []):
