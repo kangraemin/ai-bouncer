@@ -44,6 +44,8 @@ while IFS= read -r file; do
 
   case "$file" in
     */plan.md|*/step-*.md|*/phase-*.md|*/round-*.md|*/.active) continue ;;
+    */tests.md) continue ;;
+    */state.json) continue ;;
     plan.md) continue ;;
     .claude/plans/*|*/.claude/plans/*) continue ;;
     .claude/teams/*|*/.claude/teams/*) continue ;;

@@ -103,8 +103,13 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
   EXCEPTION=true
 fi
 
-# plan.md, step-*.md, phase-*.md, round-*.md
-if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|round-[0-9]+\.md'; then
+# plan.md, step-*.md, phase-*.md, round-*.md, tests.md
+if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|round-[0-9]+\.md|tests\.md'; then
+  EXCEPTION=true
+fi
+
+# .active 파일 조작 (삭제 포함 — dev-bounce 완료 시 필요)
+if echo "$CMD" | grep -qE '\.active'; then
   EXCEPTION=true
 fi
 

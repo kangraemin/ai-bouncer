@@ -8,6 +8,14 @@ INPUT=$(cat)
 export SESSION_ID
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
+# 승인된 sub-agent는 completion-gate 스킵 (부모 세션이 관리)
+APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
+if [ -n "$SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
+  if grep -q "^${SESSION_ID}|" "$APPROVED_FILE" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
 # resolve_task_dir: 공유 라이브러리 사용
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
