@@ -93,22 +93,20 @@ The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, 
 
 ## Installation
 
+프로젝트 루트에서 실행:
+
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
+git clone https://github.com/kangraemin/ai-bouncer.git
+cd ai-bouncer
+bash install.sh
 ```
 
-Choose global (`~/.claude/`) or local (`.claude/`) scope during installation.
+현재 프로젝트의 `.claude/`에 로컬 설치됩니다 (전역 설치 비활성화).
 
 ### Update
 
 ```bash
 bash install.sh --update
-```
-
-Or use `update.sh` from the repo root for development:
-
-```bash
-bash update.sh
 ```
 
 ### Uninstall
@@ -117,13 +115,13 @@ bash update.sh
 bash uninstall.sh
 ```
 
-Or via install.sh (backward compatible):
+Or via install.sh:
 
 ```bash
 bash install.sh --uninstall
 ```
 
-Uninstall reads the manifest to remove exactly the files it installed, leaves your backups intact, and removes hook entries from `settings.json` and the injected rule block from `CLAUDE.md`.
+Uninstall reads the manifest to remove exactly the files it installed, removes hook entries from `settings.json` and the injected rule block from `CLAUDE.md`.
 
 ---
 
@@ -226,7 +224,7 @@ If a session is interrupted or the context window is compressed:
 
 ## Enforcement Hooks
 
-Five hooks are registered automatically into `settings.json`:
+Seven hooks are registered automatically into `settings.json`:
 
 | Hook | Trigger | Behavior |
 |---|---|---|
@@ -235,8 +233,12 @@ Five hooks are registered automatically into `settings.json`:
 | `bash-audit.sh` | `PostToolUse` (Bash) | Detects unauthorized file changes via `git diff` and auto-reverts |
 | `doc-reminder.sh` | `PostToolUse` (Write/Edit) | Warns if a step doc hasn't been updated after a code change |
 | `completion-gate.sh` | `Stop` | Blocks response completion if verification hasn't reached 3 consecutive passes |
+| `subagent-track.sh` | `SubagentStart` | Registers sub-agent session with parent task for delegation context |
+| `subagent-cleanup.sh` | `SubagentStop` | Removes sub-agent from approved list on termination |
 
 **2-layer Bash defense**: `bash-gate.sh` blocks write patterns pre-execution, while `bash-audit.sh` catches anything that slips through by checking `git diff` post-execution and auto-reverting unauthorized changes. Bash-based gate bypass is fully blocked.
+
+**Sub-agent delegation**: When a sub-agent is spawned, `subagent-track.sh` registers it with the parent task's context. Delegated agents inherit gate permissions from the parent session, so they can write files without being blocked by plan-gate or bash-gate.
 
 ---
 
@@ -259,11 +261,10 @@ Five hooks are registered automatically into `settings.json`:
 
 | Prompt | Options |
 |---|---|
-| Scope | `1) global (~/.claude/)` · `2) local (.claude/)` |
 | Commit strategy | `1) per-step` · `2) per-phase` · `3) none` |
 | Track `docs/` in git | `y / n` |
 
-Install also injects a rule into your `CLAUDE.md` so Claude automatically uses `/dev-bounce` for any coding task — even without an explicit `/dev-bounce` invocation.
+Install injects a rule into your project's `.claude/CLAUDE.md` so Claude automatically uses `/dev-bounce` for any coding task.
 
 ---
 
@@ -282,17 +283,15 @@ skills/
 hooks/
   plan-gate.sh       bash-gate.sh       bash-audit.sh
   doc-reminder.sh    completion-gate.sh
+  subagent-track.sh  subagent-cleanup.sh
   lib/
     resolve-task.sh  (shared task resolution library)
 
 tests/
-  test-plan-gate.sh  test-bash-gate.sh
-  test-bash-audit.sh test-completion-gate.sh
-  e2e-skill.sh
+  e2e-hooks.sh       (E2E hook tests — 25 cases)
 
 install.sh           (install/update/config)
 uninstall.sh         (standalone uninstall)
-update.sh            (dev-time sync to ~/.claude/)
 ```
 
 ---
