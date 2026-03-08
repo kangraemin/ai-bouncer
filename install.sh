@@ -45,7 +45,8 @@ fi
 # ── --config 모드 ──────────────────────────────────────────────
 if [ "$MODE" = "--config" ]; then
   header "커밋 전략 재설정"
-  CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
+  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  CONFIG_FILE="${REPO_ROOT:-.}/.claude/ai-bouncer/config.json"
   if [ ! -f "$CONFIG_FILE" ]; then
     err "ai-bouncer가 설치되어 있지 않습니다. 먼저 install.sh를 실행하세요."
     exit 1
@@ -109,7 +110,8 @@ info "설치 대상: $TARGET_DIR"
 mkdir -p "$TARGET_DIR"
 
 # 기존 설치 감지
-MANIFEST="$HOME/.claude/ai-bouncer/manifest.json"
+BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
+MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 IS_UPDATE=false
 if [ -f "$MANIFEST" ]; then
   IS_UPDATE=true
@@ -296,8 +298,8 @@ fi
 ok "커밋 전략: $COMMIT_STRATEGY"
 
 # config.json 저장
-mkdir -p "$HOME/.claude/ai-bouncer"
-cat > "$HOME/.claude/ai-bouncer/config.json" << JSON
+mkdir -p "$BOUNCER_DATA_DIR"
+cat > "$BOUNCER_DATA_DIR/config.json" << JSON
 {
   "docs_git_track": $DOCS_TRACK_BOOL,
   "commit_strategy": "$COMMIT_STRATEGY",
@@ -408,7 +410,7 @@ PYEOF
 # ── 매니페스트 업데이트 ────────────────────────────────────────
 header "매니페스트 기록"
 
-mkdir -p "$HOME/.claude/ai-bouncer"
+mkdir -p "$BOUNCER_DATA_DIR"
 INSTALLED_SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 python3 - "$MANIFEST" "$INSTALLED_SHA" "${INSTALLED_FILES[@]}" <<'PYEOF'
@@ -438,7 +440,7 @@ header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
 echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
-echo "  ├─ skills: dev-bounce (~/.claude/skills/dev-bounce/)"
+echo "  ├─ skills: dev-bounce ($TARGET_DIR/skills/dev-bounce/)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse: Write/Edit)"
 echo "  │         bash-gate.sh (PreToolUse: Bash)"
 echo "  │         doc-reminder.sh (PostToolUse: Write/Edit)"
@@ -447,7 +449,7 @@ echo "  │         completion-gate.sh (Stop)"
 echo "  │         subagent-track.sh (SubagentStart)"
 echo "  │         subagent-cleanup.sh (SubagentStop)"
 echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
-echo "  └─ 매니페스트: $MANIFEST"
+echo "  └─ 매니페스트: $BOUNCER_DATA_DIR/manifest.json"
 echo ""
 echo -e "  사용법: 프로젝트에서 ${BOLD}/dev-bounce <요청>${NC} 실행"
 echo ""
