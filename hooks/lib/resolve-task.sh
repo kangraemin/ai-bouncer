@@ -13,6 +13,22 @@ TASK_NAME=""
 DOCS_BASE=""
 TASK_DIR=""
 STATE_FILE=""
+IS_DELEGATED_AGENT=false
+
+# 0. 승인된 sub-agent 확인 — 부모 task로 즉시 resolve
+APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
+if [ -n "$SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
+  _delegated_task_dir=$(grep "^${SESSION_ID}|" "$APPROVED_FILE" 2>/dev/null | head -1 | cut -d'|' -f2)
+  if [ -n "$_delegated_task_dir" ] && [ -f "${_delegated_task_dir}/state.json" ]; then
+    TASK_NAME=$(basename "$_delegated_task_dir")
+    DOCS_BASE=$(dirname "$_delegated_task_dir")
+    TASK_DIR="$_delegated_task_dir"
+    STATE_FILE="${_delegated_task_dir}/state.json"
+    IS_DELEGATED_AGENT=true
+    # 즉시 반환 — 이하 .active 스캔 스킵
+    return 0 2>/dev/null || :
+  fi
+fi
 
 # .active 파일 스캔: base 디렉토리 아래 */.active 찾아 session_id 매칭
 _resolve_from_base() {

@@ -18,7 +18,9 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 # --- ai-bouncer start ---
 
 # 1. Fast exit: 쓰기 패턴 미포함 → exit 0
-if ! echo "$CMD" | grep -qE '>[^&]|>>|\btee\b|\bsed\b.*-i|\bcp\b|\bmv\b|\btouch\b|\bdd\b.*of=|\bpython|\bnode\b.*-e|\bruby\b.*-e|\bperl\b.*-e|\brm\b|\brmdir\b|\bunlink\b|\bcurl\b.*(-o|--output)|\bwget\b'; then
+# fd redirect (2>/dev/null, 1>&2 등) 제거 후 검사 — 오탐 방지
+CMD_CLEAN=$(echo "$CMD" | sed -E 's/[0-9]+>\/dev\/null//g; s/[0-9]+>[&]?[0-9]*//g')
+if ! echo "$CMD_CLEAN" | grep -qE '>[^&]|>>|\btee\b|\bsed\b.*-i|\bcp\b|\bmv\b|\btouch\b|\bdd\b.*of=|\bpython|\bnode\b.*-e|\bruby\b.*-e|\bperl\b.*-e|\brm\b|\brmdir\b|\bunlink\b|\bcurl\b.*(-o|--output)|\bwget\b'; then
   exit 0
 fi
 
@@ -30,8 +32,8 @@ fi
 # 3. 쓰기 패턴 상세 감지
 IS_WRITE=false
 
-# 리다이렉트: >, >> (단 >& 제외)
-if echo "$CMD" | grep -qE '>[^>&]|>>'; then
+# 리다이렉트: >, >> (단 >& 및 fd redirect 제외)
+if echo "$CMD_CLEAN" | grep -qE '>[^>&]|>>'; then
   IS_WRITE=true
 fi
 

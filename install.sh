@@ -385,6 +385,8 @@ add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
 add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
 add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
 add_hook('Stop', None, 'completion-gate.sh')
+add_hook('SubagentStart', None, 'subagent-track.sh')
+add_hook('SubagentStop', None, 'subagent-cleanup.sh')
 
 with open(settings_file, 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -430,6 +432,8 @@ echo "  │         bash-gate.sh (PreToolUse: Bash)"
 echo "  │         doc-reminder.sh (PostToolUse: Write/Edit)"
 echo "  │         bash-audit.sh (PostToolUse: Bash)"
 echo "  │         completion-gate.sh (Stop)"
+echo "  │         subagent-track.sh (SubagentStart)"
+echo "  │         subagent-cleanup.sh (SubagentStop)"
 echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
 echo "  └─ 매니페스트: $MANIFEST"
 echo ""
