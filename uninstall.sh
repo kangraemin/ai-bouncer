@@ -19,9 +19,17 @@ header() { echo -e "\n${BOLD}── $* ──${NC}\n"; }
 
 header "ai-bouncer 제거"
 
-# 설치 범위 감지
+# 설치 범위 감지: 로컬(.claude/ai-bouncer/) → 글로벌(~/.claude/ai-bouncer/) 순서
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 TARGET_DIR=""
-if [ -f "$HOME/.claude/ai-bouncer/manifest.json" ]; then
+
+# 1. 로컬 설치 확인
+if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/manifest.json" ]; then
+  TARGET_DIR="$REPO_ROOT/.claude"
+fi
+
+# 2. 글로벌 설치 확인 (하위 호환)
+if [ -z "$TARGET_DIR" ] && [ -f "$HOME/.claude/ai-bouncer/manifest.json" ]; then
   TARGET_DIR="$HOME/.claude"
 fi
 
@@ -30,8 +38,9 @@ if [ -z "$TARGET_DIR" ]; then
   exit 1
 fi
 
-MANIFEST="$HOME/.claude/ai-bouncer/manifest.json"
-info "매니페스트에서 설치 파일 목록 읽는 중..."
+BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
+MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
+info "매니페스트에서 설치 파일 목록 읽는 중... ($MANIFEST)"
 
 python3 - "$MANIFEST" "$TARGET_DIR" <<'PYEOF'
 import json, os, sys
@@ -56,29 +65,52 @@ PYEOF
 # settings.json에서 hook 제거
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
-  python3 - "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
-import json, os, sys
+  python3 - "$SETTINGS_FILE" <<'PYEOF'
+import json, sys
 
 settings_file = sys.argv[1]
-target_dir = sys.argv[2]
 
 with open(settings_file) as f:
     cfg = json.load(f)
 
+BOUNCER_HOOKS = {
+    'plan-gate.sh', 'bash-gate.sh', 'bash-audit.sh',
+    'doc-reminder.sh', 'completion-gate.sh',
+    'subagent-track.sh', 'subagent-cleanup.sh',
+}
+
+def is_bouncer_hook(group):
+    for h in group.get('hooks', []):
+        cmd = h.get('command', '')
+        # 파일명 기준 매칭 (경로 무관)
+        import os
+        if os.path.basename(cmd) in BOUNCER_HOOKS:
+            return True
+    return False
+
 hooks = cfg.get('hooks', {})
-for hook_type in ['PreToolUse', 'PostToolUse', 'Stop']:
+for hook_type in ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop']:
     if hook_type in hooks:
         original = hooks[hook_type]
-        filtered = [
-            g for g in original
-            if not any('ai-bouncer' in h.get('command', '') for h in g.get('hooks', []))
-        ]
+        filtered = [g for g in original if not is_bouncer_hook(g)]
         if len(filtered) != len(original):
             hooks[hook_type] = filtered
             print(f"  {hook_type} hook 제거됨")
 
-if not any(hooks.values()):
+# 빈 hook 타입 정리
+hooks = {k: v for k, v in hooks.items() if v}
+if hooks:
+    cfg['hooks'] = hooks
+else:
     cfg.pop('hooks', None)
+
+# AGENT_TEAMS env 제거
+env = cfg.get('env', {})
+env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
+if not env:
+    cfg.pop('env', None)
+else:
+    cfg['env'] = env
 
 with open(settings_file, 'w') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -87,14 +119,10 @@ PYEOF
 fi
 
 # CLAUDE.md 블록 제거
-CONFIG_JSON="$HOME/.claude/ai-bouncer/config.json"
-if [ -f "$CONFIG_JSON" ]; then
-  UNINSTALL_TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_JSON')).get('target_dir',''))" 2>/dev/null || echo "")
-  if [ -n "$UNINSTALL_TARGET_DIR" ]; then
-    CLAUDE_FILE="$UNINSTALL_TARGET_DIR/CLAUDE.md"
-    if [ -f "$CLAUDE_FILE" ]; then
-      python3 - "$CLAUDE_FILE" <<'PYEOF'
-import sys, re
+CLAUDE_FILE="$TARGET_DIR/CLAUDE.md"
+if [ -f "$CLAUDE_FILE" ]; then
+  python3 - "$CLAUDE_FILE" <<'PYEOF'
+import sys
 
 claude_file = sys.argv[1]
 START = "# --- ai-bouncer-rule start ---"
@@ -114,18 +142,28 @@ after  = content[e + len(END):].lstrip('\n')
 new_content = (before + '\n' + after).strip('\n')
 if new_content:
     new_content += '\n'
+else:
+    # CLAUDE.md가 bouncer 규칙만 있었으면 파일 삭제
+    import os
+    os.remove(claude_file)
+    print("  CLAUDE.md 삭제됨 (bouncer 규칙만 있었음)")
+    sys.exit(0)
 
 open(claude_file, 'w', encoding='utf-8').write(new_content)
 print("  CLAUDE.md ai-bouncer 규칙 블록 제거됨")
 PYEOF
-    fi
-  fi
 fi
 
-# 매니페스트 삭제
-rm -f "$HOME/.claude/ai-bouncer/manifest.json"
-rm -f "$HOME/.claude/ai-bouncer/config.json"
-rmdir "$HOME/.claude/ai-bouncer" 2>/dev/null || true
+# 빈 디렉토리 정리
+for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" "$TARGET_DIR/agents" \
+           "$TARGET_DIR/skills/dev-bounce" "$TARGET_DIR/skills"; do
+  rmdir "$dir" 2>/dev/null || true
+done
+
+# 매니페스트/config 삭제
+rm -f "$BOUNCER_DATA_DIR/manifest.json"
+rm -f "$BOUNCER_DATA_DIR/config.json"
+rmdir "$BOUNCER_DATA_DIR" 2>/dev/null || true
 
 echo ""
 ok "ai-bouncer 제거 완료"

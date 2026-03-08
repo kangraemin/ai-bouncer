@@ -219,7 +219,66 @@ R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\
 if is_blocked "$R"; then fail "plan-gate: 위임 에이전트 → 통과"; else pass "plan-gate: 위임 에이전트 → 통과"; fi
 
 # ═══════════════════════════════════════════════════════════════
-echo -e "\n${BOLD}─── 4. 정리 ───${NC}"
+echo -e "\n${BOLD}─── 4. Update (--update) ───${NC}"
+
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -3
+
+# 업데이트 후에도 파일이 존재하는지 확인
+assert_file "update 후 plan-gate.sh 존재"   "$TARGET/hooks/plan-gate.sh"
+assert_file "update 후 intent.md 존재"      "$TARGET/agents/intent.md"
+assert_file "update 후 SKILL.md 존재"       "$TARGET/skills/dev-bounce/SKILL.md"
+assert_file "update 후 settings.json 존재"  "$TARGET/settings.json"
+assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-gate.sh"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 5. Uninstall ───${NC}"
+
+(cd "$REPO_DIR" && bash "$SRC_DIR/uninstall.sh") 2>&1 | tail -5
+
+# 파일이 삭제되었는지 확인
+assert_no_file "uninstall 후 plan-gate.sh 없음"    "$TARGET/hooks/plan-gate.sh"
+assert_no_file "uninstall 후 bash-gate.sh 없음"    "$TARGET/hooks/bash-gate.sh"
+assert_no_file "uninstall 후 bash-audit.sh 없음"   "$TARGET/hooks/bash-audit.sh"
+assert_no_file "uninstall 후 intent.md 없음"       "$TARGET/agents/intent.md"
+assert_no_file "uninstall 후 SKILL.md 없음"        "$TARGET/skills/dev-bounce/SKILL.md"
+assert_no_file "uninstall 후 manifest.json 없음"   "$TARGET/ai-bouncer/manifest.json"
+assert_no_file "uninstall 후 config.json 없음"     "$TARGET/ai-bouncer/config.json"
+
+# settings.json에서 bouncer hook이 제거되었는지 확인
+if [ -f "$TARGET/settings.json" ]; then
+  if grep -q "plan-gate.sh" "$TARGET/settings.json" 2>/dev/null; then
+    fail "uninstall 후 settings.json에 hook 남아있음"
+  else
+    pass "uninstall 후 settings.json에서 hook 제거됨"
+  fi
+else
+  pass "uninstall 후 settings.json 정리됨"
+fi
+
+# CLAUDE.md에서 bouncer 규칙이 제거되었는지 확인
+if [ -f "$TARGET/CLAUDE.md" ]; then
+  if grep -q "ai-bouncer-rule" "$TARGET/CLAUDE.md" 2>/dev/null; then
+    fail "uninstall 후 CLAUDE.md에 bouncer 규칙 남아있음"
+  else
+    pass "uninstall 후 CLAUDE.md에서 bouncer 규칙 제거됨"
+  fi
+else
+  pass "uninstall 후 CLAUDE.md 정리됨"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 6. Re-install (uninstall 후 재설치) ───${NC}"
+
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -3
+
+assert_file "재설치 후 plan-gate.sh 존재"     "$TARGET/hooks/plan-gate.sh"
+assert_file "재설치 후 settings.json 존재"    "$TARGET/settings.json"
+assert_file "재설치 후 CLAUDE.md 존재"        "$TARGET/CLAUDE.md"
+assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "plan-gate.sh"
+assert_contains "재설치 후 bouncer 규칙 주입" "$TARGET/CLAUDE.md" "ai-bouncer-rule"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 7. 정리 ───${NC}"
 
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
 # TEST_DIR은 trap이 정리
