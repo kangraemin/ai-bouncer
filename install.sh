@@ -223,6 +223,12 @@ install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/complet
 install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
 install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
 
+# subagent hooks
+copy_file "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
+chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
+copy_file "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
+chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
+
 # lib (공유 라이브러리)
 mkdir -p "$TARGET_DIR/hooks/lib"
 copy_file "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
