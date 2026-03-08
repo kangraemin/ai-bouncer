@@ -87,25 +87,21 @@ fi
 
 # ── 설치 범위 ──────────────────────────────────────────────────
 header "설치 범위"
-echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
-echo "  2) 로컬 (.claude/)  — 현재 프로젝트에만 적용"
-echo ""
-printf "선택 [1]: "
-read -r SCOPE_CHOICE
-SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
+# TODO: 전역 설치 임시 비활성화 — 로컬 전용
+# echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
+# echo "  2) 로컬 (.claude/)  — 현재 프로젝트에만 적용"
+# echo ""
+# printf "선택 [1]: "
+# read -r SCOPE_CHOICE
+# SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
 
-if [ "$SCOPE_CHOICE" = "2" ]; then
-  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-  if [ -z "$REPO_ROOT" ]; then
-    err "에러: git 레포 안에서 실행해주세요."
-    exit 1
-  fi
-  TARGET_DIR="$REPO_ROOT/.claude"
-  SCOPE="local"
-else
-  TARGET_DIR="$HOME/.claude"
-  SCOPE="global"
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -z "$REPO_ROOT" ]; then
+  err "에러: git 레포 안에서 실행해주세요."
+  exit 1
 fi
+TARGET_DIR="$REPO_ROOT/.claude"
+SCOPE="local"
 
 info "설치 대상: $TARGET_DIR"
 mkdir -p "$TARGET_DIR"
@@ -137,14 +133,14 @@ copy_file() {
   ok "$(basename "$dst")"
 }
 
-# skills 디렉토리 설치 (~/.claude/skills/<name>/ 에 직접 복사, 항상 글로벌)
+# skills 디렉토리 설치 (TARGET_DIR 기준)
 install_skill() {
   local src_dir="$1" skill_name="$2"
-  local dst_dir="$HOME/.claude/skills/${skill_name}"
+  local dst_dir="${TARGET_DIR}/skills/${skill_name}"
   mkdir -p "$dst_dir"
   cp -r "$src_dir/." "$dst_dir/"
   for f in "$src_dir"/*; do
-    [ -f "$f" ] && INSTALLED_FILES+=("$HOME/.claude/skills/${skill_name}/$(basename "$f")")
+    [ -f "$f" ] && INSTALLED_FILES+=("${dst_dir}/$(basename "$f")")
   done
   ok "${skill_name} (skill)"
 }
