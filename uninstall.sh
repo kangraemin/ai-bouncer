@@ -48,8 +48,13 @@ import json, os, sys
 manifest_path = sys.argv[1]
 target_dir = sys.argv[2]
 
-with open(manifest_path) as f:
-    manifest = json.load(f)
+try:
+    with open(manifest_path) as f:
+        manifest = json.load(f)
+except (json.JSONDecodeError, FileNotFoundError) as e:
+    print(f"  ⚠ 매니페스트 읽기 실패: {e}")
+    print("  파일 삭제를 건너뛰고 설정 정리를 계속합니다.")
+    sys.exit(0)
 
 removed = 0
 for rel_path in manifest.get('files', []):
@@ -136,10 +141,10 @@ if s == -1 or e == -1:
     print("  CLAUDE.md 블록 없음 (no-op)")
     sys.exit(0)
 
-# 마커 포함 블록 제거, 앞뒤 빈줄 정리
+# 마커 포함 블록 제거, 앞뒤 빈줄 정리 (섹션 간 이중 개행 보존)
 before = content[:s].rstrip('\n')
 after  = content[e + len(END):].lstrip('\n')
-new_content = (before + '\n' + after).strip('\n')
+new_content = (before + '\n\n' + after).strip('\n')
 if new_content:
     new_content += '\n'
 else:

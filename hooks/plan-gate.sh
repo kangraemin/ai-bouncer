@@ -112,7 +112,8 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
 
   # CHECK 6: team members < 1 → BLOCK
   MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+  MEMBER_COUNT=${MEMBER_COUNT:-0}
+  if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
     jq -n '{
       decision: "block",
       reason: "팀 멤버가 없습니다. Lead 에이전트를 먼저 스폰하세요."

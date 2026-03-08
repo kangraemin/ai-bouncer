@@ -135,9 +135,10 @@ TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
 
-# 스냅샷 저장 함수 (Layer 2용)
+# 스냅샷 저장 함수 (Layer 2용) — 세션 격리
 save_snapshot() {
-  { git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort > /tmp/.ai-bouncer-snapshot 2>/dev/null
+  local snap="/tmp/.ai-bouncer-snapshot-${SESSION_ID:-default}"
+  { git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort > "$snap" 2>/dev/null
 }
 
 # CHECK 1.5: workflow_phase 화이트리스트
@@ -208,7 +209,8 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
   fi
 
   MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+  MEMBER_COUNT=${MEMBER_COUNT:-0}
+  if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
     save_snapshot
     jq -n '{
       decision: "block",

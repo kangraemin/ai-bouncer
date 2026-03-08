@@ -144,7 +144,7 @@ install_skill() {
   mkdir -p "$dst_dir"
   cp -r "$src_dir/." "$dst_dir/"
   for f in "$src_dir"/*; do
-    [ -f "$f" ] && INSTALLED_FILES+=("${dst_dir}/$(basename "$f")")
+    [ -f "$f" ] && INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('${dst_dir}/$(basename "$f")', '$TARGET_DIR'))" 2>/dev/null || echo "skills/${skill_name}/$(basename "$f")")")
   done
   ok "${skill_name} (skill)"
 }
@@ -217,7 +217,7 @@ copy_file "$PACKAGE_DIR/agents/lead.md"          "$TARGET_DIR/agents/lead.md"
 copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
 copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
 
-# skills (항상 글로벌 ~/.claude/skills/ 에 설치)
+# skills (로컬 .claude/skills/ 에 설치)
 install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
 
 # hooks
