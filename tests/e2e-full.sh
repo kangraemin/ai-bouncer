@@ -1,0 +1,231 @@
+#!/bin/bash
+# E2E Full Test — 설치 → 파일 검증 → hook 테스트 → 정리
+# Usage: bash tests/e2e-full.sh
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+PASS=0
+FAIL=0
+
+pass() {
+  local desc="$1"
+  echo -e "  ${GREEN}✅${NC} $desc"
+  PASS=$((PASS + 1))
+}
+
+fail() {
+  local desc="$1"
+  echo -e "  ${RED}❌${NC} $desc"
+  FAIL=$((FAIL + 1))
+}
+
+assert_ok() {
+  local desc="$1"
+  shift
+  if "$@" >/dev/null 2>&1; then
+    pass "$desc"
+  else
+    fail "$desc"
+  fi
+}
+
+assert_file() {
+  local desc="$1" path="$2"
+  if [ -f "$path" ]; then
+    echo -e "  ${GREEN}✅${NC} $desc"
+    PASS=$((PASS + 1))
+  else
+    echo -e "  ${RED}❌${NC} $desc — $path 없음"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_no_file() {
+  local desc="$1" path="$2"
+  if [ ! -f "$path" ]; then
+    echo -e "  ${GREEN}✅${NC} $desc"
+    PASS=$((PASS + 1))
+  else
+    echo -e "  ${RED}❌${NC} $desc — $path 존재"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+assert_contains() {
+  local desc="$1" file="$2" pattern="$3"
+  if grep -q "$pattern" "$file" 2>/dev/null; then
+    echo -e "  ${GREEN}✅${NC} $desc"
+    PASS=$((PASS + 1))
+  else
+    echo -e "  ${RED}❌${NC} $desc — '$pattern' not in $file"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+# ── 테스트 환경 준비 ─────────────────────────────────────────
+echo -e "\n${BOLD}═══════════════════════════════════════════${NC}"
+echo -e "${BOLD}  ai-bouncer E2E Full Tests${NC}"
+echo -e "${BOLD}═══════════════════════════════════════════${NC}"
+
+# 임시 git repo에서 설치 테스트
+TEST_DIR=$(mktemp -d)
+trap 'rm -rf "$TEST_DIR"' EXIT
+
+git init "$TEST_DIR/test-repo" -q
+REPO_DIR="$TEST_DIR/test-repo"
+TARGET="$REPO_DIR/.claude"
+
+# 소스 경로 (이 스크립트가 실행된 레포)
+SRC_DIR="$(git rev-parse --show-toplevel)"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 1. 설치 (--ci) ───${NC}"
+
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -3
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 2. 설치 파일 검증 ───${NC}"
+
+# hooks
+assert_file "plan-gate.sh 설치됨"         "$TARGET/hooks/plan-gate.sh"
+assert_file "bash-gate.sh 설치됨"         "$TARGET/hooks/bash-gate.sh"
+assert_file "bash-audit.sh 설치됨"        "$TARGET/hooks/bash-audit.sh"
+assert_file "doc-reminder.sh 설치됨"      "$TARGET/hooks/doc-reminder.sh"
+assert_file "completion-gate.sh 설치됨"   "$TARGET/hooks/completion-gate.sh"
+assert_file "subagent-track.sh 설치됨"    "$TARGET/hooks/subagent-track.sh"
+assert_file "subagent-cleanup.sh 설치됨"  "$TARGET/hooks/subagent-cleanup.sh"
+assert_file "resolve-task.sh 설치됨"      "$TARGET/hooks/lib/resolve-task.sh"
+
+# agents
+assert_file "intent.md 설치됨"       "$TARGET/agents/intent.md"
+assert_file "planner-lead.md 설치됨" "$TARGET/agents/planner-lead.md"
+assert_file "planner-dev.md 설치됨"  "$TARGET/agents/planner-dev.md"
+assert_file "planner-qa.md 설치됨"   "$TARGET/agents/planner-qa.md"
+assert_file "verifier.md 설치됨"     "$TARGET/agents/verifier.md"
+assert_file "lead.md 설치됨"         "$TARGET/agents/lead.md"
+assert_file "dev.md 설치됨"          "$TARGET/agents/dev.md"
+assert_file "qa.md 설치됨"           "$TARGET/agents/qa.md"
+
+# skill
+assert_file "dev-bounce SKILL.md 설치됨"  "$TARGET/skills/dev-bounce/SKILL.md"
+
+# settings.json
+assert_file "settings.json 생성됨"  "$TARGET/settings.json"
+assert_contains "plan-gate hook 등록됨"   "$TARGET/settings.json" "plan-gate.sh"
+assert_contains "bash-gate hook 등록됨"   "$TARGET/settings.json" "bash-gate.sh"
+assert_contains "bash-audit hook 등록됨"  "$TARGET/settings.json" "bash-audit.sh"
+assert_contains "completion-gate 등록됨"  "$TARGET/settings.json" "completion-gate.sh"
+assert_contains "subagent-track 등록됨"   "$TARGET/settings.json" "subagent-track.sh"
+assert_contains "subagent-cleanup 등록됨" "$TARGET/settings.json" "subagent-cleanup.sh"
+assert_contains "AGENT_TEAMS env 등록됨"  "$TARGET/settings.json" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+
+# CLAUDE.md
+assert_file "CLAUDE.md 생성됨"  "$TARGET/CLAUDE.md"
+assert_contains "bouncer 규칙 주입됨"  "$TARGET/CLAUDE.md" "ai-bouncer-rule"
+
+# executable
+assert_ok "plan-gate.sh 실행 가능"    test -x "$TARGET/hooks/plan-gate.sh"
+assert_ok "bash-gate.sh 실행 가능"    test -x "$TARGET/hooks/bash-gate.sh"
+assert_ok "subagent-track.sh 실행 가능" test -x "$TARGET/hooks/subagent-track.sh"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 3. 설치된 hooks로 기능 테스트 ───${NC}"
+
+HOOKS_DIR="$TARGET/hooks"
+
+# 테스트용 task 디렉토리 생성
+TASK_DIR="$REPO_DIR/docs/2099-01-01/e2e-test"
+mkdir -p "$TASK_DIR"
+TEST_SID="e2e-test-$$"
+
+setup_state() {
+  local mode="$1" phase="$2" approved="$3"
+  python3 -c "
+import json, os
+d = '$TASK_DIR'
+s = {'mode':'$mode','workflow_phase':'$phase','plan_approved':('$approved'=='true'),
+     'planning':{'no_question_streak':0},'team_name':'','current_dev_phase':0,'current_step':0,
+     'dev_phases':{},'verification':{'rounds_passed':0},'task_dir':d,'active_file':d+'/.active','persistent_mode':False}
+with open(os.path.join(d,'state.json'),'w') as f: json.dump(s,f,indent=2)
+"
+  echo "$TEST_SID" > "$TASK_DIR/.active"
+  # plan.md 생성 (plan-gate가 파일 존재 검증)
+  echo "# Test Plan" > "$TASK_DIR/plan.md"
+  rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
+}
+
+run_hook() {
+  local hook="$1" input="$2"
+  (cd "$REPO_DIR" && echo "$input" | bash "$HOOKS_DIR/$hook" 2>/dev/null) || true
+}
+
+is_blocked() {
+  echo "$1" | grep -q '"block"' 2>/dev/null
+}
+
+# plan-gate 테스트
+setup_state "simple" "development" "true"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+if is_blocked "$R"; then fail "plan-gate: approved → 통과"; else pass "plan-gate: approved → 통과"; fi
+
+setup_state "simple" "planning" "false"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+if is_blocked "$R"; then pass "plan-gate: planning → 차단"; else fail "plan-gate: planning → 차단"; fi
+
+# bash-gate 테스트
+setup_state "simple" "development" "true"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls 2>/dev/null\"},\"session_id\":\"$TEST_SID\"}")
+if is_blocked "$R"; then fail "bash-gate: 2>/dev/null → 오탐 아님"; else pass "bash-gate: 2>/dev/null → 오탐 아님"; fi
+
+setup_state "simple" "planning" "false"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+if is_blocked "$R"; then pass "bash-gate: planning + 쓰기 → 차단"; else fail "bash-gate: planning + 쓰기 → 차단"; fi
+
+# subagent-track 테스트
+setup_state "simple" "development" "true"
+(cd "$REPO_DIR" && echo "{\"session_id\":\"sub-e2e-001\",\"agent_id\":\"a1\"}" | bash "$HOOKS_DIR/subagent-track.sh" 2>/dev/null) || true
+if grep -q "sub-e2e-001" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
+  echo -e "  ${GREEN}✅${NC} subagent-track: 등록됨"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}❌${NC} subagent-track: 등록 안 됨"
+  FAIL=$((FAIL + 1))
+fi
+
+(cd "$REPO_DIR" && echo "{\"session_id\":\"sub-e2e-001\"}" | bash "$HOOKS_DIR/subagent-cleanup.sh" 2>/dev/null) || true
+if ! grep -q "sub-e2e-001" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
+  echo -e "  ${GREEN}✅${NC} subagent-cleanup: 제거됨"
+  PASS=$((PASS + 1))
+else
+  echo -e "  ${RED}❌${NC} subagent-cleanup: 제거 안 됨"
+  FAIL=$((FAIL + 1))
+fi
+
+# completion-gate 테스트
+setup_state "simple" "development" "true"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+if is_blocked "$R"; then fail "completion-gate: SIMPLE → 스킵"; else pass "completion-gate: SIMPLE → 스킵"; fi
+
+# 위임 에이전트 테스트
+setup_state "simple" "development" "true"
+echo "${TEST_SID}-sub|$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"${TEST_SID}-sub\"}")
+if is_blocked "$R"; then fail "plan-gate: 위임 에이전트 → 통과"; else pass "plan-gate: 위임 에이전트 → 통과"; fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 4. 정리 ───${NC}"
+
+rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
+# TEST_DIR은 trap이 정리
+
+echo -e "\n${BOLD}═══════════════════════════════════════════${NC}"
+echo -e "${BOLD}  결과: ${GREEN}✅ $PASS 통과${NC} / ${RED}❌ $FAIL 실패${NC}"
+echo -e "${BOLD}═══════════════════════════════════════════${NC}"
+
+exit $FAIL

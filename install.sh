@@ -33,6 +33,8 @@ if [ ! -f "$PACKAGE_DIR/agents/intent.md" ]; then
 fi
 
 MODE="${1:-install}"
+CI_MODE="${CI:-false}"  # CI=true 또는 --ci 로 비대화형 모드
+[ "$MODE" = "--ci" ] && { CI_MODE=true; MODE=install; }
 
 # ── 언인스톨 ──────────────────────────────────────────────────
 if [ "$MODE" = "--uninstall" ]; then
@@ -236,11 +238,15 @@ chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
 
 # ── docs git 추적 설정 ─────────────────────────────────────────
 header "docs/ 설정"
-echo "  ai-bouncer는 작업별로 docs/<task-name>/ 폴더에 산출물을 저장합니다."
-echo ""
-printf "  docs/ 폴더를 git으로 추적할까요? (y/n) [n]: "
-read -r DOCS_GIT_TRACK
-DOCS_GIT_TRACK="${DOCS_GIT_TRACK:-n}"
+if [ "$CI_MODE" = "true" ]; then
+  DOCS_GIT_TRACK="n"
+else
+  echo "  ai-bouncer는 작업별로 docs/<task-name>/ 폴더에 산출물을 저장합니다."
+  echo ""
+  printf "  docs/ 폴더를 git으로 추적할까요? (y/n) [n]: "
+  read -r DOCS_GIT_TRACK
+  DOCS_GIT_TRACK="${DOCS_GIT_TRACK:-n}"
+fi
 
 DOCS_TRACK_BOOL="false"
 if [[ "$DOCS_GIT_TRACK" =~ ^[yY] ]]; then
@@ -252,15 +258,19 @@ fi
 
 # 커밋 전략 선택
 header "커밋 전략"
-echo "  Step/Phase 완료 시 자동 커밋 전략을 선택하세요."
-echo ""
-echo "  1) per-step  — Step 완료마다 즉시 커밋 + 푸시 (기본값)"
-echo "  2) per-phase — 개발 Phase 전체 완료 시 커밋 + 푸시"
-echo "  3) none      — 커밋하지 않음 (수동 관리)"
-echo ""
-printf "  선택 [1]: "
-read -r COMMIT_CHOICE
-COMMIT_CHOICE="${COMMIT_CHOICE:-1}"
+if [ "$CI_MODE" = "true" ]; then
+  COMMIT_CHOICE="1"
+else
+  echo "  Step/Phase 완료 시 자동 커밋 전략을 선택하세요."
+  echo ""
+  echo "  1) per-step  — Step 완료마다 즉시 커밋 + 푸시 (기본값)"
+  echo "  2) per-phase — 개발 Phase 전체 완료 시 커밋 + 푸시"
+  echo "  3) none      — 커밋하지 않음 (수동 관리)"
+  echo ""
+  printf "  선택 [1]: "
+  read -r COMMIT_CHOICE
+  COMMIT_CHOICE="${COMMIT_CHOICE:-1}"
+fi
 case "$COMMIT_CHOICE" in
   2) COMMIT_STRATEGY="per-phase" ;;
   3) COMMIT_STRATEGY="none" ;;
