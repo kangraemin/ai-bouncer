@@ -95,6 +95,18 @@ TASK_DIR 초기화 (Python으로 실행):
 - `mode: simple` → Phase S1 진행
 - `mode: normal` → Phase 1 진행
 
+**agent_mode 확인** (config.json에서 읽기):
+
+```bash
+python3 -c "
+import json
+cfg = json.load(open('.claude/ai-bouncer/config.json'))
+print(cfg.get('agent_mode', 'team'))
+"
+```
+
+`agent_mode` 값에 따라 NORMAL 모드의 Phase 1/3/4 동작이 달라진다 (아래 참조).
+
 ---
 
 ## SIMPLE 모드
@@ -177,6 +189,16 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 > TASK_DIR은 Phase 0-B에서 이미 초기화됨. plan mode 진입 전에 팀부터 구성한다.
 > (TeamCreate는 plan mode에서 사용 불가)
 
+**agent_mode별 구성:**
+
+| agent_mode | 동작 |
+|---|---|
+| `team` | TeamCreate → planner-lead/dev/qa 스폰 (아래 기본 동작) |
+| `subagent` | Agent tool로 planner-lead 스폰 (planner-lead.md 프롬프트 전달). planner-lead가 Agent tool로 planner-dev/qa 스폰 |
+| `single` | Main Claude가 직접 Q&A + 계획 수립 (SIMPLE의 S1과 유사하지만 Q&A 루프 구조 유지) |
+
+**team 모드 (기본):**
+
 ```
 TeamCreate: planning-<task>
   - planner-lead (planner-lead.md) — 리드
@@ -254,6 +276,16 @@ plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 
 #### 3-1. Lead 에이전트 스폰
 
+**agent_mode별 구성:**
+
+| agent_mode | 동작 |
+|---|---|
+| `team` | TeamCreate로 Dev Team 생성 후 Lead 스폰. state.json `team_name` = TeamCreate 팀 이름 |
+| `subagent` | Agent tool로 Lead 스폰. Lead가 Agent tool로 Dev/QA 스폰. state.json `team_name` = "" (빈 문자열) |
+| `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). state.json `team_name` = "" |
+
+**team 모드 (기본):**
+
 TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
@@ -261,6 +293,8 @@ Lead가 수행:
 2. 팀 규모 종합 판단 → `[TEAM:solo|duo|team]` 출력
 3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
 4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
+
+**subagent/single 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
 
 #### 3-2. 팀 구성
 
@@ -339,6 +373,14 @@ Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
 (completion-gate.sh가 verification 상태에서 3회 연속 통과 전 응답 종료를 차단)
 
+**agent_mode별 구성:**
+
+| agent_mode | 동작 |
+|---|---|
+| `team` | verifier 에이전트 스폰 (기본) |
+| `subagent` | Agent tool로 verifier 스폰 |
+| `single` | Main Claude가 직접 3회 검증 수행 |
+
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
 2. verifier가 검증 루프 실행 (시도 횟수 제한 없음)
 3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신:
@@ -368,3 +410,5 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
 - docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
 - config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
+- `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
+- `agent_mode`에 따라 Phase 1/3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기.

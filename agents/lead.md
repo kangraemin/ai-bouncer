@@ -69,13 +69,17 @@ EOF
 4. state.json `dev_phases` 초기화 + `team_name` 설정:
 
 > ⚠️ **TASK_DIR는 반드시 메시지에서 받은 실제 절대경로를 사용한다. `os.environ` 사용 금지.**
+> ⚠️ **agent_mode에 따라 team_name 설정이 달라진다:**
+> - `team` → `team_name`을 TeamCreate에서 사용한 팀 이름으로 설정
+> - `subagent`/`single` → `team_name`을 빈 문자열로 유지 (팀 미사용)
 
 ```bash
 # ↓ Lead: <TASK_DIR>와 <팀이름>을 메시지에서 받은 실제 값으로 대체 후 실행
+# agent_mode가 subagent/single이면 <팀이름>에 빈 문자열("") 전달
 python3 -c "
 import json, sys
 task_dir = sys.argv[1]          # 실제 TASK_DIR 경로
-team_name = sys.argv[2]         # TeamCreate에서 사용한 팀 이름
+team_name = sys.argv[2]         # TeamCreate에서 사용한 팀 이름 (subagent/single이면 빈 문자열)
 f = task_dir + '/state.json'
 with open(f) as fp: s = json.load(fp)
 s['dev_phases'] = {
@@ -90,7 +94,7 @@ s['dev_phases'] = {
 s['team_name'] = team_name
 s['current_dev_phase'] = 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print('dev_phases initialized, team_name:', team_name)
+print('dev_phases initialized, team_name:', team_name if team_name else '(empty - subagent/single mode)')
 " "<TASK_DIR>" "<팀이름>"
 ```
 

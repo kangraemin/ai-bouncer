@@ -22,7 +22,7 @@ make_input() {
     '{tool_name: "Bash", tool_input: {command: $cmd}}'
 }
 
-# setup_env DIR TASK PHASE PLAN_APPROVED TEAM_NAME CREATE_STEP FILL_TC
+# setup_env DIR TASK PHASE PLAN_APPROVED TEAM_NAME CREATE_STEP FILL_TC [AGENT_MODE]
 setup_env() {
   local dir="$1"
   local task_name="$2"
@@ -31,10 +31,17 @@ setup_env() {
   local team_name="${5:-}"
   local create_step="${6:-no}"
   local fill_tc="${7:-no}"
+  local agent_mode="${8:-team}"
 
   local date_dir="2026-01-01"
   mkdir -p "$dir/docs/${date_dir}/${task_name}"
   touch "$dir/docs/${date_dir}/${task_name}/.active"
+
+  # config.json 생성 (agent_mode 설정)
+  mkdir -p "$dir/.claude/ai-bouncer"
+  cat > "$dir/.claude/ai-bouncer/config.json" << CFGEOF
+{"agent_mode": "$agent_mode", "enforcement_mode": "hooks"}
+CFGEOF
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then
@@ -488,6 +495,40 @@ tc_bph1() {
 }
 
 # ---------------------------------------------------------------------------
+# agent_mode 테스트
+# ---------------------------------------------------------------------------
+
+# TC-BAM1: agent_mode=subagent + 쓰기 명령 + team_name 비어있음 → ALLOW
+tc_bam1() {
+  local dir="$TMPDIR_ROOT/tc_bam1"
+  # agent_mode=subagent (8번째 인자)
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "subagent"
+  local input; input=$(make_input "echo 'code' > /src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-BAM1: agent_mode=subagent + no team_name → ALLOW" "$out"
+}
+
+# TC-BAM2: agent_mode=subagent + planning + 쓰기 → BLOCK
+tc_bam2() {
+  local dir="$TMPDIR_ROOT/tc_bam2"
+  setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "subagent"
+  local input; input=$(make_input "echo 'hack' > /src/app.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-BAM2: agent_mode=subagent + planning → BLOCK" "$out"
+}
+
+# TC-BAM3: config.json 없음 + team_name 비어있음 → BLOCK (team 폴백)
+tc_bam3() {
+  local dir="$TMPDIR_ROOT/tc_bam3"
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "team"
+  # config.json 삭제
+  rm -f "$dir/.claude/ai-bouncer/config.json"
+  local input; input=$(make_input "echo 'code' > /src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-BAM3: config.json 없음 + team_name 비어있음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== bash-gate.sh E2E Tests (Layer 1) ===${NC}"
@@ -502,6 +543,7 @@ tc_b18; tc_b19; tc_b20; tc_b21; tc_b22
 tc_b23; tc_b24; tc_b25; tc_b27
 tc_bs1; tc_bs2; tc_bs3
 tc_bph1
+tc_bam1; tc_bam2; tc_bam3
 
 cleanup_teams
 

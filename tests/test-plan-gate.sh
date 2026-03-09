@@ -23,10 +23,11 @@ make_input() {
     '{tool_name: $tool, tool_input: {file_path: $path}}'
 }
 
-# setup_env DIR TASK PHASE PLAN_APPROVED TEAM_NAME CREATE_STEP FILL_TC PREV_PASSED
+# setup_env DIR TASK PHASE PLAN_APPROVED TEAM_NAME CREATE_STEP FILL_TC PREV_PASSED [AGENT_MODE]
 # CREATE_STEP: "yes" → step-1.md 생성 (현재 step)
 # FILL_TC: "yes" → step-1.md에 실제 TC 행 추가
 # PREV_PASSED: "yes" → step-0.md (이전 step)에 ✅ 추가 (current_step=2일 때 사용)
+# AGENT_MODE: "team"|"subagent"|"single" (기본: "team")
 setup_env() {
   local dir="$1"
   local task_name="$2"
@@ -36,10 +37,22 @@ setup_env() {
   local create_step="${6:-no}"
   local fill_tc="${7:-no}"
   local prev_passed="${8:-no}"
+  local agent_mode="${9:-team}"
 
   local date_dir="2026-01-01"
   mkdir -p "$dir/docs/${date_dir}/${task_name}"
   touch "$dir/docs/${date_dir}/${task_name}/.active"
+
+  # git init (plan-gate.sh가 git rev-parse --show-toplevel 사용)
+  if [ ! -d "$dir/.git" ]; then
+    (cd "$dir" && git init -q && git config user.email "test@test.com" && git config user.name "Test")
+  fi
+
+  # config.json 생성 (agent_mode 설정)
+  mkdir -p "$dir/.claude/ai-bouncer"
+  cat > "$dir/.claude/ai-bouncer/config.json" << CFGEOF
+{"agent_mode": "$agent_mode", "enforcement_mode": "hooks"}
+CFGEOF
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then
@@ -460,6 +473,65 @@ tc_ph1() {
 }
 
 # ---------------------------------------------------------------------------
+# agent_mode 테스트
+# ---------------------------------------------------------------------------
+
+# TC-AM1: agent_mode=subagent + development + team_name 비어있음 → ALLOW
+tc_am1() {
+  local dir="$TMPDIR_ROOT/tc_am1"
+  # agent_mode=subagent (9번째 인자)
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "subagent"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-AM1: agent_mode=subagent + development + team_name 비어있음 → ALLOW" "$out"
+}
+
+# TC-AM2: agent_mode=subagent + dev_phases={} → BLOCK (CHECK 6.7 유지)
+tc_am2() {
+  local dir="$TMPDIR_ROOT/tc_am2"
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "subagent"
+  python3 -c "
+import json
+f = '$dir/docs/2026-01-01/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['dev_phases'] = {}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-AM2: agent_mode=subagent + dev_phases={} → BLOCK" "$out"
+}
+
+# TC-AM3: agent_mode=subagent + planning → BLOCK (CHECK 2 유지)
+tc_am3() {
+  local dir="$TMPDIR_ROOT/tc_am3"
+  setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "no" "subagent"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-AM3: agent_mode=subagent + planning → BLOCK" "$out"
+}
+
+# TC-AM4: agent_mode=single + development + team_name 비어있음 → ALLOW
+tc_am4() {
+  local dir="$TMPDIR_ROOT/tc_am4"
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "single"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_allow "TC-AM4: agent_mode=single + development + team_name 비어있음 → ALLOW" "$out"
+}
+
+# TC-AM5: config.json 없음 (하위호환) + team_name 비어있음 → BLOCK (team 폴백)
+tc_am5() {
+  local dir="$TMPDIR_ROOT/tc_am5"
+  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "team"
+  # config.json 삭제 (하위 호환 시뮬레이션)
+  rm -f "$dir/.claude/ai-bouncer/config.json"
+  local input; input=$(make_input "Write" "/src/feature.ts")
+  local out; out=$(run_hook "$dir" "$input")
+  assert_block "TC-AM5: config.json 없음 + team_name 비어있음 → BLOCK (team 폴백)" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
 echo -e "${YELLOW}=== plan-gate.sh E2E Tests (Artifact-based) ===${NC}"
@@ -469,6 +541,7 @@ tc1; tc2; tc3; tc4; tc5; tc6; tc7; tc8; tc9; tc10; tc11; tc12
 tc_p13; tc_p14; tc_p15
 tc_s1; tc_s2; tc_s3; tc_s4
 tc_ph1
+tc_am1; tc_am2; tc_am3; tc_am4; tc_am5
 
 # Cleanup team directories
 cleanup_teams

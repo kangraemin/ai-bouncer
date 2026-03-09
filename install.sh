@@ -44,13 +44,16 @@ fi
 
 # ── --config 모드 ──────────────────────────────────────────────
 if [ "$MODE" = "--config" ]; then
-  header "커밋 전략 재설정"
   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   CONFIG_FILE="${REPO_ROOT:-.}/.claude/ai-bouncer/config.json"
+  TARGET_DIR="${REPO_ROOT:-.}/.claude"
+  SETTINGS_FILE="$TARGET_DIR/settings.json"
   if [ ! -f "$CONFIG_FILE" ]; then
     err "ai-bouncer가 설치되어 있지 않습니다. 먼저 install.sh를 실행하세요."
     exit 1
   fi
+
+  header "커밋 전략 재설정"
   echo "  커밋 전략:"
   echo "  1) per-step  — Step 완료마다 즉시 커밋 + 푸시 (기본값)"
   echo "  2) per-phase — 개발 Phase 전체 완료 시 커밋 + 푸시"
@@ -72,19 +75,123 @@ if [ "$MODE" = "--config" ]; then
     COMMIT_SKILL_BOOL="false"
   fi
 
-  python3 - "$CONFIG_FILE" "$COMMIT_STRATEGY" "$COMMIT_SKILL_BOOL" <<'PYEOF'
-import json, sys
-cfg_file, strategy, skill = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
+  header "실행 모드 재설정"
+  echo "  1) hooks       — hook이 워크플로우를 강제 (기본값)"
+  echo "  2) prompt-only — hook 없이 프롬프트로만 가이드"
+  echo ""
+  printf "  선택 [1]: "
+  read -r ENFORCEMENT_CHOICE
+  ENFORCEMENT_CHOICE="${ENFORCEMENT_CHOICE:-1}"
+  case "$ENFORCEMENT_CHOICE" in
+    2) ENFORCEMENT_MODE="prompt-only" ;;
+    *) ENFORCEMENT_MODE="hooks" ;;
+  esac
+
+  header "에이전트 모드 재설정"
+  echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
+  echo "  2) subagent  — Agent 도구로 서브에이전트 스폰"
+  echo "  3) single    — 에이전트 없이 Main Claude가 직접 수행"
+  echo ""
+  printf "  선택 [1]: "
+  read -r AGENT_CHOICE
+  AGENT_CHOICE="${AGENT_CHOICE:-1}"
+  case "$AGENT_CHOICE" in
+    2) AGENT_MODE="subagent" ;;
+    3) AGENT_MODE="single" ;;
+    *) AGENT_MODE="team" ;;
+  esac
+
+  python3 - "$CONFIG_FILE" "$COMMIT_STRATEGY" "$COMMIT_SKILL_BOOL" "$ENFORCEMENT_MODE" "$AGENT_MODE" "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
+import json, sys, os
+
+cfg_file = sys.argv[1]
+strategy = sys.argv[2]
+skill = sys.argv[3] == "true"
+enforcement_mode = sys.argv[4]
+agent_mode = sys.argv[5]
+settings_file = sys.argv[6]
+target_dir = sys.argv[7]
+
+# config.json 업데이트
 with open(cfg_file) as f: cfg = json.load(f)
+old_enforcement = cfg.get('enforcement_mode', 'hooks')
+old_agent_mode = cfg.get('agent_mode', 'team')
 cfg["commit_strategy"] = strategy
 cfg["commit_skill"] = skill
+cfg["enforcement_mode"] = enforcement_mode
+cfg["agent_mode"] = agent_mode
 with open(cfg_file, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
-print(f"  commit_strategy = {strategy}")
-print(f"  commit_skill    = {skill}")
+print(f"  commit_strategy   = {strategy}")
+print(f"  commit_skill      = {skill}")
+print(f"  enforcement_mode  = {enforcement_mode}")
+print(f"  agent_mode        = {agent_mode}")
+
+# settings.json 업데이트 (hook 등록/제거 + env)
+if not os.path.exists(settings_file):
+    settings = {}
+else:
+    with open(settings_file) as f: settings = json.load(f)
+
+hooks = settings.setdefault('hooks', {})
+env = settings.setdefault('env', {})
+
+# --- Hook 등록/제거 ---
+BOUNCER_HOOKS = ['plan-gate.sh', 'bash-gate.sh', 'doc-reminder.sh', 'bash-audit.sh',
+                 'completion-gate.sh', 'subagent-track.sh', 'subagent-cleanup.sh']
+
+def remove_bouncer_hooks():
+    for hook_type in list(hooks.keys()):
+        filtered = []
+        for group in hooks[hook_type]:
+            has_bouncer = any(
+                any(bh in h.get('command', '') for bh in BOUNCER_HOOKS)
+                for h in group.get('hooks', [])
+            )
+            if not has_bouncer:
+                filtered.append(group)
+        hooks[hook_type] = filtered
+        if not hooks[hook_type]:
+            del hooks[hook_type]
+
+def add_hook(hook_type, matcher, cmd):
+    hook_list = hooks.setdefault(hook_type, [])
+    cmd_path = os.path.join(target_dir, 'hooks', cmd)
+    already = any(cmd in h.get('command', '') for g in hook_list for h in g.get('hooks', []))
+    if not already:
+        entry = {'hooks': [{'type': 'command', 'command': cmd_path}]}
+        if matcher:
+            entry['matcher'] = matcher
+        hook_list.append(entry)
+
+if old_enforcement != enforcement_mode:
+    if enforcement_mode == 'prompt-only':
+        remove_bouncer_hooks()
+        print("  ✓ settings.json: hook 전부 제거됨")
+    else:
+        add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
+        add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
+        add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
+        add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
+        add_hook('Stop', None, 'completion-gate.sh')
+        add_hook('SubagentStart', None, 'subagent-track.sh')
+        add_hook('SubagentStop', None, 'subagent-cleanup.sh')
+        print("  ✓ settings.json: hook 재등록됨")
+
+# --- Agent Teams env ---
+if agent_mode == 'team':
+    env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+    print("  ✓ env: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
+else:
+    env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
+    print(f"  ✓ env: AGENT_TEAMS 제거 (agent_mode={agent_mode})")
+
+with open(settings_file, 'w') as f:
+    json.dump(settings, f, indent=2, ensure_ascii=False)
+    f.write('\n')
 PYEOF
-  ok "커밋 전략 업데이트 완료"
+  ok "설정 업데이트 완료"
   exit 0
 fi
 
@@ -297,6 +404,44 @@ if [ "$COMMIT_SKILL_BOOL" = "false" ]; then
 fi
 ok "커밋 전략: $COMMIT_STRATEGY"
 
+# 실행 모드 선택
+header "실행 모드"
+if [ "$CI_MODE" = "true" ]; then
+  ENFORCEMENT_MODE="${ENFORCEMENT_MODE:-hooks}"
+else
+  echo "  1) hooks       — hook이 워크플로우를 강제 (기본값)"
+  echo "  2) prompt-only — hook 없이 프롬프트로만 가이드"
+  echo ""
+  printf "  선택 [1]: "
+  read -r ENFORCEMENT_CHOICE
+  ENFORCEMENT_CHOICE="${ENFORCEMENT_CHOICE:-1}"
+  case "$ENFORCEMENT_CHOICE" in
+    2) ENFORCEMENT_MODE="prompt-only" ;;
+    *) ENFORCEMENT_MODE="hooks" ;;
+  esac
+fi
+ok "실행 모드: $ENFORCEMENT_MODE"
+
+# 에이전트 모드 선택
+header "에이전트 모드"
+if [ "$CI_MODE" = "true" ]; then
+  AGENT_MODE="${AGENT_MODE:-team}"
+else
+  echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
+  echo "  2) subagent  — Agent 도구로 서브에이전트 스폰"
+  echo "  3) single    — 에이전트 없이 Main Claude가 직접 수행"
+  echo ""
+  printf "  선택 [1]: "
+  read -r AGENT_CHOICE
+  AGENT_CHOICE="${AGENT_CHOICE:-1}"
+  case "$AGENT_CHOICE" in
+    2) AGENT_MODE="subagent" ;;
+    3) AGENT_MODE="single" ;;
+    *) AGENT_MODE="team" ;;
+  esac
+fi
+ok "에이전트 모드: $AGENT_MODE"
+
 # config.json 저장
 mkdir -p "$BOUNCER_DATA_DIR"
 cat > "$BOUNCER_DATA_DIR/config.json" << JSON
@@ -304,7 +449,9 @@ cat > "$BOUNCER_DATA_DIR/config.json" << JSON
   "docs_git_track": $DOCS_TRACK_BOOL,
   "commit_strategy": "$COMMIT_STRATEGY",
   "commit_skill": $COMMIT_SKILL_BOOL,
-  "target_dir": "$TARGET_DIR"
+  "target_dir": "$TARGET_DIR",
+  "enforcement_mode": "$ENFORCEMENT_MODE",
+  "agent_mode": "$AGENT_MODE"
 }
 JSON
 ok "config.json 저장됨"
@@ -354,11 +501,13 @@ header "settings.json 설정"
 
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 
-python3 - "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
+python3 - "$SETTINGS_FILE" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" <<'PYEOF'
 import json, sys, os
 
 settings_file = sys.argv[1]
 target_dir = sys.argv[2]
+enforcement_mode = sys.argv[3]
+agent_mode = sys.argv[4]
 
 cfg = {}
 if os.path.exists(settings_file):
@@ -367,13 +516,20 @@ if os.path.exists(settings_file):
 
 hooks = cfg.setdefault('hooks', {})
 
-# Agent Teams env 설정 (NORMAL 모드 TeamCreate 필수)
+# Agent Teams env 설정 (team 모드에서만 필요)
 env = cfg.setdefault('env', {})
-if env.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') != '1':
-    env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
-    print('  ✓ env 설정: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
+if agent_mode == 'team':
+    if env.get('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS') != '1':
+        env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
+        print('  ✓ env 설정: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
+    else:
+        print('  · env 이미 설정됨: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
 else:
-    print('  · env 이미 설정됨: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1')
+    if 'CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS' in env:
+        env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS')
+        print('  ✓ env 제거: CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS (agent_mode != team)')
+    else:
+        print(f'  · AGENT_TEAMS env 불필요 (agent_mode={agent_mode})')
 
 def is_registered(hook_list, cmd_fragment):
     for group in hook_list:
@@ -394,13 +550,17 @@ def add_hook(hook_type, matcher, cmd):
     else:
         print(f"  · {hook_type} hook 이미 등록됨: {cmd}")
 
-add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
-add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
-add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
-add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
-add_hook('Stop', None, 'completion-gate.sh')
-add_hook('SubagentStart', None, 'subagent-track.sh')
-add_hook('SubagentStop', None, 'subagent-cleanup.sh')
+# enforcement_mode=hooks → hook 등록, prompt-only → 스킵
+if enforcement_mode == 'hooks':
+    add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
+    add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
+    add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
+    add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
+    add_hook('Stop', None, 'completion-gate.sh')
+    add_hook('SubagentStart', None, 'subagent-track.sh')
+    add_hook('SubagentStop', None, 'subagent-cleanup.sh')
+else:
+    print('  · hook 등록 스킵 (enforcement_mode=prompt-only)')
 
 with open(settings_file, 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
@@ -449,6 +609,8 @@ echo "  │         completion-gate.sh (Stop)"
 echo "  │         subagent-track.sh (SubagentStart)"
 echo "  │         subagent-cleanup.sh (SubagentStop)"
 echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
+echo "  ├─ 실행 모드: $ENFORCEMENT_MODE"
+echo "  ├─ 에이전트 모드: $AGENT_MODE"
 echo "  └─ 매니페스트: $BOUNCER_DATA_DIR/manifest.json"
 echo ""
 echo -e "  사용법: 프로젝트에서 ${BOLD}/dev-bounce <요청>${NC} 실행"

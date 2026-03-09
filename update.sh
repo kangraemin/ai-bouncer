@@ -111,19 +111,26 @@ PYEOF
   ok "$(basename "$dst") (hook)"
 }
 
-install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"       "$TARGET_DIR/hooks/plan-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
-install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
-install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
+# enforcement_mode 확인 — prompt-only면 hook 복사 스킵
+ENFORCEMENT_MODE=$(jq -r '.enforcement_mode // "hooks"' "$CONFIG_FILE" 2>/dev/null || echo "hooks")
 
-# subagent hooks
-cp "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
-chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
-ok "subagent-track.sh (hook)"
-cp "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
-chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
-ok "subagent-cleanup.sh (hook)"
+if [ "$ENFORCEMENT_MODE" = "hooks" ]; then
+  install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"       "$TARGET_DIR/hooks/plan-gate.sh"
+  install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
+  install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
+  install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
+  install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
+
+  # subagent hooks
+  cp "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
+  chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
+  ok "subagent-track.sh (hook)"
+  cp "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
+  chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
+  ok "subagent-cleanup.sh (hook)"
+else
+  ok "hook 복사 스킵 (enforcement_mode=prompt-only)"
+fi
 
 # lib
 mkdir -p "$TARGET_DIR/hooks/lib"
