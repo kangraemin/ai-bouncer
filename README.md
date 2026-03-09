@@ -93,7 +93,15 @@ The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, 
 
 ## Installation
 
+### Quick Install (한줄 설치)
+
 프로젝트 루트에서 실행:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh | bash
+```
+
+### Manual Install
 
 ```bash
 git clone https://github.com/kangraemin/ai-bouncer.git
