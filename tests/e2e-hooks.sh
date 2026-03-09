@@ -58,6 +58,37 @@ assert_block() {
   fi
 }
 
+# NORMAL 모드 E2E 헬퍼: 팀 + plan.md + dev_phases 한번에 세팅
+setup_normal() {
+  local dev_phases="${1:-\{\}}" current_phase="${2:-1}" current_step="${3:-1}"
+  local team_name="e2e-test-team"
+
+  python3 -c "
+import json, sys
+s = json.load(open('$STATE_FILE'))
+s['mode'] = 'normal'
+s['workflow_phase'] = 'development'
+s['plan_approved'] = True
+s['team_name'] = '$team_name'
+s['current_dev_phase'] = $current_phase
+s['current_step'] = $current_step
+s['dev_phases'] = json.loads(sys.argv[1])
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+" "$dev_phases"
+
+  echo "$TEST_SID" > "$ACTIVE_FILE"
+  echo "# Plan" > "$TASK_DIR/plan.md"
+  mkdir -p "$HOME/.claude/teams/$team_name"
+  echo '{"members":["lead-agent"]}' > "$HOME/.claude/teams/$team_name/config.json"
+  rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
+}
+
+cleanup_normal() {
+  rm -rf "$HOME/.claude/teams/e2e-test-team"
+  rm -f "$TASK_DIR/plan.md"
+  rm -rf "$TASK_DIR/phase-1-test"
+}
+
 echo "═══════════════════════════════════════════"
 echo "  ai-bouncer E2E Hook Tests"
 echo "═══════════════════════════════════════════"
@@ -223,6 +254,52 @@ assert_pass "tests.md Bash 쓰기 → 예외 통과" "$R"
 # .active 파일 삭제
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm -f docs/2026-03-08/e2e-hook-hardening/.active\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass ".active 삭제 → 예외 통과" "$R"
+
+echo ""
+
+# ─── 7. dev_phases 엣지케이스 (NORMAL E2E) ─
+echo "─── dev_phases 엣지케이스 (NORMAL E2E) ───"
+
+VALID_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+
+# TC-1: dev_phases={} + Write → BLOCK (Lead가 phase 구조를 안 만들고 개발 시작한 상황)
+setup_normal '{}' 1 1
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "NORMAL + dev_phases={} + Write → 차단" "$R"
+
+# TC-2: dev_phases={} + Bash 쓰기 → BLOCK
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "NORMAL + dev_phases={} + echo > → 차단" "$R"
+
+# TC-3: 정상 dev_phases + 모든 아티팩트 존재 + Write → ALLOW (대조군)
+setup_normal "$VALID_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+echo "# Phase 1" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test case | expected result |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "NORMAL + 정상 dev_phases + Write → 통과" "$R"
+
+# TC-4: 정상 dev_phases + Bash 쓰기 → ALLOW (대조군)
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "NORMAL + 정상 dev_phases + echo > → 통과" "$R"
+
+# TC-5: sub-agent + dev_phases={} 부모 + Write → BLOCK
+setup_normal '{}' 1 1
+echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"${TEST_SID}-sub\"}")
+assert_block "sub-agent + dev_phases={} 부모 + Write → 차단" "$R"
+
+# TC-6: sub-agent + dev_phases={} 부모 + Bash 쓰기 → BLOCK
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"${TEST_SID}-sub\"}")
+assert_block "sub-agent + dev_phases={} 부모 + echo > → 차단" "$R"
+rm -f /tmp/.ai-bouncer-approved-agents
+
+# TC-7: SIMPLE + dev_phases={} + Write → ALLOW (simple은 dev_phases 검증 스킵)
+setup "simple" "development" "true"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "SIMPLE + dev_phases={} + Write → 통과 (스킵)" "$R"
+
+cleanup_normal
 
 echo ""
 
