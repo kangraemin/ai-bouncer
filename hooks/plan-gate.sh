@@ -130,6 +130,15 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
   fi
 fi
 
+# CHECK 6.7: dev_phases 비어있는지 검증
+if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
+  DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  if [ "${DEV_PHASES_COUNT:-0}" -le 0 ] 2>/dev/null; then
+    jq -n '{decision:"block", reason:"⛔ dev_phases가 비어있습니다. Lead가 phase 구조를 먼저 정의해야 합니다."}'
+    exit 0
+  fi
+fi
+
 # CHECK 7: current_dev_phase > 0 AND current_step > 0
 if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/dev/null; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"
