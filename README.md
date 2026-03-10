@@ -2,6 +2,8 @@
 
 > A Claude Code workflow enforcement toolkit that prevents unplanned code changes and ensures every implementation is planned, tested, and verified.
 
+[![한국어](https://img.shields.io/badge/lang-한국어-blue)](README.ko.md)
+
 ---
 
 ## What is it?
@@ -11,10 +13,10 @@
 Complexity determines the mode:
 
 ```
-SIMPLE (1 기능)
+SIMPLE (single feature)
   Request → Intent → Plan → Approval → Dev → Test → Done
 
-NORMAL (복잡 작업)
+NORMAL (complex task)
   Request → Intent → Planning Team + Q&A → Plan Approval
     → Dev Team (Phase/Step TDD) → 3× Consecutive Verification → Done
 ```
@@ -75,7 +77,7 @@ The `intent` agent classifies the request (general / insufficient / dev task). D
 Main Claude handles everything directly — no team spawn, no phase/step structure:
 
 1. **Plan** — Explore code, write `plan.md`, get approval
-2. **TC + Develop** — Write test cases in `tests.md` if applicable (`[TC:스킵]` if not), then implement
+2. **TC + Develop** — Write test cases in `tests.md` if applicable (`[TC:skip]` if not), then implement
 3. **Verify** — Run tests, lightweight plan-vs-diff check, done
 
 #### NORMAL Mode
@@ -107,18 +109,18 @@ Then drives a strict TDD loop per step:
 
 **Phase 4 — Verification**
 The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, each from a different perspective:
-- **Round 1 — 기능 충실도**: plan.md compliance, doc completeness, feature coverage
-- **Round 2 — 코드 품질**: code review, bugs, edge cases, naming/style
-- **Round 3 — 통합 & 회귀**: full test suite, cross-file interactions, regression check
+- **Round 1 — Feature fidelity**: plan.md compliance, doc completeness, feature coverage
+- **Round 2 — Code quality**: code review, bugs, edge cases, naming/style
+- **Round 3 — Integration & regression**: full test suite, cross-file interactions, regression check
 - **Any failure resets `rounds_passed` to 0** and restarts from Round 1
 
 ---
 
 ## Installation
 
-### Quick Install (한줄 설치)
+### Quick Install
 
-프로젝트 루트에서 실행:
+Run from your project root:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
@@ -132,7 +134,7 @@ cd ai-bouncer
 bash install.sh
 ```
 
-현재 프로젝트의 `.claude/`에 로컬 설치됩니다 (전역 설치 비활성화).
+Installs locally to `.claude/` in your current project (no global installation).
 
 ### Update
 
