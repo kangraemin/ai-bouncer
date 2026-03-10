@@ -33,6 +33,29 @@ ai-bouncer fixes this by enforcing a document-driven workflow where every agent 
 
 ---
 
+## Benchmark
+
+Same app (YouTube subtitle extraction → AI summary → chat) built from scratch, 5 times each:
+
+| | with dev-bounce | without |
+|---|---|---|
+| **API contract pass rate** | **100%** (5/5) | 60% (3/5) |
+| **Weighted score** | **8.27** / 10 | 5.53 / 10 |
+| Avg time | 662s (11 min) | 901s (15 min) |
+| Avg cost | $7.0 | $5.8 |
+| Timeouts | 0 | 1 |
+
+Key findings:
+
+- **API consistency is the biggest gap** — without dev-bounce, frontend/backend field names diverge 40% of the time
+- **27% faster, more stable** — gate system prevents wasted cycles; time variance is much smaller
+- **Design patterns are more mature without** — but broken APIs make that irrelevant
+- **17% more expensive** — verification steps consume extra tokens
+
+> Full experiment report: [youtube-helper repo](https://github.com/kangraemin/youtube-helper) | Stack: Flutter + FastAPI + Gemini
+
+---
+
 ## How it works
 
 ### 2-Mode Workflow
