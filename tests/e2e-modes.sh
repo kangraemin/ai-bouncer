@@ -164,13 +164,20 @@ persona_a() {
   check "settings: completion-gate registered" has_hook "$SETTINGS" "completion-gate"
   check "settings: AGENT_TEAMS env" has_env "$SETTINGS" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
-  # update
+  # update — 파일 내용까지 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks still present" has_hook "$SETTINGS" "plan-gate"
+  check "update: plan-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/hooks/plan-gate.sh"
+  check "update: agent dev.md 갱신" grep -q "commit_strategy" "$TARGET/agents/dev.md"
+  check "update: skill SKILL.md 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
 
-  # uninstall
+  # uninstall — 전체 정리 검증
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: config gone" test ! -f "$CONFIG"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
+  check "uninstall: agents cleaned" test ! -f "$TARGET/agents/dev.md"
+  check "uninstall: CLAUDE.md rule removed" bash -c '! grep -q "ai-bouncer-rule" "$0" 2>/dev/null || ! test -f "$0"' "$TARGET/CLAUDE.md"
+  check "uninstall: settings hooks removed" has_no_hook "$SETTINGS" "plan-gate"
 
   rm -rf "$tmpdir"
 }
@@ -204,6 +211,7 @@ persona_b() {
   # uninstall
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: clean" test ! -f "$CONFIG"
+  check "uninstall: CLAUDE.md rule removed" bash -c '! grep -q "ai-bouncer-rule" "$0" 2>/dev/null || ! test -f "$0"' "$TARGET/CLAUDE.md"
 
   rm -rf "$tmpdir"
 }
@@ -295,13 +303,16 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
     fail "plan-gate: subagent + dev_phases={} → expected BLOCK"
   fi
 
-  # update
+  # update — 파일 내용 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks copied" test -f "$TARGET/hooks/plan-gate.sh"
+  check "update: bash-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/hooks/bash-gate.sh"
 
-  # uninstall
+  # uninstall — 전체 정리
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: clean" test ! -f "$CONFIG"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
+  check "uninstall: agents cleaned" test ! -f "$TARGET/agents/lead.md"
 
   rm -rf "$tmpdir"
 }
@@ -373,6 +384,12 @@ persona_e() {
   check "E-5: config agent_mode=team" config_has "$CONFIG" "agent_mode" "team"
   check "E-5: AGENT_TEAMS restored" has_env "$SETTINGS" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
 
+  # uninstall
+  run_uninstall "$FAKE_HOME" "$FAKE_REPO"
+  check "E-6: uninstall config gone" test ! -f "$CONFIG"
+  check "E-6: uninstall hooks cleaned" has_no_hook "$SETTINGS" "plan-gate"
+  check "E-6: uninstall AGENT_TEAMS removed" has_no_env "$SETTINGS" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+
   rm -rf "$tmpdir"
 }
 
@@ -437,6 +454,12 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   # update: hook 복사됨 (기본값 hooks 폴백)
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks copied (default fallback)" test -f "$TARGET/hooks/plan-gate.sh"
+  check "update: agent 파일 갱신" test -f "$TARGET/agents/dev.md"
+
+  # uninstall
+  run_uninstall "$FAKE_HOME" "$FAKE_REPO"
+  check "uninstall: config gone" test ! -f "$TARGET/ai-bouncer/config.json"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
 
   rm -rf "$tmpdir"
 }
@@ -634,6 +657,36 @@ STEPEOF
   else
     fail "G-10: planning → expected BLOCK, got $decision"
   fi
+
+  # G-11: update 후 bash-gate 동작 유지
+  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  set_commit_strategy "per-step"
+  # step-1.md를 미완료 상태로 복원 (G-2에서 ✅가 들어갔음)
+  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+# Step 1: Test
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | 테스트 | 성공 |  |
+STEPEOF
+  write_state '{
+    "workflow_phase": "development", "plan_approved": True, "mode": "normal",
+    "team_name": "", "current_dev_phase": 1, "current_step": 1,
+    "dev_phases": {"1": {"name": "impl", "folder": "phase-1-impl", "steps": {"1": {"title": "S1"}, "2": {"title": "S2"}}}},
+    "verification": {"rounds_passed": 0}
+  }'
+  run_update "$FAKE_HOME" "$FAKE_REPO"
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" = "block" ]; then
+    pass "G-11: update 후 per-step + 미완료 → BLOCK 유지"
+  else
+    fail "G-11: update 후 → expected BLOCK, got $decision"
+  fi
+
+  # G-12: uninstall 후 bash-gate 사라짐
+  run_uninstall "$FAKE_HOME" "$FAKE_REPO"
+  check "G-12: uninstall config gone" test ! -f "$CONFIG"
+  check "G-12: uninstall bash-gate gone" test ! -f "$TARGET/hooks/bash-gate.sh"
 
   rm -rf "$tmpdir"
 }
