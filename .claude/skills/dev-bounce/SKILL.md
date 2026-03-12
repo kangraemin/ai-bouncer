@@ -362,15 +362,34 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 - `기술불가`: 사용자에게 보고, 범위 변경 필요하면 Phase 1 재시작
 - `기획질문`: state.json `workflow_phase = "planning"` 리셋 → Phase 1 재시작
 
-#### 3-6. Phase 완료 처리
+#### 3-6. Phase 완료 처리 (Main Claude 필수 확인)
 
-Lead가 `[PHASE:N:완료]` 출력 시:
-- state.json `current_dev_phase` 업데이트 확인
-- Lead가 다음 Phase로 자동 진행 (사용자 확인 불필요)
+Lead가 `[PHASE:N:완료]` 또는 `[ALL_STEPS:완료]`를 출력하면, **Main Claude가 반드시 다음을 확인**:
 
-#### 3-7. 모든 Phase 완료
+```bash
+# state.json에서 남은 Phase 확인
+python3 -c "
+import json
+state = json.load(open('{TASK_DIR}/state.json'))
+current = state.get('current_dev_phase', 0)
+total = len(state.get('dev_phases', {}))
+print(f'current={current} total={total}')
+if current < total:
+    print(f'NEXT_PHASE={current + 1}')
+else:
+    print('ALL_DONE')
+"
+```
 
-Lead가 `[ALL_STEPS:완료]` 출력 (마지막 Phase 완료 후) → Phase 4 진행
+**결과에 따라 분기 (반드시 따를 것):**
+
+- `NEXT_PHASE=N` → **Phase 4로 넘어가지 않는다.** Lead에게 "Phase N 개발을 시작하라"고 지시.
+  state.json `current_dev_phase`를 N으로 업데이트.
+- `ALL_DONE` → 모든 Phase 완료. Phase 4 (검증 루프) 진행.
+
+> **주의**: Lead가 `[ALL_STEPS:완료]`를 출력해도 state.json의 dev_phases에 남은 Phase가 있으면
+> **절대 Phase 4로 넘어가지 않는다.** 남은 Phase를 먼저 모두 완료해야 한다.
+> Lead가 잘못 판단할 수 있으므로 Main Claude가 직접 dev_phases 개수를 확인한다.
 
 ---
 
