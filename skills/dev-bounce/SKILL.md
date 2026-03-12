@@ -288,6 +288,11 @@ Lead가 수행:
 3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
 4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
 
+> **중요: Lead에게 스폰 시 반드시 다음을 명시할 것:**
+> "Lead는 오케스트레이터로서 코드 파일을 직접 Write/Edit/Bash로 수정하지 않는다.
+> 코드 구현은 반드시 Dev 에이전트를 스폰하여 위임한다.
+> git commit/push도 Lead가 직접 하지 않는다."
+
 **subagent/single 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
 
 #### 3-2. 팀 구성
