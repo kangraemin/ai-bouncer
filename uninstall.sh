@@ -196,7 +196,8 @@ PYEOF
 fi
 
 # 빈 디렉토리 정리
-for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" "$TARGET_DIR/agents" \
+for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" \
+           "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents" \
            "$TARGET_DIR/skills/dev-bounce" "$TARGET_DIR/skills"; do
   rmdir "$dir" 2>/dev/null || true
 done

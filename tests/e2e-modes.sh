@@ -166,12 +166,18 @@ persona_a() {
   check "install: update.sh 프로젝트 루트" test -x "$FAKE_REPO/update.sh"
   check "install: uninstall.sh 프로젝트 루트" test -x "$FAKE_REPO/uninstall.sh"
 
+  # guides 설치 검증
+  check "install: tc-guide.md 설치" test -f "$TARGET/agents/guides/tc-guide.md"
+  check "install: hooks.json 설치" test -f "$TARGET/hooks/hooks.json"
+
   # update — 파일 내용까지 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks still present" has_hook "$SETTINGS" "plan-gate"
   check "update: plan-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/hooks/plan-gate.sh"
   check "update: agent dev.md 갱신" grep -q "commit_strategy" "$TARGET/agents/dev.md"
   check "update: skill SKILL.md 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
+  check "update: tc-guide.md 갱신" test -f "$TARGET/agents/guides/tc-guide.md"
+  check "update: hooks.json 갱신" test -f "$TARGET/hooks/hooks.json"
 
   # update (프로젝트 루트 update.sh — 소스 없으므로 자동 clone)
   (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && bash "$FAKE_REPO/update.sh" 2>&1) || true
@@ -184,6 +190,7 @@ persona_a() {
   check "uninstall: config gone" test ! -f "$CONFIG"
   check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
   check "uninstall: agents cleaned" test ! -f "$TARGET/agents/dev.md"
+  check "uninstall: guides cleaned" test ! -f "$TARGET/agents/guides/tc-guide.md"
   check "uninstall: CLAUDE.md rule removed" bash -c '! grep -q "ai-bouncer-rule" "$0" 2>/dev/null || ! test -f "$0"' "$TARGET/CLAUDE.md"
   check "uninstall: settings hooks removed" has_no_hook "$SETTINGS" "plan-gate"
   check "uninstall: update.sh 삭제" test ! -f "$FAKE_REPO/update.sh"

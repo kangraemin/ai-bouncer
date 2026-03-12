@@ -157,6 +157,31 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
   if [ -n "$PHASE_FOLDER" ]; then
     PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
+    # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
+    PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
+    if [ "$PREV_DEV_PHASE" -gt 0 ]; then
+      PREV_PHASE_FOLDER=$(jq -r ".dev_phases[\"$PREV_DEV_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+      if [ -n "$PREV_PHASE_FOLDER" ]; then
+        PREV_PHASE_DIR="${TASK_DIR}/${PREV_PHASE_FOLDER}"
+        # 이전 Phase의 모든 step.md에 ✅가 있어야 함
+        PREV_PHASE_INCOMPLETE=false
+        for prev_step_file in "$PREV_PHASE_DIR"/step-*.md; do
+          [ -f "$prev_step_file" ] || continue
+          if ! grep -q '✅' "$prev_step_file" 2>/dev/null; then
+            PREV_PHASE_INCOMPLETE=true
+            break
+          fi
+        done
+        if [ "$PREV_PHASE_INCOMPLETE" = true ]; then
+          jq -n --arg phase "$PREV_DEV_PHASE" '{
+            decision: "block",
+            reason: ("⛔ Phase " + $phase + "의 모든 Step이 완료되지 않았습니다. 이전 Phase를 먼저 완료하세요.")
+          }'
+          exit 0
+        fi
+      fi
+    fi
+
     # CHECK 7a: phase.md 존재 검증
     if [ ! -f "${PHASE_DIR}/phase.md" ]; then
       jq -n --arg phase "$DEV_PHASE_KEY" '{

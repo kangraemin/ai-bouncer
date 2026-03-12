@@ -112,6 +112,12 @@ assert_file "qa.md 설치됨"           "$TARGET/agents/qa.md"
 # skill
 assert_file "dev-bounce SKILL.md 설치됨"  "$TARGET/skills/dev-bounce/SKILL.md"
 
+# guides
+assert_file "tc-guide.md 설치됨"  "$TARGET/agents/guides/tc-guide.md"
+
+# hooks.json
+assert_file "hooks.json 설치됨"  "$TARGET/hooks/hooks.json"
+
 # settings.json
 assert_file "settings.json 생성됨"  "$TARGET/settings.json"
 assert_contains "plan-gate hook 등록됨"   "$TARGET/settings.json" "plan-gate.sh"
@@ -226,6 +232,8 @@ assert_file "update 후 intent.md 존재"      "$TARGET/agents/intent.md"
 assert_file "update 후 SKILL.md 존재"       "$TARGET/skills/dev-bounce/SKILL.md"
 assert_file "update 후 settings.json 존재"  "$TARGET/settings.json"
 assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-gate.sh"
+assert_file "update 후 tc-guide.md 존재"    "$TARGET/agents/guides/tc-guide.md"
+assert_file "update 후 hooks.json 존재"     "$TARGET/hooks/hooks.json"
 
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 5. Uninstall ───${NC}"
@@ -238,6 +246,7 @@ assert_no_file "uninstall 후 bash-gate.sh 없음"    "$TARGET/hooks/bash-gate.s
 assert_no_file "uninstall 후 bash-audit.sh 없음"   "$TARGET/hooks/bash-audit.sh"
 assert_no_file "uninstall 후 intent.md 없음"       "$TARGET/agents/intent.md"
 assert_no_file "uninstall 후 SKILL.md 없음"        "$TARGET/skills/dev-bounce/SKILL.md"
+assert_no_file "uninstall 후 tc-guide.md 없음"     "$TARGET/agents/guides/tc-guide.md"
 assert_no_file "uninstall 후 manifest.json 없음"   "$TARGET/ai-bouncer/manifest.json"
 assert_no_file "uninstall 후 config.json 없음"     "$TARGET/ai-bouncer/config.json"
 

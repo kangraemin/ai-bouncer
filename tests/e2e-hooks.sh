@@ -27,6 +27,8 @@ s['plan_approved'] = ('$approved' == 'true')
 with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
 "
   echo "$TEST_SID" > "$ACTIVE_FILE"
+  # plan.md 생성 (plan-gate가 파일 존재 검증)
+  echo "# Test Plan" > "$TASK_DIR/plan.md"
   rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 }
 
@@ -299,6 +301,40 @@ setup "simple" "development" "true"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "SIMPLE + dev_phases={} + Write → 통과 (스킵)" "$R"
 
+cleanup_normal
+
+echo ""
+
+# ─── 8. Phase 순서 강제 (plan-gate.sh) ────
+echo "─── Phase 순서 강제 (plan-gate.sh) ───"
+
+TWO_PHASE_DEV_PHASES='{"1":{"name":"base","folder":"phase-1-base","steps":{"1":{"title":"Step 1"}}},"2":{"name":"ui","folder":"phase-2-ui","steps":{"1":{"title":"Step 1"}}}}'
+
+# TC-P1: Phase 2 Step 1 + Phase 1 step에 ✅ 없음 → BLOCK
+setup_normal "$TWO_PHASE_DEV_PHASES" 2 1
+mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui"
+echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
+echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-base/step-1.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-2-ui/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "Phase 2 + Phase 1 미완료 → 차단" "$R"
+
+# TC-P2: Phase 2 Step 1 + Phase 1 step에 ✅ 있음 → ALLOW
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-1-base/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "Phase 2 + Phase 1 완료 → 통과" "$R"
+
+# TC-P3: Phase 1 Step 1 (첫 Phase) → 이전 Phase 검증 스킵 → ALLOW
+setup_normal "$TWO_PHASE_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-base"
+echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-base/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "Phase 1 (첫 Phase) → 이전 검증 스킵 → 통과" "$R"
+
+# 정리
+rm -rf "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui"
 cleanup_normal
 
 echo ""

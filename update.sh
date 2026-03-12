@@ -52,15 +52,25 @@ BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
 echo -e "${BOLD}ai-bouncer 업데이트${NC} → $TARGET_DIR"
 echo ""
 
-# agents
-for agent in intent verifier lead dev qa; do
-  src="$PACKAGE_DIR/agents/${agent}.md"
-  dst="$TARGET_DIR/agents/${agent}.md"
-  if [ -f "$src" ]; then
-    mkdir -p "$(dirname "$dst")"
-    cp "$src" "$dst"
-    ok "$agent (agent)"
-  fi
+# agents (동적 복사 — agents/*.md)
+for agent in "$PACKAGE_DIR/agents/"*.md; do
+  [ -f "$agent" ] || continue
+  dst="$TARGET_DIR/agents/$(basename "$agent")"
+  mkdir -p "$(dirname "$dst")"
+  cp "$agent" "$dst"
+  ok "$(basename "$agent") (agent)"
+done
+
+# agents 서브디렉토리 (guides/ 등) 동적 복사
+for subdir in "$PACKAGE_DIR/agents"/*/; do
+  [ -d "$subdir" ] || continue
+  dir_name=$(basename "$subdir")
+  mkdir -p "$TARGET_DIR/agents/$dir_name"
+  for f in "$subdir"*.md; do
+    [ -f "$f" ] || continue
+    cp "$f" "$TARGET_DIR/agents/$dir_name/$(basename "$f")"
+    ok "$(basename "$f") (agents/$dir_name)"
+  done
 done
 
 # skills (로컬 설치)
@@ -124,29 +134,47 @@ PYEOF
 # enforcement_mode 확인 — prompt-only면 hook 복사 스킵
 ENFORCEMENT_MODE=$(jq -r '.enforcement_mode // "hooks"' "$CONFIG_FILE" 2>/dev/null || echo "hooks")
 
-if [ "$ENFORCEMENT_MODE" = "hooks" ]; then
-  install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"       "$TARGET_DIR/hooks/plan-gate.sh"
-  install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
-  install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
-  install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
-  install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
+# hooks.json 매니페스트 기반 동적 설치
+HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"
+if [ -f "$HOOKS_MANIFEST" ] && [ "$ENFORCEMENT_MODE" = "hooks" ]; then
+  # hooks.json 자체도 복사
+  mkdir -p "$TARGET_DIR/hooks"
+  cp "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json"
+  ok "hooks.json (manifest)"
 
-  # subagent hooks
-  cp "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
-  chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
-  ok "subagent-track.sh (hook)"
-  cp "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
-  chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
-  ok "subagent-cleanup.sh (hook)"
+  python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hook_type, hooks in manifest.items():
+    for h in hooks:
+        print(h['type'], h['file'])
+" "$HOOKS_MANIFEST" | while read -r htype hfile; do
+    src="$PACKAGE_DIR/hooks/$hfile"
+    dst="$TARGET_DIR/hooks/$hfile"
+    [ -f "$src" ] || continue
+    if [ "$htype" = "managed" ]; then
+      install_hook "$src" "$dst"
+    else
+      mkdir -p "$(dirname "$dst")"
+      cp "$src" "$dst"
+      chmod +x "$dst"
+      ok "$hfile (hook)"
+    fi
+  done
 else
   ok "hook 복사 스킵 (enforcement_mode=prompt-only)"
 fi
 
-# lib
-mkdir -p "$TARGET_DIR/hooks/lib"
-cp "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
-chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
-ok "resolve-task.sh (lib)"
+# hooks/lib/ 동적 복사
+if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
+  mkdir -p "$TARGET_DIR/hooks/lib"
+  for lib in "$PACKAGE_DIR/hooks/lib/"*.sh; do
+    [ -f "$lib" ] || continue
+    cp "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    chmod +x "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    ok "$(basename "$lib") (lib)"
+  done
+fi
 
 # Stop hook 호환성 패치
 inject_stop_compat() {

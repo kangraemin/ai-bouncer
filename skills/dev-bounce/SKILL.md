@@ -314,9 +314,15 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 - `기술불가`: 사용자에게 보고, 범위 변경 필요하면 Phase 1 재시작
 - `기획질문`: state.json `workflow_phase = "planning"` 리셋 → Phase 1 재시작
 
-#### 3-6. 모든 Step 완료
+#### 3-6. Phase 완료 처리
 
-Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
+Lead가 `[PHASE:N:완료]` 출력 시:
+- state.json `current_dev_phase` 업데이트 확인
+- Lead가 다음 Phase로 자동 진행 (사용자 확인 불필요)
+
+#### 3-7. 모든 Phase 완료
+
+Lead가 `[ALL_STEPS:완료]` 출력 (마지막 Phase 완료 후) → Phase 4 진행
 
 ---
 

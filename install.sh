@@ -170,13 +170,23 @@ if old_enforcement != enforcement_mode:
         remove_bouncer_hooks()
         print("  ✓ settings.json: hook 전부 제거됨")
     else:
-        add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
-        add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
-        add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
-        add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
-        add_hook('Stop', None, 'completion-gate.sh')
-        add_hook('SubagentStart', None, 'subagent-track.sh')
-        add_hook('SubagentStop', None, 'subagent-cleanup.sh')
+        # hooks.json 매니페스트 기반 등록
+        hooks_manifest_path = os.path.join(target_dir, 'hooks', 'hooks.json')
+        if os.path.exists(hooks_manifest_path):
+            manifest = json.load(open(hooks_manifest_path))
+            for hook_type, hook_entries in manifest.items():
+                for entry in hook_entries:
+                    matcher = entry.get('matcher')
+                    add_hook(hook_type, matcher, entry['file'])
+        else:
+            # fallback: 하드코딩
+            add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
+            add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
+            add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
+            add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
+            add_hook('Stop', None, 'completion-gate.sh')
+            add_hook('SubagentStart', None, 'subagent-track.sh')
+            add_hook('SubagentStop', None, 'subagent-cleanup.sh')
         print("  ✓ settings.json: hook 재등록됨")
 
 # --- Agent Teams env ---
@@ -314,33 +324,62 @@ PYEOF
 # ── 파일 설치 ──────────────────────────────────────────────────
 header "파일 설치"
 
-# agents
-copy_file "$PACKAGE_DIR/agents/intent.md"        "$TARGET_DIR/agents/intent.md"
-copy_file "$PACKAGE_DIR/agents/verifier.md"      "$TARGET_DIR/agents/verifier.md"
-copy_file "$PACKAGE_DIR/agents/lead.md"          "$TARGET_DIR/agents/lead.md"
-copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
-copy_file "$PACKAGE_DIR/agents/qa.md"            "$TARGET_DIR/agents/qa.md"
+# agents (동적 복사 — agents/*.md)
+for agent in "$PACKAGE_DIR/agents/"*.md; do
+  [ -f "$agent" ] || continue
+  copy_file "$agent" "$TARGET_DIR/agents/$(basename "$agent")"
+done
+
+# agents 서브디렉토리 (guides/ 등) 동적 복사
+for subdir in "$PACKAGE_DIR/agents"/*/; do
+  [ -d "$subdir" ] || continue
+  dir_name=$(basename "$subdir")
+  mkdir -p "$TARGET_DIR/agents/$dir_name"
+  for f in "$subdir"*.md; do
+    [ -f "$f" ] || continue
+    copy_file "$f" "$TARGET_DIR/agents/$dir_name/$(basename "$f")"
+  done
+done
 
 # skills (로컬 .claude/skills/ 에 설치)
 install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
 
-# hooks
-install_hook "$PACKAGE_DIR/hooks/plan-gate.sh"       "$TARGET_DIR/hooks/plan-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/doc-reminder.sh"    "$TARGET_DIR/hooks/doc-reminder.sh"
-install_hook "$PACKAGE_DIR/hooks/completion-gate.sh"  "$TARGET_DIR/hooks/completion-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/bash-gate.sh"       "$TARGET_DIR/hooks/bash-gate.sh"
-install_hook "$PACKAGE_DIR/hooks/bash-audit.sh"      "$TARGET_DIR/hooks/bash-audit.sh"
+# hooks.json 매니페스트 기반 동적 설치
+HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"
+if [ -f "$HOOKS_MANIFEST" ]; then
+  # hooks.json 자체도 복사
+  mkdir -p "$TARGET_DIR/hooks"
+  copy_file "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json"
 
-# subagent hooks
-copy_file "$PACKAGE_DIR/hooks/subagent-track.sh"   "$TARGET_DIR/hooks/subagent-track.sh"
-chmod +x "$TARGET_DIR/hooks/subagent-track.sh"
-copy_file "$PACKAGE_DIR/hooks/subagent-cleanup.sh"  "$TARGET_DIR/hooks/subagent-cleanup.sh"
-chmod +x "$TARGET_DIR/hooks/subagent-cleanup.sh"
+  # process substitution으로 subshell 회피 (INSTALLED_FILES 전파)
+  while read -r htype hfile; do
+    src="$PACKAGE_DIR/hooks/$hfile"
+    dst="$TARGET_DIR/hooks/$hfile"
+    [ -f "$src" ] || continue
+    if [ "$htype" = "managed" ]; then
+      install_hook "$src" "$dst"
+    else
+      copy_file "$src" "$dst"
+      chmod +x "$dst"
+    fi
+  done < <(python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hook_type, hooks in manifest.items():
+    for h in hooks:
+        print(h['type'], h['file'])
+" "$HOOKS_MANIFEST")
+fi
 
-# lib (공유 라이브러리)
-mkdir -p "$TARGET_DIR/hooks/lib"
-copy_file "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
-chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
+# hooks/lib/ 동적 복사
+if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
+  mkdir -p "$TARGET_DIR/hooks/lib"
+  for lib in "$PACKAGE_DIR/hooks/lib/"*.sh; do
+    [ -f "$lib" ] || continue
+    copy_file "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    chmod +x "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+  done
+fi
 
 # update.sh / uninstall.sh → 프로젝트 루트
 cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
@@ -506,13 +545,14 @@ header "settings.json 설정"
 
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 
-python3 - "$SETTINGS_FILE" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" <<'PYEOF'
+python3 - "$SETTINGS_FILE" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" "$PACKAGE_DIR/hooks/hooks.json" <<'PYEOF'
 import json, sys, os
 
 settings_file = sys.argv[1]
 target_dir = sys.argv[2]
 enforcement_mode = sys.argv[3]
 agent_mode = sys.argv[4]
+hooks_manifest_path = sys.argv[5]
 
 cfg = {}
 if os.path.exists(settings_file):
@@ -555,15 +595,13 @@ def add_hook(hook_type, matcher, cmd):
     else:
         print(f"  · {hook_type} hook 이미 등록됨: {cmd}")
 
-# enforcement_mode=hooks → hook 등록, prompt-only → 스킵
-if enforcement_mode == 'hooks':
-    add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
-    add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
-    add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
-    add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
-    add_hook('Stop', None, 'completion-gate.sh')
-    add_hook('SubagentStart', None, 'subagent-track.sh')
-    add_hook('SubagentStop', None, 'subagent-cleanup.sh')
+# hooks.json 매니페스트 기반 등록
+if enforcement_mode == 'hooks' and os.path.exists(hooks_manifest_path):
+    manifest = json.load(open(hooks_manifest_path))
+    for hook_type, hook_entries in manifest.items():
+        for entry in hook_entries:
+            matcher = entry.get('matcher')
+            add_hook(hook_type, matcher, entry['file'])
 else:
     print('  · hook 등록 스킵 (enforcement_mode=prompt-only)')
 
@@ -680,7 +718,7 @@ ok "매니페스트 저장됨"
 header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
-echo "  ├─ agents: intent, verifier, lead, dev, qa"
+echo "  ├─ agents: $(ls "$TARGET_DIR/agents/"*.md 2>/dev/null | xargs -I{} basename {} .md | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
 echo "  ├─ skills: dev-bounce ($TARGET_DIR/skills/dev-bounce/)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse: Write/Edit)"
 echo "  │         bash-gate.sh (PreToolUse: Bash)"
