@@ -15,6 +15,16 @@ err() { echo -e "${RED}✗${NC}  $*"; }
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# PACKAGE_DIR 유효성 검사 (원격 실행 / 설치된 update.sh 대응)
+if [ ! -f "$PACKAGE_DIR/agents/intent.md" ]; then
+  echo -e "${BOLD}최신 소스 다운로드 중...${NC}"
+  TMPDIR_UPDATE=$(mktemp -d)
+  trap 'rm -rf "$TMPDIR_UPDATE"' EXIT
+  git clone --depth 1 "${AI_BOUNCER_REPO:-https://github.com/kangraemin/ai-bouncer.git}" "$TMPDIR_UPDATE/ai-bouncer" -q
+  PACKAGE_DIR="$TMPDIR_UPDATE/ai-bouncer"
+  echo -e "${GREEN}✓${NC}  다운로드 완료"
+fi
+
 # 설치 경로 감지: 로컬(.claude/) 우선, 글로벌(~/.claude/) fallback
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 
