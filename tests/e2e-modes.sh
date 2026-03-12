@@ -441,6 +441,203 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   rm -rf "$tmpdir"
 }
 
+# ── Persona G: commit_strategy 유저 ─────────────────────────
+
+persona_g() {
+  echo -e "\n${BOLD}Persona G: commit_strategy 유저${NC}"
+  local tmpdir
+  tmpdir=$(setup_fake_env)
+  local FAKE_HOME="$tmpdir/home"
+  local FAKE_REPO="$tmpdir/repo"
+  local TARGET="$FAKE_REPO/.claude"
+  local CONFIG="$TARGET/ai-bouncer/config.json"
+
+  run_install_modes "$FAKE_HOME" "$FAKE_REPO" "hooks" "subagent"
+
+  # 공통 setup: docs + state.json + step 파일
+  local date_dir="2026-01-01"
+  local task="cs-task"
+  mkdir -p "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl"
+  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  echo "# Plan" > "$FAKE_REPO/docs/${date_dir}/${task}/plan.md"
+  echo "# Phase 1" > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/phase.md"
+
+  # step-1.md (미완료 — ✅ 없음)
+  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+# Step 1: Test
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | 테스트 | 성공 |  |
+STEPEOF
+
+  # step-2.md (미완료)
+  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
+# Step 2: Test
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | 테스트 | 성공 |  |
+STEPEOF
+
+  # state.json: normal + development + per-step (2 steps)
+  write_state() {
+    python3 -c "
+import json
+state = $1
+with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
+    json.dump(state, f, indent=2)
+"
+  }
+
+  set_commit_strategy() {
+    python3 -c "
+import json
+with open('$CONFIG') as f: cfg = json.load(f)
+cfg['commit_strategy'] = '$1'
+with open('$CONFIG', 'w') as f: json.dump(cfg, f, indent=2)
+"
+  }
+
+  run_bash_gate() {
+    local cmd="$1"
+    local hook_input
+    hook_input=$(jq -n --arg cmd "$cmd" '{tool_name: "Bash", tool_input: {command: $cmd}}')
+    local hook_out
+    hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/hooks/bash-gate.sh" 2>/dev/null || true)
+    echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow"
+  }
+
+  # G-1: per-step + step 미완료 + git commit → BLOCK
+  set_commit_strategy "per-step"
+  write_state '{
+    "workflow_phase": "development", "plan_approved": True, "mode": "normal",
+    "team_name": "", "current_dev_phase": 1, "current_step": 1,
+    "dev_phases": {"1": {"name": "impl", "folder": "phase-1-impl", "steps": {"1": {"title": "S1"}, "2": {"title": "S2"}}}},
+    "verification": {"rounds_passed": 0}
+  }'
+  local decision
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" = "block" ]; then
+    pass "G-1: per-step + step 미완료 + git commit → BLOCK"
+  else
+    fail "G-1: per-step + step 미완료 + git commit → expected BLOCK, got $decision"
+  fi
+
+  # G-2: per-step + step 완료(✅) + git commit → ALLOW
+  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+# Step 1: Test
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | 테스트 | 성공 | ✅ |
+STEPEOF
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" != "block" ]; then
+    pass "G-2: per-step + step 완료(✅) + git commit → ALLOW"
+  else
+    fail "G-2: per-step + step 완료 → expected ALLOW, got BLOCK"
+  fi
+
+  # G-3: per-phase + 중간 step (step 1 완료, step 2 미완료) + git commit → BLOCK
+  set_commit_strategy "per-phase"
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" = "block" ]; then
+    pass "G-3: per-phase + 중간 step + git commit → BLOCK"
+  else
+    fail "G-3: per-phase + 중간 step → expected BLOCK, got $decision"
+  fi
+
+  # G-4: per-phase + 마지막 step 완료 + git commit → ALLOW
+  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
+# Step 2: Test
+## 테스트 케이스
+| TC | 시나리오 | 기대 결과 | 실제 결과 |
+|---|---|---|---|
+| TC-1 | 테스트 | 성공 | ✅ |
+STEPEOF
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" != "block" ]; then
+    pass "G-4: per-phase + 마지막 step 완료 + git commit → ALLOW"
+  else
+    fail "G-4: per-phase + 마지막 step 완료 → expected ALLOW, got BLOCK"
+  fi
+
+  # G-5: none + git commit → BLOCK
+  set_commit_strategy "none"
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" = "block" ]; then
+    pass "G-5: none + git commit → BLOCK"
+  else
+    fail "G-5: none → expected BLOCK, got $decision"
+  fi
+
+  # G-6: git status (비 commit/push) → ALLOW
+  set_commit_strategy "per-step"
+  decision=$(run_bash_gate "git status")
+  if [ "$decision" != "block" ]; then
+    pass "G-6: git status → ALLOW"
+  else
+    fail "G-6: git status → expected ALLOW, got BLOCK"
+  fi
+
+  # G-7: verification + git commit → ALLOW
+  set_commit_strategy "per-step"
+  write_state '{
+    "workflow_phase": "verification", "plan_approved": True, "mode": "normal",
+    "team_name": "", "current_dev_phase": 1, "current_step": 1,
+    "dev_phases": {"1": {"name": "impl", "folder": "phase-1-impl", "steps": {"1": {"title": "S1"}}}},
+    "verification": {"rounds_passed": 0}
+  }'
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" != "block" ]; then
+    pass "G-7: verification + git commit → ALLOW"
+  else
+    fail "G-7: verification → expected ALLOW, got BLOCK"
+  fi
+
+  # G-8: .active 없음 + git commit → ALLOW (gate 비활성)
+  rm -f "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  set_commit_strategy "per-step"
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" != "block" ]; then
+    pass "G-8: .active 없음 + git commit → ALLOW"
+  else
+    fail "G-8: .active 없음 → expected ALLOW, got BLOCK"
+  fi
+
+  # G-9: simple 모드 + development + git commit → ALLOW
+  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  set_commit_strategy "per-step"
+  write_state '{
+    "workflow_phase": "development", "plan_approved": True, "mode": "simple",
+    "team_name": "", "current_dev_phase": 0, "current_step": 0,
+    "dev_phases": {}, "verification": {"rounds_passed": 0}
+  }'
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" != "block" ]; then
+    pass "G-9: simple + development + git commit → ALLOW"
+  else
+    fail "G-9: simple mode → expected ALLOW, got BLOCK"
+  fi
+
+  # G-10: planning + git commit → BLOCK
+  set_commit_strategy "per-step"
+  write_state '{
+    "workflow_phase": "planning", "plan_approved": False, "mode": "normal",
+    "team_name": "", "current_dev_phase": 0, "current_step": 0,
+    "dev_phases": {}, "verification": {"rounds_passed": 0}
+  }'
+  decision=$(run_bash_gate "git commit -m 'test'")
+  if [ "$decision" = "block" ]; then
+    pass "G-10: planning + git commit → BLOCK"
+  else
+    fail "G-10: planning → expected BLOCK, got $decision"
+  fi
+
+  rm -rf "$tmpdir"
+}
+
 # ── 실행 ────────────────────────────────────────────────────
 
 persona_a
@@ -449,6 +646,7 @@ persona_c
 persona_d
 persona_e
 persona_f
+persona_g
 
 echo -e "\n${BOLD}═══════════════════════════════════════${NC}"
 echo -e "${BOLD}  결과: ${PASS}/${TOTAL} PASS, ${FAIL} FAIL${NC}"

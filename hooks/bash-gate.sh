@@ -17,15 +17,103 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
 # --- ai-bouncer start ---
 
-# 1. Fast exit: 쓰기 패턴 미포함 → exit 0
+# 1. Fast exit: 쓰기 패턴 미포함 → exit 0 (git commit/push는 제외)
 # fd redirect (2>/dev/null, 1>&2 등) 제거 후 검사 — 오탐 방지
 CMD_CLEAN=$(echo "$CMD" | sed -E 's/[0-9]+>\/dev\/null//g; s/[0-9]+>[&]?[0-9]*//g')
 if ! echo "$CMD_CLEAN" | grep -qE '>[^&]|>>|\btee\b|\bsed\b.*-i|\bcp\b|\bmv\b|\btouch\b|\bdd\b.*of=|\bpython|\bnode\b.*-e|\bruby\b.*-e|\bperl\b.*-e|\brm\b|\brmdir\b|\bunlink\b|\bcurl\b.*(-o|--output)|\bwget\b'; then
-  exit 0
+  # 쓰기 패턴 없지만 git commit/push면 commit_strategy 검증 필요
+  if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
+    :
+  else
+    exit 0
+  fi
 fi
 
-# 2. git 명령어 → exit 0 (git commit, push 등)
+# 2. git 명령어 분기
 if echo "$CMD" | grep -qE '^\s*git\b'; then
+  # git commit/push → commit_strategy 검증 (아래 블록)
+  if echo "$CMD" | grep -qE '\bgit\s+(commit|push)\b'; then
+    :
+  else
+    # 나머지 git 명령 (status, add, diff 등) → 통과
+    exit 0
+  fi
+fi
+
+# 2-1. commit_strategy 검증 (git commit/push)
+if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
+  REPO_ROOT_CS=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+  CONFIG_CS="$REPO_ROOT_CS/.claude/ai-bouncer/config.json"
+
+  # config.json 없으면 통과
+  [ ! -f "$CONFIG_CS" ] && exit 0
+
+  COMMIT_STRATEGY=$(jq -r '.commit_strategy // "per-step"' "$CONFIG_CS" 2>/dev/null || echo "per-step")
+
+  # none → 항상 block
+  if [ "$COMMIT_STRATEGY" = "none" ]; then
+    jq -n '{decision:"block", reason:"⛔ [bash-gate] commit_strategy=none: 커밋이 차단됩니다. 수동 관리 모드."}'
+    exit 0
+  fi
+
+  # .active 탐색 (resolve-task.sh)
+  SCRIPT_DIR_CS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  source "$SCRIPT_DIR_CS/lib/resolve-task.sh"
+
+  # .active 없으면 gate 비활성 → 통과
+  [ -z "$TASK_NAME" ] && exit 0
+
+  # state.json 없으면 통과
+  [ -f "$STATE_FILE" ] || exit 0
+
+  CS_WORKFLOW=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
+  CS_MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
+
+  # verification/done → 항상 허용
+  case "$CS_WORKFLOW" in
+    verification|done) exit 0 ;;
+  esac
+
+  # planning → block
+  if [ "$CS_WORKFLOW" = "planning" ]; then
+    jq -n '{decision:"block", reason:"⛔ [bash-gate] planning 단계에서는 커밋할 수 없습니다."}'
+    exit 0
+  fi
+
+  # simple 모드 → development이면 허용 (step 검증 없음)
+  if [ "$CS_MODE" = "simple" ]; then
+    exit 0
+  fi
+
+  # --- NORMAL 모드 + development ---
+  CS_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+  CS_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
+  CS_PHASE_FOLDER=$(jq -r ".dev_phases[\"$CS_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+
+  [ -z "$CS_PHASE_FOLDER" ] && exit 0
+
+  if [ "$COMMIT_STRATEGY" = "per-step" ]; then
+    STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${CS_STEP}.md"
+    if [ -f "$STEP_FILE_CS" ] && grep -q '✅' "$STEP_FILE_CS" 2>/dev/null; then
+      exit 0
+    fi
+    jq -n --arg p "$CS_PHASE" --arg s "$CS_STEP" \
+      '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-step: Phase " + $p + " Step " + $s + " 미완료. 테스트 통과 후 커밋하세요.")}'
+    exit 0
+  fi
+
+  if [ "$COMMIT_STRATEGY" = "per-phase" ]; then
+    LAST_STEP_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | keys | map(tonumber) | max" "$STATE_FILE" 2>/dev/null)
+    LAST_STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${LAST_STEP_CS}.md"
+    if [ -f "$LAST_STEP_FILE_CS" ] && grep -q '✅' "$LAST_STEP_FILE_CS" 2>/dev/null; then
+      exit 0
+    fi
+    jq -n --arg p "$CS_PHASE" --arg ls "$LAST_STEP_CS" \
+      '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + " 마지막 Step " + $ls + " 미완료. Phase 완료 후 커밋하세요.")}'
+    exit 0
+  fi
+
+  # 알 수 없는 strategy → 통과 (하위 호환)
   exit 0
 fi
 
