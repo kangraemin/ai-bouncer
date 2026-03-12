@@ -218,6 +218,16 @@ for g in cfg.get('hooks', {}).get('Stop', []):
 patch_stop_hooks "$HOME/.claude/settings.json"
 patch_stop_hooks "$TARGET_DIR/settings.json"
 
+# update.sh / uninstall.sh → 프로젝트 루트
+if [ -n "$REPO_ROOT" ]; then
+  cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
+  chmod +x "$REPO_ROOT/update.sh"
+  ok "update.sh (프로젝트 루트)"
+  cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
+  chmod +x "$REPO_ROOT/uninstall.sh"
+  ok "uninstall.sh (프로젝트 루트)"
+fi
+
 # 매니페스트 업데이트 (로컬 우선)
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 mkdir -p "$BOUNCER_DATA_DIR"
