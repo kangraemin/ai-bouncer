@@ -33,6 +33,9 @@ cat {TASK_DIR}/state.json
 | `[TEAM:duo]` | 2~5개 기능, 서로 연관 있음 | Dev 1명 스폰 |
 | `[TEAM:team]` | 6개 이상 또는 독립 기능이 병렬 가능 | Dev + QA 스폰 |
 
+> ⚠️ **agent_mode=team일 때 `[TEAM:solo]` 금지.** Lead는 팀 모드에서 직접 코드를 작성할 수 없다 (hook이 차단). 최소 `[TEAM:duo]`부터 시작한다.
+> agent_mode 확인: `jq -r '.agent_mode // "team"' .claude/ai-bouncer/config.json`
+
 보조 판단 요소 (기능 수가 애매할 때 참고):
 - 구현 복잡도 (새 아키텍처 vs 기존 수정)
 - 크로스 시스템 의존성
