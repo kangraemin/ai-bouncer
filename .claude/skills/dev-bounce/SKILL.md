@@ -17,71 +17,72 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 ## 컨텍스트 복원 (세션 재시작 시)
 
-시작 전 활성 작업 확인 (세션별 격리 — `docs/YYYY-MM-DD/<task>/.active` 방식):
+아래 Python 스크립트를 **반드시 그대로 실행**하여 활성/미완료 작업을 탐색한다.
+git log, 수동 파일 탐색 등으로 대체하지 않는다.
 
 ```bash
-# docs/YYYY-MM-DD/<task>/.active 스캔
-TASK_NAME=""
-for date_dir in docs/*/; do
-  [ -d "$date_dir" ] || continue
-  for active_file in "$date_dir"*/.active; do
-    [ -f "$active_file" ] || continue
-    task_folder=$(basename "$(dirname "$active_file")")
-    task_dir="$(dirname "$active_file")"
-    state_json="${task_dir}/state.json"
-    [ -f "$state_json" ] || continue
-    TASK_NAME="$task_folder"
-    STATE_JSON="$state_json"
-    TASK_DIR="$task_dir"
-    break 2
-  done
-done
+python3 -c "
+import json, os, glob
+
+results = {'active': None, 'incomplete': []}
+
+# 1) .active 파일 스캔
+for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+    task_dir = os.path.dirname(state_file)
+    active_file = os.path.join(task_dir, '.active')
+    if os.path.isfile(active_file):
+        results['active'] = {'task_dir': task_dir, 'state_file': state_file}
+        break
+
+# 2) .active 없으면 미완료 작업 스캔
+if not results['active']:
+    for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+        try:
+            state = json.load(open(state_file))
+        except: continue
+        phase = state.get('workflow_phase', '')
+        if phase in ('done', ''): continue
+        task_dir = os.path.dirname(state_file)
+        task_name = os.path.basename(task_dir)
+        date_dir = os.path.basename(os.path.dirname(task_dir))
+        mode = state.get('mode', '?')
+        dev_phase = state.get('current_dev_phase', 0)
+        total_phases = len(state.get('dev_phases', {}))
+        results['incomplete'].append({
+            'label': f'{date_dir}/{task_name}',
+            'phase': phase, 'mode': mode,
+            'dev_phase': dev_phase, 'total_phases': total_phases,
+            'task_dir': task_dir
+        })
+
+print(json.dumps(results, ensure_ascii=False))
+"
 ```
 
-- 활성 작업 있음 → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
-- 활성 작업 없음 → 미완료 작업 탐색 (아래 fallback)
+### 결과 처리 (반드시 따를 것)
 
-### Fallback: 미완료 작업 탐색
+**Case A: `active`가 있음**
+→ 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
 
-`.active` 파일이 없지만 미완료 작업이 남아있을 수 있다 (세션 종료로 `.active` 삭제됨).
+**Case B: `active`는 없고 `incomplete`가 1개 이상**
+→ **반드시 AskUserQuestion으로 사용자에게 확인** 후 진행. 임의로 선택 금지.
 
-```bash
-# 미완료 작업 스캔: workflow_phase != "done"인 state.json 찾기
-INCOMPLETE_TASKS=()
-for state_file in docs/*/*/state.json; do
-  [ -f "$state_file" ] || continue
-  phase=$(python3 -c "import json; print(json.load(open('$state_file')).get('workflow_phase',''))" 2>/dev/null)
-  [ "$phase" = "done" ] && continue
-  [ -z "$phase" ] && continue
-  task_dir="$(dirname "$state_file")"
-  task_name="$(basename "$task_dir")"
-  date_dir="$(basename "$(dirname "$task_dir")")"
-  INCOMPLETE_TASKS+=("$date_dir/$task_name|$phase|$task_dir")
-done
-```
-
-미완료 작업이 있으면 사용자에게 목록을 보여주고 선택을 요청한다:
-
+표시 형식:
 ```
 미완료 작업이 발견되었습니다:
 
-1. [2026-03-12/game-ui-update] — Phase: development (Phase 2/3)
-2. [2026-03-10/auth-refactor] — Phase: verification
+1. [2026-03-12/ai-tycoon-reskin] — development (Phase 2/3, NORMAL)
+2. [2026-03-10/auth-refactor] — verification (SIMPLE)
 
-이어서 진행할 작업을 선택하세요 (번호), 또는 새 작업을 시작하려면 "새로" 입력:
+이어서 진행할 작업 번호를 선택하세요. 새 작업은 "새로":
 ```
 
-각 항목 표시 시 state.json에서 읽을 정보:
-- `workflow_phase`: 현재 단계
-- `mode`: simple/normal
-- `current_dev_phase` / `dev_phases`: 진행 중인 Phase 번호
-- `plan_approved`: 계획 승인 여부
-
 사용자가 선택하면:
-1. `.active` 파일 재생성
-2. 해당 `state.json`의 `workflow_phase`부터 재개
+1. 해당 task_dir에 `.active` 파일 재생성
+2. `state.json`의 `workflow_phase`부터 재개
 
-미완료 작업 없음 → 새 작업 시작 (Phase 0부터)
+**Case C: `active`도 `incomplete`도 없음**
+→ 새 작업 시작 (Phase 0부터)
 
 ---
 
