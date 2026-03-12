@@ -146,6 +146,41 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
   fi
 fi
 
+# CHECK 6.8: verification인데 모든 Phase가 완료되지 않았으면 → BLOCK
+if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
+  DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
+  if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
+    ALL_PHASES_DONE=true
+    for phase_idx in $(seq 1 "$DEV_PHASES_COUNT"); do
+      PHASE_FOLDER=$(jq -r ".dev_phases[\"$phase_idx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+      [ -z "$PHASE_FOLDER" ] && continue
+      PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
+      # phase 디렉토리에 step-*.md가 있고, 모두 ✅를 포함해야 함
+      HAS_STEPS=false
+      for step_file in "$PHASE_DIR"/step-*.md; do
+        [ -f "$step_file" ] || continue
+        HAS_STEPS=true
+        if ! grep -q '✅' "$step_file" 2>/dev/null; then
+          ALL_PHASES_DONE=false
+          break 2
+        fi
+      done
+      if [ "$HAS_STEPS" = false ]; then
+        ALL_PHASES_DONE=false
+        break
+      fi
+    done
+    if [ "$ALL_PHASES_DONE" = false ]; then
+      jq -n --arg count "$DEV_PHASES_COUNT" '{
+        decision: "block",
+        reason: ("⛔ verification 단계이지만 모든 개발 Phase가 완료되지 않았습니다. 미완료 Phase의 개발을 먼저 완료하세요. (총 " + $count + "개 Phase)")
+      }'
+      exit 0
+    fi
+  fi
+fi
+
 # CHECK 7: current_dev_phase > 0 AND current_step > 0
 if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/dev/null; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"

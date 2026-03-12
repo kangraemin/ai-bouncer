@@ -339,6 +339,46 @@ cleanup_normal
 
 echo ""
 
+# ─── 9. verification + 미완료 Phase 차단 (plan-gate.sh) ────
+echo "─── verification + 미완료 Phase 차단 ───"
+
+THREE_PHASE_DEV_PHASES='{"1":{"name":"base","folder":"phase-1-base","steps":{"1":{"title":"Step 1"}}},"2":{"name":"ui","folder":"phase-2-ui","steps":{"1":{"title":"Step 1"}}},"3":{"name":"integration","folder":"phase-3-int","steps":{"1":{"title":"Step 1"}}}}'
+
+# TC-V1: verification + Phase 2만 완료 (Phase 3 미완료) → BLOCK
+setup_normal "$THREE_PHASE_DEV_PHASES" 1 1
+# workflow_phase를 verification으로 변경
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['workflow_phase'] = 'verification'
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
+echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
+echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
+echo "# Phase 3" > "$TASK_DIR/phase-3-int/phase.md"
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-1-base/step-1.md"
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-2-ui/step-1.md"
+echo "| TC-1 | test | expected |" > "$TASK_DIR/phase-3-int/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "verification + Phase 3 미완료 → 차단" "$R"
+
+# TC-V2: verification + 모든 Phase 완료 → ALLOW
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-3-int/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "verification + 모든 Phase 완료 → 통과" "$R"
+
+# TC-V3: verification + step 파일 없는 Phase → BLOCK
+rm -f "$TASK_DIR/phase-3-int/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "verification + step 없는 Phase → 차단" "$R"
+
+# 정리
+rm -rf "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
+cleanup_normal
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 setup "simple" "development" "true"
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
