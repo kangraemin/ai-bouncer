@@ -53,7 +53,7 @@ echo -e "${BOLD}ai-bouncer 업데이트${NC} → $TARGET_DIR"
 echo ""
 
 # agents
-for agent in intent planner-lead planner-dev planner-qa verifier lead dev qa; do
+for agent in intent verifier lead dev qa; do
   src="$PACKAGE_DIR/agents/${agent}.md"
   dst="$TARGET_DIR/agents/${agent}.md"
   if [ -f "$src" ]; then

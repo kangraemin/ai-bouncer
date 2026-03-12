@@ -314,11 +314,8 @@ PYEOF
 # ── 파일 설치 ──────────────────────────────────────────────────
 header "파일 설치"
 
-# agents — 신규 에이전트 포함
+# agents
 copy_file "$PACKAGE_DIR/agents/intent.md"        "$TARGET_DIR/agents/intent.md"
-copy_file "$PACKAGE_DIR/agents/planner-lead.md"  "$TARGET_DIR/agents/planner-lead.md"
-copy_file "$PACKAGE_DIR/agents/planner-dev.md"   "$TARGET_DIR/agents/planner-dev.md"
-copy_file "$PACKAGE_DIR/agents/planner-qa.md"    "$TARGET_DIR/agents/planner-qa.md"
 copy_file "$PACKAGE_DIR/agents/verifier.md"      "$TARGET_DIR/agents/verifier.md"
 copy_file "$PACKAGE_DIR/agents/lead.md"          "$TARGET_DIR/agents/lead.md"
 copy_file "$PACKAGE_DIR/agents/dev.md"           "$TARGET_DIR/agents/dev.md"
@@ -683,7 +680,7 @@ ok "매니페스트 저장됨"
 header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"
 echo "  ├─ 범위: $SCOPE ($TARGET_DIR)"
-echo "  ├─ agents: intent, planner-lead, planner-dev, planner-qa, verifier, lead, dev, qa"
+echo "  ├─ agents: intent, verifier, lead, dev, qa"
 echo "  ├─ skills: dev-bounce ($TARGET_DIR/skills/dev-bounce/)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse: Write/Edit)"
 echo "  │         bash-gate.sh (PreToolUse: Bash)"

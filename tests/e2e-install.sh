@@ -33,7 +33,7 @@ verify_install() {
   echo "  --- $label: 설치 검증 ---"
 
   # agents 8개
-  for agent in intent.md planner-lead.md planner-dev.md planner-qa.md verifier.md lead.md dev.md qa.md; do
+  for agent in intent.md verifier.md lead.md dev.md qa.md; do
     check "agent: $agent" test -f "$TARGET_DIR/agents/$agent"
   done
 
@@ -221,7 +221,7 @@ tc4_uninstall() {
 
   # agents 삭제 확인
   local all_gone=true
-  for agent in intent.md planner-lead.md planner-dev.md planner-qa.md verifier.md lead.md dev.md qa.md; do
+  for agent in intent.md verifier.md lead.md dev.md qa.md; do
     if [ -f "$TARGET_DIR/agents/$agent" ]; then
       fail "agent still exists: $agent"
       all_gone=false

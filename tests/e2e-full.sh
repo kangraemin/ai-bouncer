@@ -104,9 +104,6 @@ assert_file "resolve-task.sh 설치됨"      "$TARGET/hooks/lib/resolve-task.sh"
 
 # agents
 assert_file "intent.md 설치됨"       "$TARGET/agents/intent.md"
-assert_file "planner-lead.md 설치됨" "$TARGET/agents/planner-lead.md"
-assert_file "planner-dev.md 설치됨"  "$TARGET/agents/planner-dev.md"
-assert_file "planner-qa.md 설치됨"   "$TARGET/agents/planner-qa.md"
 assert_file "verifier.md 설치됨"     "$TARGET/agents/verifier.md"
 assert_file "lead.md 설치됨"         "$TARGET/agents/lead.md"
 assert_file "dev.md 설치됨"          "$TARGET/agents/dev.md"

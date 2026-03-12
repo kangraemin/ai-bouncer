@@ -7,7 +7,7 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 복잡도에 따라 두 가지 모드로 분기:
 - **SIMPLE**: Main Claude가 직접 계획·개발·검증 (팀/phase/step 없음)
-- **NORMAL**: Planning Team → 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
+- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
 
 계획 승인 없이는 코드를 수정하지 않는다.
 
@@ -182,73 +182,24 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ## NORMAL 모드
 
-### Phase 1: Planning Team + Q&A 루프
+### Phase 1: 계획 수립
 
-#### 1-0. Planning Team 구성
+Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
 
-> TASK_DIR은 Phase 0-B에서 이미 초기화됨. plan mode 진입 전에 팀부터 구성한다.
-> (TeamCreate는 plan mode에서 사용 불가)
-
-**agent_mode별 구성:**
-
-| agent_mode | 동작 |
-|---|---|
-| `team` | TeamCreate → planner-lead/dev/qa 스폰 (아래 기본 동작) |
-| `subagent` | Agent tool로 planner-lead 스폰 (planner-lead.md 프롬프트 전달). planner-lead가 Agent tool로 planner-dev/qa 스폰 |
-| `single` | Main Claude가 직접 Q&A + 계획 수립 (SIMPLE의 S1과 유사하지만 Q&A 루프 구조 유지) |
-
-**team 모드 (기본):**
-
-```
-TeamCreate: planning-<task>
-  - planner-lead (planner-lead.md) — 리드
-  - planner-dev (planner-dev.md) — 기술 관점
-  - planner-qa (planner-qa.md) — 품질 관점
-```
-
-팀에게 전달: 요청 원문 + TASK_DIR + 관련 코드 컨텍스트
-
-#### 1-1. Plan Mode 진입
-
-EnterPlanMode 호출 — Q&A + 계획 수립을 plan mode 안에서 진행한다.
-
-#### 1-2. Q&A 루프
-
-> ⚠️ **Q&A 루프 중 ExitPlanMode 절대 금지.**
-> planner-lead로부터 질문을 받아 사용자에게 전달할 때는 반드시 **AskUserQuestion** 사용.
-> ExitPlanMode는 계획 확정 후 **Phase 1-3에서만** 호출한다.
-> ⚠️ **plan mode에서 Write/Edit 도구 사용 금지** — 자동으로 plan mode가 해제됨.
-
-```
-while true:
-  a. planner-lead에게 "질문 생성 시도" 요청
-  b. [QUESTIONS] 수신:
-     - 사용자에게 질문 제시 → AskUserQuestion 사용 (ExitPlanMode 아님!)
-     - 답변 수신
-     - planner-lead에게 답변 전달
-     - state.json no_question_streak = 0 업데이트
-     - a로 돌아감
-  c. [NO_QUESTIONS] 수신:
-     - no_question_streak += 1 (state.json 업데이트)
-     - streak < 3 → a로 돌아감 (재시도)
-     - streak >= 3 → 다음 단계
-```
-
-#### 1-3. 계획 확정 + Plan Mode 종료
-
-planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` 수신.
-계획 내용을 plan mode 내부 plan 파일에 정리.
-Planning 팀 shutdown.
-
-ExitPlanMode 호출 (plan mode 종료).
-
-#### 1-4. plan.md 저장 + 사용자에게 표시
-
-plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
-(plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
-저장 후 파일 존재 확인.
-
-`{TASK_DIR}/plan.md` 내용 표시:
+1. EnterPlanMode 호출
+2. 관련 코드 탐색 (Read/Grep/Glob)
+3. 필요시 사용자에게 AskUserQuestion 1~2회
+4. 계획 내용을 plan mode 내부 plan 파일에 정리
+5. ExitPlanMode 호출 (plan mode 종료)
+6. `{TASK_DIR}/plan.md` 직접 작성 (plan mode 밖에서 Write 사용):
+   ```markdown
+   # <작업 제목>
+   ## 변경 사항
+   - 파일: 변경 내용
+   ## 검증
+   - 검증 방법
+   ```
+7. 사용자에게 계획 표시 + 승인 대기:
 
 ```
 [PLAN:승인대기]
@@ -264,7 +215,7 @@ plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 
 승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
 
-수정 요청 시: EnterPlanMode 재진입 → planner-lead에게 재작업 지시 → 1-2 Q&A 루프 재시작
+수정 요청 시: EnterPlanMode 재진입 → Main Claude가 직접 수정 → ExitPlanMode → plan.md 재작성 → 재승인 대기
 
 승인 시 state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
@@ -290,7 +241,7 @@ TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
-2. 팀 규모 종합 판단 → `[TEAM:solo|duo|team]` 출력
+2. 팀 규모 종합 판단 → `[TEAM:duo|team]` 출력
 3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
 4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
 
@@ -300,9 +251,10 @@ Lead가 수행:
 
 | Lead 출력 | 팀 구성 |
 |---|---|
-| `[TEAM:solo]` | Lead가 Dev + QA 역할 직접 수행 |
-| `[TEAM:duo]` | Dev 에이전트 1명 스폰 |
+| `[TEAM:duo]` | Dev 에이전트 1명 스폰 (QA는 Lead가 겸임) |
 | `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
+
+> NORMAL 모드는 이미 복잡한 작업으로 판별된 상태. 최소 duo부터 시작한다.
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
@@ -411,4 +363,4 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
 - config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
 - `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
-- `agent_mode`에 따라 Phase 1/3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기.
+- `agent_mode`에 따라 Phase 3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기. Phase 1(계획 수립)은 항상 Main Claude가 직접 수행.
