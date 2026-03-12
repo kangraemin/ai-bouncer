@@ -59,7 +59,14 @@ PYEOF
 
 `~/.claude/rules/git-rules.md` 규칙을 따른다.
 
-**Step 구현 완료 = 즉시 커밋 + 푸시.** 커밋 없이 완료 보고로 넘어가지 않는다.
+**커밋은 `.claude/ai-bouncer/config.json`의 `commit_strategy`를 따른다:**
+- `per-step`: Step 완료 시 즉시 커밋 + 푸시. 커밋 없이 완료 보고 금지.
+- `per-phase`: Phase 마지막 Step 완료 시에만 커밋 + 푸시. 중간 Step은 커밋 안 함.
+- `none`: 커밋하지 않음 (수동 관리).
+
+```bash
+jq -r '.commit_strategy // "per-step"' .claude/ai-bouncer/config.json
+```
 
 ## 하지 말 것
 - test_defined = false 상태에서 코드 수정 금지.

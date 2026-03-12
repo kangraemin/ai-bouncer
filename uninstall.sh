@@ -67,6 +67,42 @@ for rel_path in manifest.get('files', []):
 print(f"\n  {removed}개 파일 삭제됨 (백업 파일은 유지)")
 PYEOF
 
+# Stop hook에서 ai-bouncer 블록 제거 (settings.json 정리 전에 수행)
+remove_bouncer_block() {
+  local file="$1"
+  [ -f "$file" ] || return
+  python3 - "$file" <<'PYEOF'
+import sys
+f = sys.argv[1]
+START = "# --- ai-bouncer start ---"
+END = "# --- ai-bouncer end ---"
+content = open(f, encoding='utf-8').read()
+s = content.find(START)
+e = content.find(END)
+if s == -1 or e == -1:
+    sys.exit(0)
+before = content[:s].rstrip('\n')
+after = content[e + len(END):].lstrip('\n')
+new = (before + '\n\n' + after).strip('\n') + '\n'
+open(f, 'w', encoding='utf-8').write(new)
+print(f"  {f}: ai-bouncer 블록 제거됨")
+PYEOF
+}
+
+for settings_file in "$HOME/.claude/settings.json" "$TARGET_DIR/settings.json"; do
+  [ -f "$settings_file" ] || continue
+  python3 -c "
+import json
+cfg = json.load(open('$settings_file'))
+for g in cfg.get('hooks', {}).get('Stop', []):
+    for h in g.get('hooks', []):
+        cmd = h.get('command', '')
+        if cmd: print(cmd)
+" 2>/dev/null | while IFS= read -r hook_path; do
+    remove_bouncer_block "$hook_path"
+  done
+done
+
 # settings.json에서 hook 제거
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 if [ -f "$SETTINGS_FILE" ]; then
