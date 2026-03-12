@@ -39,7 +39,49 @@ done
 ```
 
 - 활성 작업 있음 → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
-- 활성 작업 없음 → 새 작업 시작 (Phase 0부터)
+- 활성 작업 없음 → 미완료 작업 탐색 (아래 fallback)
+
+### Fallback: 미완료 작업 탐색
+
+`.active` 파일이 없지만 미완료 작업이 남아있을 수 있다 (세션 종료로 `.active` 삭제됨).
+
+```bash
+# 미완료 작업 스캔: workflow_phase != "done"인 state.json 찾기
+INCOMPLETE_TASKS=()
+for state_file in docs/*/*/state.json; do
+  [ -f "$state_file" ] || continue
+  phase=$(python3 -c "import json; print(json.load(open('$state_file')).get('workflow_phase',''))" 2>/dev/null)
+  [ "$phase" = "done" ] && continue
+  [ -z "$phase" ] && continue
+  task_dir="$(dirname "$state_file")"
+  task_name="$(basename "$task_dir")"
+  date_dir="$(basename "$(dirname "$task_dir")")"
+  INCOMPLETE_TASKS+=("$date_dir/$task_name|$phase|$task_dir")
+done
+```
+
+미완료 작업이 있으면 사용자에게 목록을 보여주고 선택을 요청한다:
+
+```
+미완료 작업이 발견되었습니다:
+
+1. [2026-03-12/game-ui-update] — Phase: development (Phase 2/3)
+2. [2026-03-10/auth-refactor] — Phase: verification
+
+이어서 진행할 작업을 선택하세요 (번호), 또는 새 작업을 시작하려면 "새로" 입력:
+```
+
+각 항목 표시 시 state.json에서 읽을 정보:
+- `workflow_phase`: 현재 단계
+- `mode`: simple/normal
+- `current_dev_phase` / `dev_phases`: 진행 중인 Phase 번호
+- `plan_approved`: 계획 승인 여부
+
+사용자가 선택하면:
+1. `.active` 파일 재생성
+2. 해당 `state.json`의 `workflow_phase`부터 재개
+
+미완료 작업 없음 → 새 작업 시작 (Phase 0부터)
 
 ---
 

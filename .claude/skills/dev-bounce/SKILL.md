@@ -7,7 +7,7 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 복잡도에 따라 두 가지 모드로 분기:
 - **SIMPLE**: Main Claude가 직접 계획·개발·검증 (팀/phase/step 없음)
-- **NORMAL**: Planning Team → 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
+- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
 
 계획 승인 없이는 코드를 수정하지 않는다.
 
@@ -39,7 +39,49 @@ done
 ```
 
 - 활성 작업 있음 → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개
-- 활성 작업 없음 → 새 작업 시작 (Phase 0부터)
+- 활성 작업 없음 → 미완료 작업 탐색 (아래 fallback)
+
+### Fallback: 미완료 작업 탐색
+
+`.active` 파일이 없지만 미완료 작업이 남아있을 수 있다 (세션 종료로 `.active` 삭제됨).
+
+```bash
+# 미완료 작업 스캔: workflow_phase != "done"인 state.json 찾기
+INCOMPLETE_TASKS=()
+for state_file in docs/*/*/state.json; do
+  [ -f "$state_file" ] || continue
+  phase=$(python3 -c "import json; print(json.load(open('$state_file')).get('workflow_phase',''))" 2>/dev/null)
+  [ "$phase" = "done" ] && continue
+  [ -z "$phase" ] && continue
+  task_dir="$(dirname "$state_file")"
+  task_name="$(basename "$task_dir")"
+  date_dir="$(basename "$(dirname "$task_dir")")"
+  INCOMPLETE_TASKS+=("$date_dir/$task_name|$phase|$task_dir")
+done
+```
+
+미완료 작업이 있으면 사용자에게 목록을 보여주고 선택을 요청한다:
+
+```
+미완료 작업이 발견되었습니다:
+
+1. [2026-03-12/game-ui-update] — Phase: development (Phase 2/3)
+2. [2026-03-10/auth-refactor] — Phase: verification
+
+이어서 진행할 작업을 선택하세요 (번호), 또는 새 작업을 시작하려면 "새로" 입력:
+```
+
+각 항목 표시 시 state.json에서 읽을 정보:
+- `workflow_phase`: 현재 단계
+- `mode`: simple/normal
+- `current_dev_phase` / `dev_phases`: 진행 중인 Phase 번호
+- `plan_approved`: 계획 승인 여부
+
+사용자가 선택하면:
+1. `.active` 파일 재생성
+2. 해당 `state.json`의 `workflow_phase`부터 재개
+
+미완료 작업 없음 → 새 작업 시작 (Phase 0부터)
 
 ---
 
@@ -94,6 +136,18 @@ TASK_DIR 초기화 (Python으로 실행):
 
 - `mode: simple` → Phase S1 진행
 - `mode: normal` → Phase 1 진행
+
+**agent_mode 확인** (config.json에서 읽기):
+
+```bash
+python3 -c "
+import json
+cfg = json.load(open('.claude/ai-bouncer/config.json'))
+print(cfg.get('agent_mode', 'team'))
+"
+```
+
+`agent_mode` 값에 따라 NORMAL 모드의 Phase 1/3/4 동작이 달라진다 (아래 참조).
 
 ---
 
@@ -170,63 +224,24 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ## NORMAL 모드
 
-### Phase 1: Planning Team + Q&A 루프
+### Phase 1: 계획 수립
 
-#### 1-0. Planning Team 구성
+Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
 
-> TASK_DIR은 Phase 0-B에서 이미 초기화됨. plan mode 진입 전에 팀부터 구성한다.
-> (TeamCreate는 plan mode에서 사용 불가)
-
-```
-TeamCreate: planning-<task>
-  - planner-lead (planner-lead.md) — 리드
-  - planner-dev (planner-dev.md) — 기술 관점
-  - planner-qa (planner-qa.md) — 품질 관점
-```
-
-팀에게 전달: 요청 원문 + TASK_DIR + 관련 코드 컨텍스트
-
-#### 1-1. Plan Mode 진입
-
-EnterPlanMode 호출 — Q&A + 계획 수립을 plan mode 안에서 진행한다.
-
-#### 1-2. Q&A 루프
-
-> ⚠️ **Q&A 루프 중 ExitPlanMode 절대 금지.**
-> planner-lead로부터 질문을 받아 사용자에게 전달할 때는 반드시 **AskUserQuestion** 사용.
-> ExitPlanMode는 계획 확정 후 **Phase 1-3에서만** 호출한다.
-> ⚠️ **plan mode에서 Write/Edit 도구 사용 금지** — 자동으로 plan mode가 해제됨.
-
-```
-while true:
-  a. planner-lead에게 "질문 생성 시도" 요청
-  b. [QUESTIONS] 수신:
-     - 사용자에게 질문 제시 → AskUserQuestion 사용 (ExitPlanMode 아님!)
-     - 답변 수신
-     - planner-lead에게 답변 전달
-     - state.json no_question_streak = 0 업데이트
-     - a로 돌아감
-  c. [NO_QUESTIONS] 수신:
-     - no_question_streak += 1 (state.json 업데이트)
-     - streak < 3 → a로 돌아감 (재시도)
-     - streak >= 3 → 다음 단계
-```
-
-#### 1-3. 계획 확정 + Plan Mode 종료
-
-planner-lead에게 "계획 확정" 요청 → `[PLAN:완성]` 수신.
-계획 내용을 plan mode 내부 plan 파일에 정리.
-Planning 팀 shutdown.
-
-ExitPlanMode 호출 (plan mode 종료).
-
-#### 1-4. plan.md 저장 + 사용자에게 표시
-
-plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
-(plan-gate.sh가 `*/plan.md` 경로를 예외 허용하므로 planning 단계에도 가능)
-저장 후 파일 존재 확인.
-
-`{TASK_DIR}/plan.md` 내용 표시:
+1. EnterPlanMode 호출
+2. 관련 코드 탐색 (Read/Grep/Glob)
+3. 필요시 사용자에게 AskUserQuestion 1~2회
+4. 계획 내용을 plan mode 내부 plan 파일에 정리
+5. ExitPlanMode 호출 (plan mode 종료)
+6. `{TASK_DIR}/plan.md` 직접 작성 (plan mode 밖에서 Write 사용):
+   ```markdown
+   # <작업 제목>
+   ## 변경 사항
+   - 파일: 변경 내용
+   ## 검증
+   - 검증 방법
+   ```
+7. 사용자에게 계획 표시 + 승인 대기:
 
 ```
 [PLAN:승인대기]
@@ -242,7 +257,7 @@ plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 
 승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
 
-수정 요청 시: EnterPlanMode 재진입 → planner-lead에게 재작업 지시 → 1-2 Q&A 루프 재시작
+수정 요청 시: EnterPlanMode 재진입 → Main Claude가 직접 수정 → ExitPlanMode → plan.md 재작성 → 재승인 대기
 
 승인 시 state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
@@ -254,21 +269,34 @@ plan mode 밖에서 `{TASK_DIR}/plan.md`에 Write tool로 저장.
 
 #### 3-1. Lead 에이전트 스폰
 
+**agent_mode별 구성:**
+
+| agent_mode | 동작 |
+|---|---|
+| `team` | TeamCreate로 Dev Team 생성 후 Lead 스폰. state.json `team_name` = TeamCreate 팀 이름 |
+| `subagent` | Agent tool로 Lead 스폰. Lead가 Agent tool로 Dev/QA 스폰. state.json `team_name` = "" (빈 문자열) |
+| `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). state.json `team_name` = "" |
+
+**team 모드 (기본):**
+
 TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
-2. 팀 규모 종합 판단 → `[TEAM:solo|duo|team]` 출력
+2. 팀 규모 종합 판단 → `[TEAM:duo|team]` 출력
 3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
 4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
+
+**subagent/single 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
 
 #### 3-2. 팀 구성
 
 | Lead 출력 | 팀 구성 |
 |---|---|
-| `[TEAM:solo]` | Lead가 Dev + QA 역할 직접 수행 |
-| `[TEAM:duo]` | Dev 에이전트 1명 스폰 |
+| `[TEAM:duo]` | Dev 에이전트 1명 스폰 (QA는 Lead가 겸임) |
 | `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
+
+> NORMAL 모드는 이미 복잡한 작업으로 판별된 상태. 최소 duo부터 시작한다.
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
@@ -328,9 +356,15 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 - `기술불가`: 사용자에게 보고, 범위 변경 필요하면 Phase 1 재시작
 - `기획질문`: state.json `workflow_phase = "planning"` 리셋 → Phase 1 재시작
 
-#### 3-6. 모든 Step 완료
+#### 3-6. Phase 완료 처리
 
-Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
+Lead가 `[PHASE:N:완료]` 출력 시:
+- state.json `current_dev_phase` 업데이트 확인
+- Lead가 다음 Phase로 자동 진행 (사용자 확인 불필요)
+
+#### 3-7. 모든 Phase 완료
+
+Lead가 `[ALL_STEPS:완료]` 출력 (마지막 Phase 완료 후) → Phase 4 진행
 
 ---
 
@@ -338,6 +372,14 @@ Lead가 `[ALL_STEPS:완료]` 출력 → Phase 4 진행
 
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
 (completion-gate.sh가 verification 상태에서 3회 연속 통과 전 응답 종료를 차단)
+
+**agent_mode별 구성:**
+
+| agent_mode | 동작 |
+|---|---|
+| `team` | verifier 에이전트 스폰 (기본) |
+| `subagent` | Agent tool로 verifier 스폰 |
+| `single` | Main Claude가 직접 3회 검증 수행 |
 
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
 2. verifier가 검증 루프 실행 (시도 횟수 제한 없음)
@@ -368,3 +410,5 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
 - docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
 - config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
+- `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
+- `agent_mode`에 따라 Phase 3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기. Phase 1(계획 수립)은 항상 Main Claude가 직접 수행.
