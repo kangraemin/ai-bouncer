@@ -762,50 +762,97 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
     fail "H-7: planning → expected BLOCK, got $decision"
   fi
 
-  # ── H-8: uninstall 후 managed block 제거 확인 ──
-  run_uninstall "$FAKE_HOME" "$FAKE_REPO"
-  if ! grep -q "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null; then
-    pass "H-8: uninstall → managed block 제거됨"
+  # ── update.sh 테스트 ──
+
+  # ── H-8: update 후 managed block 유지 ──
+  run_update "$FAKE_HOME" "$FAKE_REPO"
+  if grep -q "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null; then
+    pass "H-8: update → managed block 유지"
   else
-    fail "H-8: uninstall → managed block 여전히 존재"
+    fail "H-8: update → managed block 사라짐"
   fi
 
-  # ── H-9: uninstall 후 기존 stop.sh 동작 복원 (dirty → block) ──
+  # ── H-9: update 후 gate 동작 정상 (normal+dev → ALLOW) ──
+  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  # dirty 복원
+  echo "dirty" > "$FAKE_REPO/src.txt"
+  git -C "$FAKE_REPO" add src.txt
+  write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
+  decision=$(run_stop_hook)
+  if [ "$decision" != "block" ]; then
+    pass "H-9: post-update + development → ALLOW"
+  else
+    fail "H-9: post-update → expected ALLOW, got BLOCK"
+  fi
+
+  # ── H-10: update로 block 갱신 (기존 block 변조 → 새 버전 재적용) ──
+  # managed block 내용을 일부 변조
+  sed 's/_bouncer_mode/OLD_VAR/' "$FAKE_HOME/.claude/hooks/stop.sh" > "$FAKE_HOME/.claude/hooks/stop.sh.tmp"
+  mv "$FAKE_HOME/.claude/hooks/stop.sh.tmp" "$FAKE_HOME/.claude/hooks/stop.sh"
+  chmod +x "$FAKE_HOME/.claude/hooks/stop.sh"
+  run_update "$FAKE_HOME" "$FAKE_REPO"
+  if grep -q "_bouncer_mode" "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null; then
+    pass "H-10: update → evolved block 재적용"
+  else
+    fail "H-10: update → block 갱신 안 됨"
+  fi
+
+  # ── H-11: update 2회 연속 → block 중복 안 됨 ──
+  run_update "$FAKE_HOME" "$FAKE_REPO"
+  run_update "$FAKE_HOME" "$FAKE_REPO"
+  local count
+  count=$(grep -c "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh")
+  if [ "$count" -eq 1 ]; then
+    pass "H-11: update 2회 → block 1개 (idempotent)"
+  else
+    fail "H-11: update 2회 → block ${count}개"
+  fi
+
+  # ── uninstall 테스트 ──
+
+  # ── H-12: uninstall 후 managed block 제거 확인 ──
+  run_uninstall "$FAKE_HOME" "$FAKE_REPO"
+  if ! grep -q "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null; then
+    pass "H-12: uninstall → managed block 제거됨"
+  else
+    fail "H-12: uninstall → managed block 여전히 존재"
+  fi
+
+  # ── H-13: uninstall 후 기존 stop.sh 동작 복원 (dirty → block) ──
   touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
-    pass "H-9: uninstall 후 기존 동작 복원 (dirty → BLOCK)"
+    pass "H-13: uninstall 후 기존 동작 복원 (dirty → BLOCK)"
   else
-    fail "H-9: uninstall 후 → expected BLOCK, got $decision"
+    fail "H-13: uninstall 후 → expected BLOCK, got $decision"
   fi
 
   # ── 엣지케이스 ──
 
-  # ── H-10: 재설치(idempotent) — managed block 중복 안 됨 ──
+  # ── H-14: 재설치(idempotent) — managed block 중복 안 됨 ──
   run_install_modes "$FAKE_HOME" "$FAKE_REPO" "hooks" "subagent"
   run_install_modes "$FAKE_HOME" "$FAKE_REPO" "hooks" "subagent"
-  local count
   count=$(grep -c "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh")
   if [ "$count" -eq 1 ]; then
-    pass "H-10: 재설치 idempotent (block 1개)"
+    pass "H-14: 재설치 idempotent (block 1개)"
   else
-    fail "H-10: 재설치 → ai-bouncer start ${count}개 (expected 1)"
+    fail "H-14: 재설치 → ai-bouncer start ${count}개 (expected 1)"
   fi
 
-  # ── H-11: config.json 없으면 기존 stop.sh 동작 유지 ──
+  # ── H-15: config.json 없으면 기존 stop.sh 동작 유지 ──
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json" "$FAKE_REPO/.claude/ai-bouncer/config.json.bak"
   touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
-    pass "H-11: config.json 없음 → 기존 동작 (BLOCK)"
+    pass "H-15: config.json 없음 → 기존 동작 (BLOCK)"
   else
-    fail "H-11: config.json 없음 → expected BLOCK, got $decision"
+    fail "H-15: config.json 없음 → expected BLOCK, got $decision"
   fi
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json.bak" "$FAKE_REPO/.claude/ai-bouncer/config.json"
 
-  # ── H-12: state.json 없으면 기존 stop.sh 동작 유지 ──
+  # ── H-16: state.json 없으면 기존 stop.sh 동작 유지 ──
   rm -f "$FAKE_REPO/docs/${date_dir}/${task}/state.json"
   touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
   local hook_input
@@ -814,12 +861,12 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null || true)
   decision=$(echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow")
   if [ "$decision" = "block" ]; then
-    pass "H-12: state.json 없음 → 기존 동작 (BLOCK)"
+    pass "H-16: state.json 없음 → 기존 동작 (BLOCK)"
   else
-    fail "H-12: state.json 없음 → expected BLOCK, got $decision"
+    fail "H-16: state.json 없음 → expected BLOCK, got $decision"
   fi
 
-  # ── H-13: 여러 Stop hook 등록 → 모두 패치 ──
+  # ── H-17: 여러 Stop hook 등록 → 모두 패치 ──
   mkdir -p "$FAKE_HOME/.claude/hooks2"
   cat > "$FAKE_HOME/.claude/hooks2/stop2.sh" << 'STOP2EOF'
 #!/bin/bash
@@ -843,12 +890,12 @@ json.dump(cfg, open('$FAKE_HOME/.claude/settings.json','w'), indent=2)
   run_install_modes "$FAKE_HOME" "$FAKE_REPO" "hooks" "subagent"
   if grep -q "ai-bouncer start" "$FAKE_HOME/.claude/hooks/stop.sh" 2>/dev/null && \
      grep -q "ai-bouncer start" "$FAKE_HOME/.claude/hooks2/stop2.sh" 2>/dev/null; then
-    pass "H-13: 여러 Stop hook 모두 패치됨"
+    pass "H-17: 여러 Stop hook 모두 패치됨"
   else
-    fail "H-13: 일부 hook 패치 안 됨"
+    fail "H-17: 일부 hook 패치 안 됨"
   fi
 
-  # ── H-14: 존재하지 않는 hook 경로 → 에러 없이 스킵 ──
+  # ── H-18: 존재하지 않는 hook 경로 → 에러 없이 스킵 ──
   python3 -c "
 import json
 cfg = json.load(open('$FAKE_HOME/.claude/settings.json'))
@@ -858,12 +905,12 @@ json.dump(cfg, open('$FAKE_HOME/.claude/settings.json','w'), indent=2)
   local install_out
   install_out=$(run_install_modes "$FAKE_HOME" "$FAKE_REPO" "hooks" "subagent" 2>&1)
   if [ $? -eq 0 ] || [ -z "$(echo "$install_out" | grep -i 'error')" ]; then
-    pass "H-14: 존재하지 않는 hook 경로 → 에러 없이 스킵"
+    pass "H-18: 존재하지 않는 hook 경로 → 에러 없이 스킵"
   else
-    fail "H-14: 존재하지 않는 hook 경로 → 에러 발생"
+    fail "H-18: 존재하지 않는 hook 경로 → 에러 발생"
   fi
 
-  # ── H-15: clean 상태 (dirty 없음) + normal+done → ALLOW ──
+  # ── H-19: clean 상태 (dirty 없음) + normal+done → ALLOW ──
   git -C "$FAKE_REPO" checkout -- . 2>/dev/null || true
   git -C "$FAKE_REPO" reset HEAD -- src.txt 2>/dev/null || true
   rm -f "$FAKE_REPO/src.txt"
@@ -871,9 +918,9 @@ json.dump(cfg, open('$FAKE_HOME/.claude/settings.json','w'), indent=2)
   write_h_state '{"workflow_phase":"done","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" != "block" ]; then
-    pass "H-15: clean 상태 + done → ALLOW"
+    pass "H-19: clean 상태 + done → ALLOW"
   else
-    fail "H-15: clean + done → expected ALLOW, got BLOCK"
+    fail "H-19: clean + done → expected ALLOW, got BLOCK"
   fi
 
   rm -rf "$tmpdir"
