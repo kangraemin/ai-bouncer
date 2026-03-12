@@ -209,21 +209,67 @@ rounds_passed >= 3 → `[DONE]` 출력
 수정 필요: <항목 목록>
 ```
 
-state.json 업데이트 (완전 리셋):
+**실패 시 반드시 아래 스크립트를 실행한다 (건너뛰기 금지):**
 
 ```bash
 python3 << 'PYEOF'
-import json, os
+import json, os, glob
+
 task_dir = os.environ.get('TASK_DIR', 'docs/current')
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
+
+# 1. rounds_passed 리셋
 s['verification']['rounds_passed'] = 0
+
+# 2. failure_count 증가
+s['verification']['failure_count'] = s['verification'].get('failure_count', 0) + 1
+fc = s['verification']['failure_count']
+
+# 3. workflow_phase를 development로 되돌림
+#    → plan-gate CHECK 6.8이 verification 재진입을 차단
+#    → Dev가 재작업하고 step.md ✅ 복구해야 다시 verification 가능
+s['workflow_phase'] = 'development'
+
+# 4. 실패한 step의 ✅ 제거 (hook이 감지할 수 있도록)
+failed_phase = {FAILED_PHASE}  # verifier가 채움
+failed_step = {FAILED_STEP}    # verifier가 채움
+phase_folder = s.get('dev_phases', {}).get(str(failed_phase), {}).get('folder', '')
+if phase_folder:
+    step_file = os.path.join(task_dir, phase_folder, f'step-{failed_step}.md')
+    if os.path.isfile(step_file):
+        content = open(step_file, encoding='utf-8').read()
+        content = content.replace('✅', '❌')
+        open(step_file, 'w', encoding='utf-8').write(content)
+        print(f'step-{failed_step}.md: ✅ → ❌')
+
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print("rounds_passed = 0 (리셋)")
+print(f'rounds_passed=0, failure_count={fc}, workflow_phase=development')
+
+if fc >= 3:
+    print('⚠️ ESCALATION: 검증 3회 연속 실패 — 사용자 개입 필요')
 PYEOF
 ```
 
-Lead에게 재작업 요청 → 재작업 완료 후 다시 Round 1(기능 충실도)부터 검증 시작
+> `{FAILED_PHASE}`와 `{FAILED_STEP}`은 verifier가 실패한 Phase/Step 번호로 채운다.
+
+### 실패 후 흐름 (hook 강제)
+
+1. `workflow_phase = "development"` → 이제 verification 단계가 아님
+2. 실패한 step.md에서 ✅ → ❌ 변환됨
+3. Main Claude가 Dev에게 재작업 지시
+4. Dev가 수정 후 step.md에 다시 ✅ 기록
+5. Main Claude가 `workflow_phase = "verification"` 재설정
+6. plan-gate CHECK 6.8: 모든 step에 ✅ 있는지 확인 → 통과 시 verifier 재시작
+
+### 에스컬레이션
+
+`failure_count >= 3`이면:
+```
+[VERIFICATION:ESCALATION]
+검증 3회 연속 실패. 사용자 확인이 필요합니다.
+```
+→ AskUserQuestion으로 사용자에게 보고. 사용자 승인 없이 재시도 금지.
 
 ---
 

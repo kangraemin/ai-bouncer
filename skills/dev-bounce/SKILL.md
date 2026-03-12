@@ -407,11 +407,21 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 | `single` | Main Claude가 직접 3회 검증 수행 |
 
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
-2. verifier가 검증 루프 실행 (시도 횟수 제한 없음)
-3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신:
-   - Dev/QA에게 해당 Step 재작업 지시
-   - 재작업 완료 후 verifier에게 "재검증 시작" 요청
-4. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
+2. verifier가 검증 루프 실행
+
+3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신 시 (hook 강제 흐름):
+   - verifier가 자동으로: workflow_phase → "development", 실패 step ✅→❌, failure_count +1
+   - **plan-gate가 verification 재진입을 자동 차단** (step에 ✅ 없으므로)
+   - Main Claude가 Dev에게 실패한 Step 재작업 지시
+   - Dev가 수정 완료 → step.md에 ✅ 복구
+   - Main Claude가 workflow_phase → "verification" 재설정
+   - verifier에게 "재검증 시작" 요청 (Round 1부터)
+
+4. `[VERIFICATION:ESCALATION]` 수신 시 (failure_count >= 3):
+   - AskUserQuestion으로 사용자에게 보고
+   - 사용자 승인 없이 재시도 금지
+
+5. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
    - verifier + 전체 팀 shutdown
    - active_file 삭제: `rm -f {active_file}`
    - state.json `workflow_phase`를 `"done"`으로 업데이트
