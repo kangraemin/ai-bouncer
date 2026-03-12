@@ -69,10 +69,46 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   CS_WORKFLOW=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
   CS_MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 
-  # verification/done → 항상 허용
-  case "$CS_WORKFLOW" in
-    verification|done) exit 0 ;;
-  esac
+  # done → 항상 허용
+  [ "$CS_WORKFLOW" = "done" ] && exit 0
+
+  # verification → 모든 Phase 완료 시만 허용 (plan-gate CHECK 6.8 동등)
+  if [ "$CS_WORKFLOW" = "verification" ] && [ "$CS_MODE" = "normal" ]; then
+    DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+    DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
+    if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
+      ALL_DONE=true
+      for pidx in $(seq 1 "$DEV_PHASES_COUNT"); do
+        PFOLDER=$(jq -r ".dev_phases[\"$pidx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+        [ -z "$PFOLDER" ] && continue
+        PDIR="${TASK_DIR}/${PFOLDER}"
+        HAS_STEPS=false
+        for sf in "$PDIR"/step-*.md; do
+          [ -f "$sf" ] || continue
+          HAS_STEPS=true
+          if ! grep -q '✅' "$sf" 2>/dev/null; then
+            ALL_DONE=false
+            break 2
+          fi
+        done
+        if [ "$HAS_STEPS" = false ]; then
+          ALL_DONE=false
+          break
+        fi
+      done
+      if [ "$ALL_DONE" = false ]; then
+        jq -n --arg count "$DEV_PHASES_COUNT" '{
+          decision: "block",
+          reason: ("⛔ [bash-gate] verification이지만 미완료 Phase 존재. 개발을 먼저 완료하세요. (총 " + $count + "개 Phase)")
+        }'
+        exit 0
+      fi
+    fi
+    exit 0
+  fi
+
+  # verification (simple) → 허용
+  [ "$CS_WORKFLOW" = "verification" ] && exit 0
 
   # planning → block
   if [ "$CS_WORKFLOW" = "planning" ]; then
@@ -273,6 +309,41 @@ if [ "$MODE" = "simple" ]; then
 fi
 
 # --- 이하 NORMAL 모드 전용 ---
+
+# CHECK 6.8: verification + 미완료 Phase → BLOCK (plan-gate 동등)
+if [ "$WORKFLOW_PHASE" = "verification" ]; then
+  DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
+  if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
+    ALL_PHASES_DONE=true
+    for pidx in $(seq 1 "$DEV_PHASES_COUNT"); do
+      PFOLDER=$(jq -r ".dev_phases[\"$pidx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+      [ -z "$PFOLDER" ] && continue
+      PDIR="${TASK_DIR}/${PFOLDER}"
+      HAS_STEPS=false
+      for sf in "$PDIR"/step-*.md; do
+        [ -f "$sf" ] || continue
+        HAS_STEPS=true
+        if ! grep -q '✅' "$sf" 2>/dev/null; then
+          ALL_PHASES_DONE=false
+          break 2
+        fi
+      done
+      if [ "$HAS_STEPS" = false ]; then
+        ALL_PHASES_DONE=false
+        break
+      fi
+    done
+    if [ "$ALL_PHASES_DONE" = false ]; then
+      save_snapshot
+      jq -n '{decision:"block", reason:"⛔ [bash-gate] verification이지만 미완료 Phase 존재. 개발을 먼저 완료하세요."}'
+      exit 0
+    fi
+  fi
+  # verification + 모든 Phase 완료 → 통과
+  save_snapshot
+  exit 0
+fi
 
 # agent_mode 읽기 (config.json에서)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")

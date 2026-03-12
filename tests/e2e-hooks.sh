@@ -373,6 +373,30 @@ rm -f "$TASK_DIR/phase-3-int/step-1.md"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_block "verification + step 없는 Phase → 차단" "$R"
 
+# bash-gate도 동일하게 차단하는지 검증
+# TC-V4: bash-gate + verification + Phase 3 미완료 → BLOCK
+setup_normal "$THREE_PHASE_DEV_PHASES" 1 1
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['workflow_phase'] = 'verification'
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
+echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
+echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
+echo "# Phase 3" > "$TASK_DIR/phase-3-int/phase.md"
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-1-base/step-1.md"
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-2-ui/step-1.md"
+echo "| TC-1 | test | expected |" > "$TASK_DIR/phase-3-int/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: verification + Phase 3 미완료 → 차단" "$R"
+
+# TC-V5: bash-gate + verification + 모든 Phase 완료 → ALLOW
+echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-3-int/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "bash-gate: verification + 모든 Phase 완료 → 통과" "$R"
+
 # 정리
 rm -rf "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
 cleanup_normal
