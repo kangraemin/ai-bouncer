@@ -163,6 +163,8 @@ persona_a() {
   check "settings: bash-gate registered" has_hook "$SETTINGS" "bash-gate"
   check "settings: completion-gate registered" has_hook "$SETTINGS" "completion-gate"
   check "settings: AGENT_TEAMS env" has_env "$SETTINGS" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+  check "install: update.sh 프로젝트 루트" test -x "$FAKE_REPO/update.sh"
+  check "install: uninstall.sh 프로젝트 루트" test -x "$FAKE_REPO/uninstall.sh"
 
   # update — 파일 내용까지 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
@@ -171,15 +173,11 @@ persona_a() {
   check "update: agent dev.md 갱신" grep -q "commit_strategy" "$TARGET/agents/dev.md"
   check "update: skill SKILL.md 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
 
-  # update (원격 clone 시뮬레이션 — update.sh만 격리 디렉토리에서 실행)
-  local isolated_dir
-  isolated_dir=$(mktemp -d)
-  cp "$REPO_DIR/update.sh" "$isolated_dir/update.sh"
-  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && bash "$isolated_dir/update.sh" 2>&1) || true
-  rm -rf "$isolated_dir"
-  check "update (remote): hooks still present" has_hook "$SETTINGS" "plan-gate"
-  check "update (remote): agent 갱신" test -f "$TARGET/agents/dev.md"
-  check "update (remote): skill 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
+  # update (프로젝트 루트 update.sh — 소스 없으므로 자동 clone)
+  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && bash "$FAKE_REPO/update.sh" 2>&1) || true
+  check "update (root): hooks still present" has_hook "$SETTINGS" "plan-gate"
+  check "update (root): agent 갱신" test -f "$TARGET/agents/dev.md"
+  check "update (root): skill 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
 
   # uninstall — 전체 정리 검증
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
@@ -188,6 +186,8 @@ persona_a() {
   check "uninstall: agents cleaned" test ! -f "$TARGET/agents/dev.md"
   check "uninstall: CLAUDE.md rule removed" bash -c '! grep -q "ai-bouncer-rule" "$0" 2>/dev/null || ! test -f "$0"' "$TARGET/CLAUDE.md"
   check "uninstall: settings hooks removed" has_no_hook "$SETTINGS" "plan-gate"
+  check "uninstall: update.sh 삭제" test ! -f "$FAKE_REPO/update.sh"
+  check "uninstall: uninstall.sh 삭제" test ! -f "$FAKE_REPO/uninstall.sh"
 
   rm -rf "$tmpdir"
 }

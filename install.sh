@@ -345,6 +345,14 @@ mkdir -p "$TARGET_DIR/hooks/lib"
 copy_file "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.sh"
 chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
 
+# update.sh / uninstall.sh → 프로젝트 루트
+cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
+chmod +x "$REPO_ROOT/update.sh"
+ok "update.sh (프로젝트 루트)"
+cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
+chmod +x "$REPO_ROOT/uninstall.sh"
+ok "uninstall.sh (프로젝트 루트)"
+
 # ── docs git 추적 설정 ─────────────────────────────────────────
 header "docs/ 설정"
 if [ "$CI_MODE" = "true" ]; then

@@ -206,5 +206,11 @@ rm -f "$BOUNCER_DATA_DIR/manifest.json"
 rm -f "$BOUNCER_DATA_DIR/config.json"
 rmdir "$BOUNCER_DATA_DIR" 2>/dev/null || true
 
+# 프로젝트 루트의 update.sh / uninstall.sh 삭제
+if [ -n "$REPO_ROOT" ]; then
+  rm -f "$REPO_ROOT/update.sh"
+  rm -f "$REPO_ROOT/uninstall.sh"
+fi
+
 echo ""
 ok "ai-bouncer 제거 완료"
