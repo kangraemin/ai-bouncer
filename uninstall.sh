@@ -70,7 +70,7 @@ PYEOF
 # Stop hook에서 ai-bouncer 블록 제거 (settings.json 정리 전에 수행)
 remove_bouncer_block() {
   local file="$1"
-  [ -f "$file" ] || return
+  [ -f "$file" ] || return 0
   python3 - "$file" <<'PYEOF'
 import sys
 f = sys.argv[1]

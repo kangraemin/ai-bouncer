@@ -575,7 +575,7 @@ inject_stop_compat() {
   local START="# --- ai-bouncer start ---"
   local END="# --- ai-bouncer end ---"
 
-  [ -f "$dst" ] || return
+  [ -f "$dst" ] || return 0
 
   python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
 import sys
@@ -616,7 +616,7 @@ PYEOF
 
 patch_stop_hooks() {
   local settings_file="$1"
-  [ -f "$settings_file" ] || return
+  [ -f "$settings_file" ] || return 0
 
   local stop_hooks
   stop_hooks=$(python3 -c "
@@ -629,7 +629,7 @@ for g in cfg.get('hooks', {}).get('Stop', []):
             print(cmd)
 " 2>/dev/null)
 
-  [ -z "$stop_hooks" ] && return
+  [ -z "$stop_hooks" ] && return 0
 
   while IFS= read -r hook_path; do
     [ -f "$hook_path" ] || continue

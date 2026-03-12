@@ -138,6 +138,76 @@ cp "$PACKAGE_DIR/hooks/lib/resolve-task.sh" "$TARGET_DIR/hooks/lib/resolve-task.
 chmod +x "$TARGET_DIR/hooks/lib/resolve-task.sh"
 ok "resolve-task.sh (lib)"
 
+# Stop hook 호환성 패치
+inject_stop_compat() {
+  local src="$1" dst="$2"
+  local START="# --- ai-bouncer start ---"
+  local END="# --- ai-bouncer end ---"
+
+  [ -f "$dst" ] || return 0
+
+  python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
+import sys
+
+src_path     = sys.argv[1]
+dst_path     = sys.argv[2]
+start_marker = sys.argv[3]
+end_marker   = sys.argv[4]
+
+src = open(src_path, encoding='utf-8').read()
+dst = open(dst_path, encoding='utf-8').read()
+
+s_start = src.find(start_marker)
+s_end   = src.find(end_marker)
+if s_start == -1 or s_end == -1:
+    sys.exit(0)
+managed_block = src[s_start : s_end + len(end_marker)]
+
+d_start = dst.find(start_marker)
+d_end   = dst.find(end_marker)
+if d_start != -1 and d_end != -1:
+    new_dst = dst[:d_start] + managed_block + dst[d_end + len(end_marker):]
+else:
+    if dst.startswith('#!'):
+        newline = dst.index('\n') + 1
+        new_dst = dst[:newline] + managed_block + '\n' + dst[newline:]
+    else:
+        new_dst = managed_block + '\n' + dst
+
+open(dst_path, 'w', encoding='utf-8').write(new_dst)
+PYEOF
+  ok "$(basename "$dst") (stop compat)"
+}
+
+patch_stop_hooks() {
+  local settings_file="$1"
+  [ -f "$settings_file" ] || return 0
+
+  local stop_hooks
+  stop_hooks=$(python3 -c "
+import json
+cfg = json.load(open('$settings_file'))
+for g in cfg.get('hooks', {}).get('Stop', []):
+    for h in g.get('hooks', []):
+        cmd = h.get('command', '')
+        if cmd and 'completion-gate' not in cmd:
+            print(cmd)
+" 2>/dev/null)
+
+  [ -z "$stop_hooks" ] && return 0
+
+  while IFS= read -r hook_path; do
+    [ -f "$hook_path" ] || continue
+    case "$(basename "$hook_path")" in
+      completion-gate.sh|subagent-track.sh|subagent-cleanup.sh) continue ;;
+    esac
+    inject_stop_compat "$PACKAGE_DIR/hooks/stop-bouncer-compat.sh" "$hook_path"
+  done <<< "$stop_hooks"
+}
+
+patch_stop_hooks "$HOME/.claude/settings.json"
+patch_stop_hooks "$TARGET_DIR/settings.json"
+
 # 매니페스트 업데이트 (로컬 우선)
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 mkdir -p "$BOUNCER_DATA_DIR"
