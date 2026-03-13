@@ -13,11 +13,11 @@
 복잡도에 따라 모드가 결정됩니다:
 
 ```
-SIMPLE (단일 기능)
-  요청 → 의도 분석 → 계획 → 승인 → 개발 → 테스트 → 완료
+SIMPLE (단일 기능/버그)
+  요청 → 의도 분석 → 계획 → 승인 → 개발 → 검증 → 완료
 
 NORMAL (복잡한 작업)
-  요청 → 의도 분석 → 기획팀 + Q&A → 계획 승인
+  요청 → 의도 분석 → 계획 → 승인
     → 개발팀 (Phase/Step TDD) → 3회 연속 검증 통과 → 완료
 ```
 
@@ -68,6 +68,7 @@ ai-bouncer는 문서 기반 워크플로우를 강제하여 이를 해결합니�
 
 | 기준 | SIMPLE | NORMAL |
 |------|--------|--------|
+| 변경 파일 | 1~3개 예상 | 4개 이상 또는 불확실 |
 | 범위 | 단일 기능/버그/설정 | 다수 모듈 |
 | 방향성 | 명확 | 설계 논의 필요 |
 | 테스트 | 기존 테스트로 충분 | 새 테스트 케이스 필요 |
@@ -76,36 +77,40 @@ ai-bouncer는 문서 기반 워크플로우를 강제하여 이를 해결합니�
 
 메인 Claude가 직접 처리 — 팀 생성 없음, phase/step 구조 없음:
 
-1. **계획** — 코드 탐색, `plan.md` 작성, 승인 획득
-2. **TC + 개발** — `tests.md`에 테스트 케이스 작성 (해당 없으면 `[TC:스킵]`), 구현
+1. **계획** — 코드 탐색, Before/After 스니펫 포함 `plan.md` 작성, 승인 획득
+2. **TC + 개발** — `tests.md`에 테스트 케이스 작성 (테이블 + 실행출력 형식, 필수), 구현, 실제 명령어 출력을 증거로 기록
 3. **검증** — 테스트 실행, 계획 대비 diff 경량 검사, 완료
 
 #### NORMAL 모드
 
-**Phase 1 — 기획팀**
-3명의 에이전트 (`planner-lead`, `planner-dev`, `planner-qa`)가 Q&A 루프를 통해 상위 계획을 수립합니다 — **plan mode** 안에서 실행되어 사용자에게 구조화된 리뷰 UI 제공:
-- `planner-lead`가 루프를 주도하고 명확화 질문 제시
-- `planner-dev`가 기술적 실현 가능성과 리스크 분석 기여
-- `planner-qa`가 테스트 가능성과 엣지 케이스 분석 기여
-- 3회 연속 **새 질문 없음**이면 루프 종료
+**Phase 1 — 계획 수립**
+메인 Claude가 직접 코드베이스를 탐색하고, plan mode에 진입하여 Before/After 스니펫이 포함된 상세한 `plan.md`를 작성한 후 승인을 요청합니다.
 
 **Phase 2 — 계획 승인**
 완성된 계획이 `ExitPlanMode`를 통해 제시됩니다. 개발은 명시적 승인 뒤에만 진행. 수정 요청 시 자동으로 plan mode로 재진입.
 
 **Phase 3 — 개발**
-`lead` 에이전트가 **기능 수**에 따라 팀 규모 결정:
+
+설정된 `agent_mode`에 따라 개발 실행 방식이 달라집니다:
+
+| 모드 | Phase 3 (개발) | Phase 4 (검증) |
+|------|---------------|----------------|
+| `team` | TeamCreate → Lead + Dev + QA 에이전트 | TeamCreate로 Verifier 스폰 |
+| `subagent` | Agent tool → Lead + Dev + QA 에이전트 | Agent tool로 Verifier 스폰 |
+| `single` | 메인 Claude가 직접 수행 (phase/step 구조는 hook 검증용으로 유지) | 메인 Claude가 직접 3회 검증 |
+
+`lead` 에이전트 (또는 single 모드에서는 메인 Claude)가 **기능 수**에 따라 팀 규모 결정:
 
 | 팀 | 기준 | 구성 |
 |----|------|------|
-| `solo` | 단일 기능 | Lead가 Dev+QA 겸임 |
-| `duo` | 2–5개 기능 | Lead + Dev |
+| `duo` | 2~5개 기능 | Lead + Dev (Lead가 QA 겸임) |
 | `team` | 6개 이상 또는 병렬화 가능 | Lead + Dev + QA |
 
 단계별 엄격한 TDD 루프 진행:
-1. QA가 테스트 케이스 정의 → `step-M.md`
-2. Dev가 최소 코드 구현 → `step-M.md`
-3. QA가 테스트 실행 → 결과 기록
-4. 모든 단계 통과까지 반복
+1. QA가 `step-M.md`에 테스트 케이스 정의 (테이블 형식 + 기대 결과)
+2. Dev가 TC 통과할 최소 코드 구현
+3. QA가 테스트 실행 → `step-M.md`에 실제 실행출력을 증거로 기록
+4. 모든 단계 통과까지 반복 — 실행출력 증거가 없는 step은 hook이 차단
 
 **Phase 4 — 검증**
 `verifier` 에이전트가 3회 *연속* 클린 패스까지 무한 루프 실행, 각각 다른 관점:
@@ -172,11 +177,24 @@ bash install.sh --uninstall
 /dev-bounce JWT 기반 사용자 인증 구현
 ```
 
-### 커밋 전략 재설정
+### 재설정
 
 ```bash
 bash install.sh --config
 ```
+
+---
+
+## 설치 옵션
+
+| 항목 | 선택지 |
+|------|--------|
+| `docs/` git 추적 | `y / n` |
+| 커밋 전략 | `1) per-step` · `2) per-phase` · `3) none` |
+| 실행 모드 | `1) hooks` (강제) · `2) prompt-only` (가이드만) |
+| 에이전트 모드 | `1) team` (TeamCreate) · `2) subagent` (Agent tool) · `3) single` (메인 Claude만) |
+
+설치 시 프로젝트의 `.claude/CLAUDE.md`에 규칙을 주입하여, Claude가 모든 코딩 작업에 자동으로 `/dev-bounce`를 사용하도록 합니다.
 
 ---
 
@@ -192,12 +210,12 @@ bash install.sh --config
 docs/
 └── 2026-03-07/
     └── <작업명>/
-        ├── .active                   # 세션 마커 (session_id 포함)
-        ├── plan.md                   # 상위 계획 (planner-lead 작성)
+        ├── .active                   # 세션 마커 (hook이 session_id 자동 claim)
+        ├── plan.md                   # Before/After 스니펫 포함 계획
         ├── state.json                # 이 작업의 워크플로우 상태
         ├── phase-1-<기능>/
         │   ├── phase.md              # 범위와 완료 기준
-        │   ├── step-1.md             # TC + 구현 + 테스트 결과
+        │   ├── step-1.md             # TC 테이블 + 구현 + 실행출력 증거
         │   └── step-2.md
         ├── phase-2-<기능>/
         │   ├── phase.md
@@ -239,8 +257,7 @@ docs/
   "dev_phases": {},
   "verification": { "rounds_passed": 0 },
   "task_dir": "docs/2026-03-07/user-auth",
-  "active_file": "docs/2026-03-07/user-auth/.active",
-  "persistent_mode": false
+  "active_file": "docs/2026-03-07/user-auth/.active"
 }
 ```
 
@@ -257,7 +274,7 @@ docs/
 
 ## 강제 Hook
 
-7개의 hook이 `settings.json`에 자동 등록됩니다:
+8개의 hook이 `settings.json`에 자동 등록됩니다:
 
 | Hook | 트리거 | 동작 |
 |---|---|---|
@@ -266,6 +283,7 @@ docs/
 | `bash-audit.sh` | `PostToolUse` (Bash) | `git diff`로 미승인 파일 변경 감지 후 자동 되돌림 |
 | `doc-reminder.sh` | `PostToolUse` (Write/Edit) | 코드 변경 후 step 문서 미갱신 시 경고 |
 | `completion-gate.sh` | `Stop` | 검증이 3회 연속 통과에 도달하지 않으면 응답 완료 차단 |
+| `stop-bouncer-compat.sh` | `Stop` | 기존 Stop hook과의 충돌 방지 호환 shim |
 | `subagent-track.sh` | `SubagentStart` | 서브에이전트 세션을 부모 작업에 등록 |
 | `subagent-cleanup.sh` | `SubagentStop` | 종료 시 서브에이전트를 승인 목록에서 제거 |
 
@@ -280,24 +298,13 @@ docs/
 | 에이전트 | Phase | 역할 |
 |---------|-------|------|
 | `intent` | 0 | 요청 분류: 일반 / 정보 부족 / 개발 작업 |
-| `planner-lead` | 1 | Q&A 루프 주도, `plan.md` 확정 및 작성 |
-| `planner-dev` | 1 | 기술적 실현 가능성과 리스크 분석 기여 |
-| `planner-qa` | 1 | 테스트 가능성과 엣지 케이스 분석 기여 |
-| `lead` | 3 | 팀 규모 결정, 계획을 phase와 step으로 분해 |
+| `lead` | 3 | 팀 규모 결정, 계획을 phase와 step으로 분해, Dev/QA 오케스트레이션 |
 | `dev` | 3 | 코드 구현, step 문서 갱신 |
 | `qa` | 3 | 구현 전 TC 작성, 테스트 실행, 결과 기록 |
 | `verifier` | 4 | 계획 대비 구현 검증, 회귀 테스트, 3회 연속 루프 관리 |
 
----
-
-## 설치 옵션
-
-| 항목 | 선택지 |
-|------|--------|
-| 커밋 전략 | `1) per-step` · `2) per-phase` · `3) none` |
-| `docs/` git 추적 | `y / n` |
-
-설치 시 프로젝트의 `.claude/CLAUDE.md`에 규칙을 주입하여, Claude가 모든 코딩 작업에 자동으로 `/dev-bounce`를 사용하도록 합니다.
+부가 파일:
+- `agents/guides/tc-guide.md` — QA용 테스트 케이스 작성 가이드
 
 ---
 
@@ -305,26 +312,39 @@ docs/
 
 ```
 agents/
-  intent.md          planner-lead.md    planner-dev.md
-  planner-qa.md      lead.md            dev.md
-  qa.md              verifier.md
+  intent.md            lead.md              dev.md
+  qa.md                verifier.md
+  guides/
+    tc-guide.md
 
 skills/
   dev-bounce/
-    SKILL.md         (/dev-bounce 스킬 — 전체 플로우 오케스트레이션)
+    SKILL.md           (/dev-bounce 스킬 — 전체 플로우 오케스트레이션)
 
 hooks/
-  plan-gate.sh       bash-gate.sh       bash-audit.sh
-  doc-reminder.sh    completion-gate.sh
-  subagent-track.sh  subagent-cleanup.sh
+  plan-gate.sh         bash-gate.sh         bash-audit.sh
+  doc-reminder.sh      completion-gate.sh   stop-bouncer-compat.sh
+  subagent-track.sh    subagent-cleanup.sh
+  hooks.json           (hook 메타데이터 매니페스트)
   lib/
-    resolve-task.sh  (공유 작업 해석 라이브러리)
+    resolve-task.sh    (공유 작업 해석 라이브러리)
 
 tests/
-  e2e-hooks.sh       (E2E hook 테스트 — 25건)
+  e2e-full.sh          (전체 생명주기: 설치 → hook → 업데이트 → 제거)
+  e2e-hooks.sh         (hook 로직 테스트 — 75건)
+  e2e-install.sh       (설치/제거 테스트)
+  e2e-modes.sh         (에이전트 모드 조합 테스트)
+  e2e-workflow.sh      (워크플로우 통합 테스트)
+  e2e-restore.sh       (컨텍스트 복구 테스트)
+  e2e-skill.sh         (스킬 테스트)
+  test-bash-audit.sh   (bash-audit 단위 테스트)
+  test-bash-gate.sh    (bash-gate 단위 테스트)
+  test-completion-gate.sh (completion-gate 단위 테스트)
+  test-plan-gate.sh    (plan-gate 단위 테스트)
 
-install.sh           (설치/업데이트/설정)
-uninstall.sh         (독립 제거)
+install.sh             (설치/업데이트/설정)
+uninstall.sh           (독립 제거)
+update.sh              (빠른 업데이트 단축)
 ```
 
 ---
