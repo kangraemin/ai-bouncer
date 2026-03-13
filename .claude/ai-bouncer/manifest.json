@@ -1,0 +1,23 @@
+{
+  "version": "f81cb47",
+  "installed_at": "2026-03-08T20:07:19.986553",
+  "files": [
+    "agents/intent.md",
+    "agents/planner-lead.md",
+    "agents/planner-dev.md",
+    "agents/planner-qa.md",
+    "agents/verifier.md",
+    "agents/lead.md",
+    "agents/dev.md",
+    "agents/qa.md",
+    "/Users/ram/programming/vibecoding/ai-bouncer/.claude/skills/dev-bounce/SKILL.md",
+    "hooks/plan-gate.sh",
+    "hooks/doc-reminder.sh",
+    "hooks/completion-gate.sh",
+    "hooks/bash-gate.sh",
+    "hooks/bash-audit.sh",
+    "hooks/subagent-track.sh",
+    "hooks/subagent-cleanup.sh",
+    "hooks/lib/resolve-task.sh"
+  ]
+}
