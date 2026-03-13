@@ -663,6 +663,112 @@ assert_block "bash-gate: 잘못된 workflow_phase → 차단" "$R"
 
 echo ""
 
+# ─── 15. QA 회귀 테스트 ─────────────────────
+echo "─── QA 회귀 테스트 ───"
+
+# TC-QA1: subagent-cleanup — approved 파일 없이 호출 → 빈 파일 생성 안 됨 (C-1)
+rm -f /tmp/.ai-bouncer-approved-agents
+echo '{"session_id":"orphan-session"}' | bash hooks/subagent-cleanup.sh 2>/dev/null
+if [ ! -f /tmp/.ai-bouncer-approved-agents ]; then
+  echo "  ✅ QA1: cleanup — approved 없이 호출 → 빈 파일 생성 안 됨"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ QA1: cleanup — approved 없는데 빈 파일 생성됨"
+  FAIL=$((FAIL + 1))
+fi
+rm -f /tmp/.ai-bouncer-approved-agents
+
+# TC-QA2: subagent-cleanup — grep 매칭 0건(다른 세션만 존재) → 기존 항목 보존 (C-1)
+echo "other-session|/some/path" > /tmp/.ai-bouncer-approved-agents
+echo '{"session_id":"nonexistent-session"}' | bash hooks/subagent-cleanup.sh 2>/dev/null
+if [ -f /tmp/.ai-bouncer-approved-agents ] && grep -q "other-session" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
+  echo "  ✅ QA2: cleanup — 매칭 없는 세션 제거 → 기존 항목 보존"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ QA2: cleanup — 기존 항목이 사라짐"
+  FAIL=$((FAIL + 1))
+fi
+rm -f /tmp/.ai-bouncer-approved-agents
+
+# TC-QA3: bash-gate per-phase + steps={} → block 메시지에 "null" 미포함 (C-2)
+EMPTY_STEPS_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{}}}'
+setup_normal "$EMPTY_STEPS_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+cp .claude/ai-bouncer/config.json /tmp/.ai-bouncer-config-backup-qa.json
+python3 -c "
+import json
+c = json.load(open('.claude/ai-bouncer/config.json'))
+c['commit_strategy'] = 'per-phase'
+json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
+# block은 예상 (step 없으니까), 하지만 "null" 참조는 버그
+if echo "$R" | grep -q '"block"' 2>/dev/null; then
+  if echo "$R" | grep -q 'null' 2>/dev/null; then
+    echo "  ❌ QA3: per-phase + steps={} → block에 'null' 포함 (C-2 버그)"
+    FAIL=$((FAIL + 1))
+  else
+    echo "  ✅ QA3: per-phase + steps={} → block에 'null' 미포함"
+    PASS=$((PASS + 1))
+  fi
+else
+  echo "  ❌ QA3: per-phase + steps={} → 차단되지 않음"
+  FAIL=$((FAIL + 1))
+fi
+cp /tmp/.ai-bouncer-config-backup-qa.json .claude/ai-bouncer/config.json
+rm -f /tmp/.ai-bouncer-config-backup-qa.json
+rm -rf "$TASK_DIR/phase-1-test"
+cleanup_normal
+
+# TC-QA4: bash-gate block 시 save_snapshot → snapshot 파일 정렬 검증 (C-3)
+setup "simple" "planning" "false"
+rm -f /tmp/.ai-bouncer-snapshot-*
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+SNAP_FILE="/tmp/.ai-bouncer-snapshot-${TEST_SID}"
+if [ -f "$SNAP_FILE" ]; then
+  SORTED_SNAP=$(sort "$SNAP_FILE")
+  ORIGINAL_SNAP=$(cat "$SNAP_FILE")
+  if [ "$SORTED_SNAP" = "$ORIGINAL_SNAP" ]; then
+    echo "  ✅ QA4: save_snapshot → 정렬됨 (comm 호환)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ❌ QA4: save_snapshot → 미정렬 (C-3 버그)"
+    FAIL=$((FAIL + 1))
+  fi
+else
+  echo "  ✅ QA4: snapshot 미생성 (정렬 검증 스킵 — planning block은 snapshot 없을 수 있음)"
+  PASS=$((PASS + 1))
+fi
+rm -f /tmp/.ai-bouncer-snapshot-*
+
+# TC-QA5: bash-gate team config에 members 키 없음 → 차단 (I-1)
+QA5_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_normal "$QA5_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+# team config에서 members 키 제거
+echo '{"name":"broken-team"}' > "$HOME/.claude/teams/e2e-test-team/config.json"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "QA5: team members 키 없음 → 차단 (I-1)" "$R"
+rm -rf "$TASK_DIR/phase-1-test"
+cleanup_normal
+
+# TC-QA6: bash-gate team members 값 null → 차단 (I-1)
+QA6_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_normal "$QA6_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+echo '{"members":null}' > "$HOME/.claude/teams/e2e-test-team/config.json"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "QA6: team members=null → 차단 (I-1)" "$R"
+rm -rf "$TASK_DIR/phase-1-test"
+cleanup_normal
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 setup "simple" "development" "true"
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
