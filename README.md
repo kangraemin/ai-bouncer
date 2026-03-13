@@ -77,8 +77,8 @@ The `intent` agent classifies the request (general / insufficient / dev task). D
 
 Main Claude handles everything directly — no team spawn, no phase/step structure:
 
-1. **Plan** — Explore code, write `plan.md` with Before/After code snippets, get approval
-2. **TC + Develop** — Write test cases in `tests.md` if applicable (`[TC:skip]` if not), then implement
+1. **Plan** — Explore code, write `plan.md` with Before/After snippets, get approval
+2. **TC + Develop** — Write test cases in `tests.md` (table + execution output format, mandatory), implement, record actual command output as evidence
 3. **Verify** — Run tests, lightweight plan-vs-diff check, done
 
 #### NORMAL Mode
@@ -90,7 +90,16 @@ Main Claude directly explores the codebase, enters plan mode, writes a detailed 
 The finalized plan is presented via `ExitPlanMode`. Development is gated behind explicit approval. Revision requests re-enter plan mode automatically.
 
 **Phase 3 — Development**
-The `lead` agent determines team size based on **feature count**:
+
+Development execution depends on the configured `agent_mode`:
+
+| Mode | Phase 3 (Dev) | Phase 4 (Verify) |
+|------|--------------|-------------------|
+| `team` | TeamCreate → Lead + Dev + QA agents | Verifier agent via TeamCreate |
+| `subagent` | Agent tool → Lead + Dev + QA agents | Verifier via Agent tool |
+| `single` | Main Claude directly (phase/step structure maintained for hook enforcement) | Main Claude runs 3× verification directly |
+
+The `lead` agent (or Main Claude in single mode) determines team size based on **feature count**:
 
 | Team | Criteria | Composition |
 |------|----------|-------------|
@@ -98,10 +107,10 @@ The `lead` agent determines team size based on **feature count**:
 | `team` | 6+ features or parallelizable | Lead + Dev + QA |
 
 Then drives a strict TDD loop per step:
-1. QA defines test cases → `step-M.md`
-2. Dev implements minimum code → `step-M.md`
-3. QA runs tests → records results
-4. Repeat until all steps pass
+1. QA defines test cases in `step-M.md` (table format with expected results)
+2. Dev implements minimum code to pass TCs
+3. QA runs tests → records actual execution output as evidence in `step-M.md`
+4. Repeat until all steps pass — steps without execution output evidence are blocked by hooks
 
 **Phase 4 — Verification**
 The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, each from a different perspective:
@@ -206,7 +215,7 @@ docs/
         ├── state.json                # workflow state for this task
         ├── phase-1-<feature>/
         │   ├── phase.md              # scope and completion criteria
-        │   ├── step-1.md             # TC + implementation + test results
+        │   ├── step-1.md             # TC table + implementation + execution output evidence
         │   └── step-2.md
         ├── phase-2-<feature>/
         │   ├── phase.md
