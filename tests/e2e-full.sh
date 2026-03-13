@@ -241,6 +241,19 @@ echo "custom agent" > "$TARGET/agents/my-custom-agent.md"
 assert_file "update 후 커스텀 agent 보호됨" "$TARGET/agents/my-custom-agent.md"
 rm -f "$TARGET/agents/my-custom-agent.md"
 
+# 소스에 없는 agent 파일이 update 시 삭제되지 않는지 검증
+echo "former-bouncer-agent" > "$TARGET/agents/old-removed-agent.md"
+# manifest에 등록 (이전 버전에서 설치된 것처럼)
+python3 -c "
+import json
+m = json.load(open('$TARGET/ai-bouncer/manifest.json'))
+m['files'].append('agents/old-removed-agent.md')
+json.dump(m, open('$TARGET/ai-bouncer/manifest.json', 'w'), indent=2)
+"
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -3
+assert_file "update 후 소스에 없는 agent 파일 유지됨" "$TARGET/agents/old-removed-agent.md"
+rm -f "$TARGET/agents/old-removed-agent.md"
+
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 5. Uninstall ───${NC}"
 

@@ -355,42 +355,50 @@ fi
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 AGENT_MODE=$(jq -r '.agent_mode // "team"' "$REPO_ROOT/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
 
-# CHECK 4/5/6: team 모드에서만 팀 구성 검증
-if [ "$AGENT_MODE" = "team" ]; then
-  # CHECK 4: development + team_name
-  if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
-    save_snapshot
-    jq -n '{
-      decision: "block",
-      reason: "⛔ [bash-gate] 팀 미구성 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
-    }'
-    exit 0
-  fi
-
-  # CHECK 5-6: team config + members
-  if [ "$WORKFLOW_PHASE" = "development" ]; then
-    TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
-    if [ ! -f "$TEAM_CONFIG" ]; then
+# agent_mode별 검증 분기
+case "$AGENT_MODE" in
+  team)
+    # CHECK 4: development + team_name
+    if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
       save_snapshot
       jq -n '{
         decision: "block",
-        reason: "⛔ [bash-gate] 팀 디렉토리 미존재 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
+        reason: "⛔ [bash-gate][team] 팀 미구성 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
       }'
       exit 0
     fi
 
-    MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-    MEMBER_COUNT=${MEMBER_COUNT:-0}
-    if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
-      save_snapshot
-      jq -n '{
-        decision: "block",
-        reason: "⛔ [bash-gate] 팀 멤버 부족 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
-      }'
-      exit 0
+    # CHECK 5-6: team config + members
+    if [ "$WORKFLOW_PHASE" = "development" ]; then
+      TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
+      if [ ! -f "$TEAM_CONFIG" ]; then
+        save_snapshot
+        jq -n '{
+          decision: "block",
+          reason: "⛔ [bash-gate][team] 팀 디렉토리 미존재 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
+        }'
+        exit 0
+      fi
+
+      MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
+      MEMBER_COUNT=${MEMBER_COUNT:-0}
+      if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+        save_snapshot
+        jq -n '{
+          decision: "block",
+          reason: "⛔ [bash-gate][team] 팀 멤버 부족 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
+        }'
+        exit 0
+      fi
     fi
-  fi
-fi
+    ;;
+  subagent)
+    # subagent: team 구성 불필요, 위임 등록 검증은 resolve-task.sh fallback이 처리
+    ;;
+  single)
+    # single: Main Claude가 직접 수행, 팀/에이전트 검증 불필요
+    ;;
+esac
 
 # CHECK 6.5: development + step=0 방어
 if [ "$WORKFLOW_PHASE" = "development" ]; then

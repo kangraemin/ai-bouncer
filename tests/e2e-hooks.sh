@@ -869,6 +869,57 @@ cleanup_subagent
 
 echo ""
 
+# ─── 7.5. 미등록 subagent fallback (resolve-task.sh) ──────
+echo "─── 미등록 subagent fallback ───"
+
+UNREGISTERED_SID="unregistered-sub-$(date +%s)"
+
+# UF-1: 미등록 subagent + 활성 development 태스크 → plan-gate 차단 (phase.md 없으므로)
+FALLBACK_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_subagent "$FALLBACK_PHASES" 1 1
+# approved 파일에 등록 안 함 — 미등록 subagent 시뮬레이션
+rm -f /tmp/.ai-bouncer-approved-agents
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
+assert_block "UF-1: 미등록 subagent + development → plan-gate 차단" "$R"
+
+# UF-2: 미등록 subagent + 활성 development 태스크 → bash-gate 차단
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$UNREGISTERED_SID\"}")
+assert_block "UF-2: 미등록 subagent + development → bash-gate 차단" "$R"
+cleanup_subagent
+
+# UF-3: 미등록 subagent + 활성 태스크 없음 → 통과
+rm -f "$ACTIVE_FILE"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
+assert_pass "UF-3: 미등록 subagent + 활성 태스크 없음 → 통과" "$R"
+
+# UF-4: 미등록 subagent + planning 태스크만 → 통과 (fallback은 dev/verification만)
+setup "simple" "planning" "false"
+# 다른 .active들 임시 숨기기
+OTHER_ACTIVES_UF=()
+while IFS= read -r -d '' af; do
+  [ "$af" = "$ACTIVE_FILE" ] && continue
+  OTHER_ACTIVES_UF+=("$af")
+  mv "$af" "${af}.bak-uf"
+done < <(find docs -name ".active" -print0 2>/dev/null)
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
+assert_pass "UF-4: 미등록 subagent + planning만 → 통과 (fallback 안 됨)" "$R"
+for af in "${OTHER_ACTIVES_UF[@]}"; do
+  mv "${af}.bak-uf" "$af" 2>/dev/null || true
+done
+
+# UF-5: 미등록 subagent + 정상 아티팩트 모두 존재 → 통과
+FALLBACK_PHASES_FULL='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_subagent "$FALLBACK_PHASES_FULL" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+rm -f /tmp/.ai-bouncer-approved-agents
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
+assert_pass "UF-5: 미등록 subagent + 정상 아티팩트 → 통과" "$R"
+cleanup_subagent
+
+echo ""
+
 # ─── 8. SIMPLE 모드 카운터 무시 ──────────────
 echo "─── SIMPLE 모드 카운터 무시 ───"
 
