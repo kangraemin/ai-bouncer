@@ -13,11 +13,11 @@
 Complexity determines the mode:
 
 ```
-SIMPLE (single feature)
-  Request → Intent → Plan → Approval → Dev → Test → Done
+SIMPLE (single feature/bug)
+  Request → Intent → Plan → Approval → Dev → Verify → Done
 
 NORMAL (complex task)
-  Request → Intent → Planning Team + Q&A → Plan Approval
+  Request → Intent → Plan → Approval
     → Dev Team (Phase/Step TDD) → 3× Consecutive Verification → Done
 ```
 
@@ -68,6 +68,7 @@ The `intent` agent classifies the request (general / insufficient / dev task). D
 
 | Criteria | SIMPLE | NORMAL |
 |----------|--------|--------|
+| Changed files | 1–3 expected | 4+ or uncertain |
 | Scope | Single feature/bug/config | Multiple modules |
 | Direction | Clear | Needs design discussion |
 | Tests | Existing tests sufficient | New test cases needed |
@@ -76,18 +77,14 @@ The `intent` agent classifies the request (general / insufficient / dev task). D
 
 Main Claude handles everything directly — no team spawn, no phase/step structure:
 
-1. **Plan** — Explore code, write `plan.md`, get approval
+1. **Plan** — Explore code, write `plan.md` with Before/After code snippets, get approval
 2. **TC + Develop** — Write test cases in `tests.md` if applicable (`[TC:skip]` if not), then implement
 3. **Verify** — Run tests, lightweight plan-vs-diff check, done
 
 #### NORMAL Mode
 
-**Phase 1 — Planning Team**
-A 3-agent team (`planner-lead`, `planner-dev`, `planner-qa`) collaborates to build a high-level plan via a Q&A loop — running inside **plan mode** so the user gets a structured review UI:
-- `planner-lead` drives the loop and asks clarifying questions
-- `planner-dev` contributes technical feasibility and risk analysis
-- `planner-qa` contributes testability and edge case analysis
-- The loop continues until 3 consecutive rounds produce **no new questions**
+**Phase 1 — Planning**
+Main Claude directly explores the codebase, enters plan mode, writes a detailed `plan.md` with Before/After snippets, and presents it for approval.
 
 **Phase 2 — Plan Approval**
 The finalized plan is presented via `ExitPlanMode`. Development is gated behind explicit approval. Revision requests re-enter plan mode automatically.
@@ -97,8 +94,7 @@ The `lead` agent determines team size based on **feature count**:
 
 | Team | Criteria | Composition |
 |------|----------|-------------|
-| `solo` | Single feature | Lead does Dev+QA |
-| `duo` | 2–5 features | Lead + Dev |
+| `duo` | 2–5 features | Lead + Dev (Lead doubles as QA) |
 | `team` | 6+ features or parallelizable | Lead + Dev + QA |
 
 Then drives a strict TDD loop per step:
@@ -172,11 +168,24 @@ Example:
 /dev-bounce implement user authentication with JWT
 ```
 
-### Reconfigure commit strategy
+### Reconfigure
 
 ```bash
 bash install.sh --config
 ```
+
+---
+
+## Installation Options
+
+| Prompt | Options |
+|---|---|
+| Track `docs/` in git | `y / n` |
+| Commit strategy | `1) per-step` · `2) per-phase` · `3) none` |
+| Execution mode | `1) hooks` (enforced) · `2) prompt-only` (guidance only) |
+| Agent mode | `1) team` (TeamCreate) · `2) subagent` (Agent tool) · `3) single` (Main Claude only) |
+
+Install injects a rule into your project's `.claude/CLAUDE.md` so Claude automatically uses `/dev-bounce` for any coding task.
 
 ---
 
@@ -192,8 +201,8 @@ Tasks are organized by date under `docs/YYYY-MM-DD/`:
 docs/
 └── 2026-03-07/
     └── <task-name>/
-        ├── .active                   # session marker (contains session_id)
-        ├── plan.md                   # high-level plan (written by planner-lead)
+        ├── .active                   # session marker (hook auto-claims session_id)
+        ├── plan.md                   # plan with Before/After snippets
         ├── state.json                # workflow state for this task
         ├── phase-1-<feature>/
         │   ├── phase.md              # scope and completion criteria
@@ -239,8 +248,7 @@ docs/
   "dev_phases": {},
   "verification": { "rounds_passed": 0 },
   "task_dir": "docs/2026-03-07/user-auth",
-  "active_file": "docs/2026-03-07/user-auth/.active",
-  "persistent_mode": false
+  "active_file": "docs/2026-03-07/user-auth/.active"
 }
 ```
 
@@ -257,7 +265,7 @@ If a session is interrupted or the context window is compressed:
 
 ## Enforcement Hooks
 
-Seven hooks are registered automatically into `settings.json`:
+Eight hooks are registered automatically into `settings.json`:
 
 | Hook | Trigger | Behavior |
 |---|---|---|
@@ -266,6 +274,7 @@ Seven hooks are registered automatically into `settings.json`:
 | `bash-audit.sh` | `PostToolUse` (Bash) | Detects unauthorized file changes via `git diff` and auto-reverts |
 | `doc-reminder.sh` | `PostToolUse` (Write/Edit) | Warns if a step doc hasn't been updated after a code change |
 | `completion-gate.sh` | `Stop` | Blocks response completion if verification hasn't reached 3 consecutive passes |
+| `stop-bouncer-compat.sh` | `Stop` | Compatibility shim injected into existing Stop hooks to prevent conflicts with ai-bouncer |
 | `subagent-track.sh` | `SubagentStart` | Registers sub-agent session with parent task for delegation context |
 | `subagent-cleanup.sh` | `SubagentStop` | Removes sub-agent from approved list on termination |
 
@@ -280,24 +289,13 @@ Seven hooks are registered automatically into `settings.json`:
 | Agent | Phase | Role |
 |---|---|---|
 | `intent` | 0 | Classify request: general / insufficient / dev task |
-| `planner-lead` | 1 | Lead the Q&A loop, finalize and write `plan.md` |
-| `planner-dev` | 1 | Contribute technical feasibility and risk analysis |
-| `planner-qa` | 1 | Contribute testability and edge case analysis |
-| `lead` | 3 | Determine team size, decompose plan into phases and steps |
+| `lead` | 3 | Determine team size, decompose plan into phases and steps, orchestrate Dev/QA |
 | `dev` | 3 | Implement code, update step docs |
 | `qa` | 3 | Write TCs before implementation, run tests, record results |
 | `verifier` | 4 | Verify plan vs implementation, run regression tests, manage 3× loop |
 
----
-
-## Installation Options
-
-| Prompt | Options |
-|---|---|
-| Commit strategy | `1) per-step` · `2) per-phase` · `3) none` |
-| Track `docs/` in git | `y / n` |
-
-Install injects a rule into your project's `.claude/CLAUDE.md` so Claude automatically uses `/dev-bounce` for any coding task.
+Supporting files:
+- `agents/guides/tc-guide.md` — test case writing guide for QA
 
 ---
 
@@ -305,26 +303,39 @@ Install injects a rule into your project's `.claude/CLAUDE.md` so Claude automat
 
 ```
 agents/
-  intent.md          planner-lead.md    planner-dev.md
-  planner-qa.md      lead.md            dev.md
-  qa.md              verifier.md
+  intent.md            lead.md              dev.md
+  qa.md                verifier.md
+  guides/
+    tc-guide.md
 
 skills/
   dev-bounce/
-    SKILL.md         (/dev-bounce skill — full flow orchestration)
+    SKILL.md           (/dev-bounce skill — full flow orchestration)
 
 hooks/
-  plan-gate.sh       bash-gate.sh       bash-audit.sh
-  doc-reminder.sh    completion-gate.sh
-  subagent-track.sh  subagent-cleanup.sh
+  plan-gate.sh         bash-gate.sh         bash-audit.sh
+  doc-reminder.sh      completion-gate.sh   stop-bouncer-compat.sh
+  subagent-track.sh    subagent-cleanup.sh
+  hooks.json           (hook metadata manifest)
   lib/
-    resolve-task.sh  (shared task resolution library)
+    resolve-task.sh    (shared task resolution library)
 
 tests/
-  e2e-hooks.sh       (E2E hook tests — 25 cases)
+  e2e-full.sh          (full lifecycle: install → hook → update → uninstall)
+  e2e-hooks.sh         (hook logic tests — 75 assertions)
+  e2e-install.sh       (install/uninstall tests)
+  e2e-modes.sh         (agent mode combination tests)
+  e2e-workflow.sh      (workflow integration tests)
+  e2e-restore.sh       (context restore tests)
+  e2e-skill.sh         (skill tests)
+  test-bash-audit.sh   (bash-audit unit tests)
+  test-bash-gate.sh    (bash-gate unit tests)
+  test-completion-gate.sh (completion-gate unit tests)
+  test-plan-gate.sh    (plan-gate unit tests)
 
-install.sh           (install/update/config)
-uninstall.sh         (standalone uninstall)
+install.sh             (install/update/config)
+uninstall.sh           (standalone uninstall)
+update.sh              (quick update shortcut)
 ```
 
 ---
