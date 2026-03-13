@@ -1,14 +1,27 @@
 {
-  "workflow_phase": "done",
+  "workflow_phase": "development",
   "mode": "simple",
   "planning": {
     "no_question_streak": 0
   },
   "plan_approved": true,
-  "team_name": "",
-  "current_dev_phase": 0,
-  "current_step": 0,
-  "dev_phases": {},
+  "team_name": "e2e-test-team",
+  "current_dev_phase": 1,
+  "current_step": 2,
+  "dev_phases": {
+    "1": {
+      "name": "test",
+      "folder": "phase-1-test",
+      "steps": {
+        "1": {
+          "title": "Step 1"
+        },
+        "2": {
+          "title": "Step 2"
+        }
+      }
+    }
+  },
   "verification": {
     "rounds_passed": 0
   },
