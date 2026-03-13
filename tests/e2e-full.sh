@@ -235,6 +235,12 @@ assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-ga
 assert_file "update 후 tc-guide.md 존재"    "$TARGET/agents/guides/tc-guide.md"
 assert_file "update 후 hooks.json 존재"     "$TARGET/hooks/hooks.json"
 
+# 커스텀 agent 보호 테스트
+echo "custom agent" > "$TARGET/agents/my-custom-agent.md"
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -3
+assert_file "update 후 커스텀 agent 보호됨" "$TARGET/agents/my-custom-agent.md"
+rm -f "$TARGET/agents/my-custom-agent.md"
+
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 5. Uninstall ───${NC}"
 

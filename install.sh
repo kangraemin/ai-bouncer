@@ -341,12 +341,17 @@ for subdir in "$PACKAGE_DIR/agents"/*/; do
   done
 done
 
-# 소스에 없는 설치된 agent 파일 삭제
+# 소스에 없는 설치된 agent 파일 삭제 (manifest에 기록된 파일만 대상)
 for installed in "$TARGET_DIR/agents/"*.md; do
   [ -f "$installed" ] || continue
+  rel_path="agents/$(basename "$installed")"
+  # manifest에 없으면 사용자가 직접 추가한 파일 → 스킵
+  if [ -f "$MANIFEST" ] && ! python3 -c "import json,sys; files=json.load(open(sys.argv[1])).get('files',[]); sys.exit(0 if sys.argv[2] in files else 1)" "$MANIFEST" "$rel_path" 2>/dev/null; then
+    continue
+  fi
   if [ ! -f "$PACKAGE_DIR/agents/$(basename "$installed")" ]; then
     rm -f "$installed"
-    warn "$(basename "$installed") 삭제 (소스에 없음)"
+    warn "$(basename "$installed") 삭제 (소스에서 제거됨)"
   fi
 done
 
