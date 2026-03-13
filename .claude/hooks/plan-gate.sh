@@ -90,34 +90,42 @@ fi
 
 # --- 이하 NORMAL 모드 전용 ---
 
-# CHECK 4: development + team_name 비어있음 → BLOCK
-if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
-  jq -n '{
-    decision: "block",
-    reason: "팀이 구성되지 않았습니다. TeamCreate로 팀을 먼저 생성하고 state.json team_name을 설정하세요."
-  }'
-  exit 0
-fi
+# agent_mode 읽기 (config.json에서)
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+AGENT_MODE=$(jq -r '.agent_mode // "team"' "$REPO_ROOT/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
 
-# CHECK 5: development + team config.json 미존재 → BLOCK
-if [ "$WORKFLOW_PHASE" = "development" ]; then
-  TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
-  if [ ! -f "$TEAM_CONFIG" ]; then
+# CHECK 4/5/6: team 모드에서만 팀 구성 검증
+if [ "$AGENT_MODE" = "team" ]; then
+  # CHECK 4: development + team_name 비어있음 → BLOCK
+  if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
     jq -n '{
       decision: "block",
-      reason: "팀 디렉토리가 존재하지 않습니다. TeamCreate로 팀을 먼저 생성하세요."
+      reason: "팀이 구성되지 않았습니다. TeamCreate로 팀을 먼저 생성하고 state.json team_name을 설정하세요."
     }'
     exit 0
   fi
 
-  # CHECK 6: team members < 1 → BLOCK
-  MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-  if [ -z "$MEMBER_COUNT" ] || [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
-    jq -n '{
-      decision: "block",
-      reason: "팀 멤버가 없습니다. Lead 에이전트를 먼저 스폰하세요."
-    }'
-    exit 0
+  # CHECK 5: development + team config.json 미존재 → BLOCK
+  if [ "$WORKFLOW_PHASE" = "development" ]; then
+    TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
+    if [ ! -f "$TEAM_CONFIG" ]; then
+      jq -n '{
+        decision: "block",
+        reason: "팀 디렉토리가 존재하지 않습니다. TeamCreate로 팀을 먼저 생성하세요."
+      }'
+      exit 0
+    fi
+
+    # CHECK 6: team members < 1 → BLOCK
+    MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
+    MEMBER_COUNT=${MEMBER_COUNT:-0}
+    if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+      jq -n '{
+        decision: "block",
+        reason: "팀 멤버가 없습니다. Lead 에이전트를 먼저 스폰하세요."
+      }'
+      exit 0
+    fi
   fi
 fi
 
@@ -126,6 +134,50 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
   if [ "$CURRENT_DEV_PHASE" -le 0 ] 2>/dev/null || [ "$CURRENT_STEP" -le 0 ] 2>/dev/null; then
     jq -n '{decision:"block", reason:"⛔ development이지만 dev_phase/step 미설정"}'
     exit 0
+  fi
+fi
+
+# CHECK 6.7: dev_phases 비어있는지 검증
+if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
+  DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  if [ "${DEV_PHASES_COUNT:-0}" -le 0 ] 2>/dev/null; then
+    jq -n '{decision:"block", reason:"⛔ dev_phases가 비어있습니다. Lead가 phase 구조를 먼저 정의해야 합니다."}'
+    exit 0
+  fi
+fi
+
+# CHECK 6.8: verification인데 모든 Phase가 완료되지 않았으면 → BLOCK
+if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
+  DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
+  if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
+    ALL_PHASES_DONE=true
+    for phase_idx in $(seq 1 "$DEV_PHASES_COUNT"); do
+      PHASE_FOLDER=$(jq -r ".dev_phases[\"$phase_idx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+      [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${phase_idx}"
+      PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
+      # phase 디렉토리에 step-*.md가 있고, 모두 ✅를 포함해야 함
+      HAS_STEPS=false
+      for step_file in "$PHASE_DIR"/step-*.md; do
+        [ -f "$step_file" ] || continue
+        HAS_STEPS=true
+        if ! grep -q '✅' "$step_file" 2>/dev/null; then
+          ALL_PHASES_DONE=false
+          break 2
+        fi
+      done
+      if [ "$HAS_STEPS" = false ]; then
+        ALL_PHASES_DONE=false
+        break
+      fi
+    done
+    if [ "$ALL_PHASES_DONE" = false ]; then
+      jq -n --arg count "$DEV_PHASES_COUNT" '{
+        decision: "block",
+        reason: ("⛔ verification 단계이지만 모든 개발 Phase가 완료되지 않았습니다. 미완료 Phase의 개발을 먼저 완료하세요. (총 " + $count + "개 Phase)")
+      }'
+      exit 0
+    fi
   fi
 fi
 
@@ -140,6 +192,30 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
   [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${DEV_PHASE_KEY}"
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
+
+  # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
+  PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
+  if [ "$PREV_DEV_PHASE" -gt 0 ]; then
+    PREV_PHASE_FOLDER=$(jq -r ".dev_phases[\"$PREV_DEV_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+    [ -z "$PREV_PHASE_FOLDER" ] && PREV_PHASE_FOLDER="phase-${PREV_DEV_PHASE}"
+    PREV_PHASE_DIR="${TASK_DIR}/${PREV_PHASE_FOLDER}"
+    # 이전 Phase의 모든 step.md에 ✅가 있어야 함
+    PREV_PHASE_INCOMPLETE=false
+    for prev_step_file in "$PREV_PHASE_DIR"/step-*.md; do
+      [ -f "$prev_step_file" ] || continue
+      if ! grep -q '✅' "$prev_step_file" 2>/dev/null; then
+        PREV_PHASE_INCOMPLETE=true
+        break
+      fi
+    done
+    if [ "$PREV_PHASE_INCOMPLETE" = true ]; then
+      jq -n --arg phase "$PREV_DEV_PHASE" '{
+        decision: "block",
+        reason: ("⛔ Phase " + $phase + "의 모든 Step이 완료되지 않았습니다. 이전 Phase를 먼저 완료하세요.")
+      }'
+      exit 0
+    fi
+  fi
 
   # CHECK 7a: phase.md 존재 검증
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then

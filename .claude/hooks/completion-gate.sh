@@ -44,7 +44,11 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
     ROUND_FILES=""
   fi
 
-  TOTAL_ROUNDS=$(echo "$ROUND_FILES" | grep -c 'round-' 2>/dev/null || echo 0)
+  if [ -z "$ROUND_FILES" ]; then
+    TOTAL_ROUNDS=0
+  else
+    TOTAL_ROUNDS=$(echo "$ROUND_FILES" | grep -c 'round-' 2>/dev/null || echo 0)
+  fi
 
   if [ "$TOTAL_ROUNDS" -lt 3 ]; then
     jq -n --arg rounds "$TOTAL_ROUNDS" --arg task "$TASK_NAME" '{

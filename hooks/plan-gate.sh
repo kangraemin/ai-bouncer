@@ -154,7 +154,7 @@ if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
     ALL_PHASES_DONE=true
     for phase_idx in $(seq 1 "$DEV_PHASES_COUNT"); do
       PHASE_FOLDER=$(jq -r ".dev_phases[\"$phase_idx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-      [ -z "$PHASE_FOLDER" ] && continue
+      [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${phase_idx}"
       PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
       # phase 디렉토리에 step-*.md가 있고, 모두 ✅를 포함해야 함
       HAS_STEPS=false
@@ -188,88 +188,107 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
 
   # phase_folder 조회
   PHASE_FOLDER=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+  # folder 없으면 기본값 fallback (CHECK 7 스킵 방지)
+  [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${DEV_PHASE_KEY}"
 
-  if [ -n "$PHASE_FOLDER" ]; then
-    PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
+  PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
-    # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
-    PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
-    if [ "$PREV_DEV_PHASE" -gt 0 ]; then
-      PREV_PHASE_FOLDER=$(jq -r ".dev_phases[\"$PREV_DEV_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-      if [ -n "$PREV_PHASE_FOLDER" ]; then
-        PREV_PHASE_DIR="${TASK_DIR}/${PREV_PHASE_FOLDER}"
-        # 이전 Phase의 모든 step.md에 ✅가 있어야 함
-        PREV_PHASE_INCOMPLETE=false
-        for prev_step_file in "$PREV_PHASE_DIR"/step-*.md; do
-          [ -f "$prev_step_file" ] || continue
-          if ! grep -q '✅' "$prev_step_file" 2>/dev/null; then
-            PREV_PHASE_INCOMPLETE=true
-            break
-          fi
-        done
-        if [ "$PREV_PHASE_INCOMPLETE" = true ]; then
-          jq -n --arg phase "$PREV_DEV_PHASE" '{
-            decision: "block",
-            reason: ("⛔ Phase " + $phase + "의 모든 Step이 완료되지 않았습니다. 이전 Phase를 먼저 완료하세요.")
-          }'
-          exit 0
-        fi
+  # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
+  PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
+  if [ "$PREV_DEV_PHASE" -gt 0 ]; then
+    PREV_PHASE_FOLDER=$(jq -r ".dev_phases[\"$PREV_DEV_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+    [ -z "$PREV_PHASE_FOLDER" ] && PREV_PHASE_FOLDER="phase-${PREV_DEV_PHASE}"
+    PREV_PHASE_DIR="${TASK_DIR}/${PREV_PHASE_FOLDER}"
+    # 이전 Phase의 모든 step.md에 ✅가 있어야 함
+    PREV_PHASE_INCOMPLETE=false
+    for prev_step_file in "$PREV_PHASE_DIR"/step-*.md; do
+      [ -f "$prev_step_file" ] || continue
+      if ! grep -q '✅' "$prev_step_file" 2>/dev/null; then
+        PREV_PHASE_INCOMPLETE=true
+        break
       fi
-    fi
-
-    # CHECK 7a: phase.md 존재 검증
-    if [ ! -f "${PHASE_DIR}/phase.md" ]; then
-      jq -n --arg phase "$DEV_PHASE_KEY" '{
+    done
+    if [ "$PREV_PHASE_INCOMPLETE" = true ]; then
+      jq -n --arg phase "$PREV_DEV_PHASE" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+        reason: ("⛔ Phase " + $phase + "의 모든 Step이 완료되지 않았습니다. 이전 Phase를 먼저 완료하세요.")
+      }'
+      exit 0
+    fi
+  fi
+
+  # CHECK 7a: phase.md 존재 검증
+  if [ ! -f "${PHASE_DIR}/phase.md" ]; then
+    jq -n --arg phase "$DEV_PHASE_KEY" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+    }'
+    exit 0
+  fi
+
+  # CHECK 7a-2: phase.md 필수 섹션 검증
+  for section in "## 목표" "## 범위" "## Steps"; do
+    if ! grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)
+      }'
+      exit 0
+    fi
+  done
+
+  # 이전 step 검증 (M > 1일 때)
+  PREV_STEP=$((CURRENT_STEP - 1))
+  if [ "$PREV_STEP" -gt 0 ]; then
+    PREV_STEP_FILE="${PHASE_DIR}/step-${PREV_STEP}.md"
+
+    # CHECK 7b: 이전 step 파일 미존재 → BLOCK
+    if [ ! -f "$PREV_STEP_FILE" ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 문서가 존재하지 않습니다.")
       }'
       exit 0
     fi
 
-    # 이전 step 검증 (M > 1일 때)
-    PREV_STEP=$((CURRENT_STEP - 1))
-    if [ "$PREV_STEP" -gt 0 ]; then
-      PREV_STEP_FILE="${PHASE_DIR}/step-${PREV_STEP}.md"
-
-      # CHECK 7b: 이전 step 파일 미존재 → BLOCK
-      if [ ! -f "$PREV_STEP_FILE" ]; then
-        jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
-          decision: "block",
-          reason: ("Dev Phase " + $phase + " Step " + $step + " 문서가 존재하지 않습니다.")
-        }'
-        exit 0
-      fi
-
-      # CHECK 7c: 이전 step에 ✅ 미포함 → BLOCK
-      if ! grep -q '✅' "$PREV_STEP_FILE" 2>/dev/null; then
-        jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
-          decision: "block",
-          reason: ("Dev Phase " + $phase + " Step " + $step + " 테스트가 통과되지 않았습니다 (✅ 없음). 테스트를 먼저 통과시킨 후 진행하세요.")
-        }'
-        exit 0
-      fi
-    fi
-
-    # 현재 step 검증
-    CURRENT_STEP_FILE="${PHASE_DIR}/step-${STEP_KEY}.md"
-
-    # CHECK 7d: 현재 step 파일 미존재 → BLOCK
-    if [ ! -f "$CURRENT_STEP_FILE" ]; then
-      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+    # CHECK 7c: 이전 step에 ✅ 미포함 → BLOCK
+    if ! grep -q '✅' "$PREV_STEP_FILE" 2>/dev/null; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 테스트가 통과되지 않았습니다 (✅ 없음). 테스트를 먼저 통과시킨 후 진행하세요.")
       }'
       exit 0
     fi
 
-    # CHECK 7e: 현재 step에 TC 행 내용 없음 → BLOCK
-    if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
-      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+    # CHECK 7c-2: 이전 step의 TC 실행출력 검증
+    if ! grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")
+        reason: ("Dev Phase " + $phase + " Step " + $step + "의 TC에 실행출력이 없습니다. 테스트 실행 결과를 반드시 기록하세요.")
       }'
       exit 0
     fi
+  fi
+
+  # 현재 step 검증
+  CURRENT_STEP_FILE="${PHASE_DIR}/step-${STEP_KEY}.md"
+
+  # CHECK 7d: 현재 step 파일 미존재 → BLOCK
+  if [ ! -f "$CURRENT_STEP_FILE" ]; then
+    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
+    }'
+    exit 0
+  fi
+
+  # CHECK 7e: 현재 step에 TC 행 내용 없음 → BLOCK
+  if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
+    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")
+    }'
+    exit 0
   fi
 fi
 

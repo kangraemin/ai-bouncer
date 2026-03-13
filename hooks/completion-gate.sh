@@ -64,7 +64,17 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
 
   while IFS= read -r rfile; do
     [ -z "$rfile" ] && continue
-    if grep -q '통과' "$rfile" 2>/dev/null && ! grep -q '실패' "$rfile" 2>/dev/null; then
+    HAS_PASS=$(grep -q '통과' "$rfile" 2>/dev/null && echo 1 || echo 0)
+    HAS_FAIL=$(grep -q '실패' "$rfile" 2>/dev/null && echo 1 || echo 0)
+    # round.md 필수 섹션 체크 (빈 문서로 통과 방지)
+    HAS_REQUIRED=1
+    for section in "## 결론"; do
+      if ! grep -q "$section" "$rfile" 2>/dev/null; then
+        HAS_REQUIRED=0
+        break
+      fi
+    done
+    if [ "$HAS_PASS" = "1" ] && [ "$HAS_FAIL" = "0" ] && [ "$HAS_REQUIRED" = "1" ]; then
       CONSECUTIVE_PASS=$((CONSECUTIVE_PASS + 1))
     else
       CONSECUTIVE_PASS=0

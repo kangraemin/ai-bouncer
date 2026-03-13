@@ -276,7 +276,7 @@ assert_block "NORMAL + dev_phases={} + echo > → 차단" "$R"
 # TC-3: 정상 dev_phases + 모든 아티팩트 존재 + Write → ALLOW (대조군)
 setup_normal "$VALID_DEV_PHASES" 1 1
 mkdir -p "$TASK_DIR/phase-1-test"
-echo "# Phase 1" > "$TASK_DIR/phase-1-test/phase.md"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
 printf "| TC-1 | test case | expected result |\n" > "$TASK_DIR/phase-1-test/step-1.md"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "NORMAL + 정상 dev_phases + Write → 통과" "$R"
@@ -313,8 +313,8 @@ TWO_PHASE_DEV_PHASES='{"1":{"name":"base","folder":"phase-1-base","steps":{"1":{
 # TC-P1: Phase 2 Step 1 + Phase 1 step에 ✅ 없음 → BLOCK
 setup_normal "$TWO_PHASE_DEV_PHASES" 2 1
 mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui"
-echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
-echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-base/phase.md"
+printf "# Phase 2\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-2-ui/phase.md"
 printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-base/step-1.md"
 printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-2-ui/step-1.md"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
@@ -328,7 +328,7 @@ assert_pass "Phase 2 + Phase 1 완료 → 통과" "$R"
 # TC-P3: Phase 1 Step 1 (첫 Phase) → 이전 Phase 검증 스킵 → ALLOW
 setup_normal "$TWO_PHASE_DEV_PHASES" 1 1
 mkdir -p "$TASK_DIR/phase-1-base"
-echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-base/phase.md"
 printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-base/step-1.md"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "Phase 1 (첫 Phase) → 이전 검증 스킵 → 통과" "$R"
@@ -354,9 +354,9 @@ s['workflow_phase'] = 'verification'
 with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
 "
 mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
-echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
-echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
-echo "# Phase 3" > "$TASK_DIR/phase-3-int/phase.md"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-base/phase.md"
+printf "# Phase 2\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-2-ui/phase.md"
+printf "# Phase 3\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-3-int/phase.md"
 echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-1-base/step-1.md"
 echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-2-ui/step-1.md"
 echo "| TC-1 | test | expected |" > "$TASK_DIR/phase-3-int/step-1.md"
@@ -383,9 +383,9 @@ s['workflow_phase'] = 'verification'
 with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
 "
 mkdir -p "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
-echo "# Phase 1" > "$TASK_DIR/phase-1-base/phase.md"
-echo "# Phase 2" > "$TASK_DIR/phase-2-ui/phase.md"
-echo "# Phase 3" > "$TASK_DIR/phase-3-int/phase.md"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-base/phase.md"
+printf "# Phase 2\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-2-ui/phase.md"
+printf "# Phase 3\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-3-int/phase.md"
 echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-1-base/step-1.md"
 echo "| TC-1 | test | expected | ✅ |" > "$TASK_DIR/phase-2-ui/step-1.md"
 echo "| TC-1 | test | expected |" > "$TASK_DIR/phase-3-int/step-1.md"
@@ -399,6 +399,79 @@ assert_pass "bash-gate: verification + 모든 Phase 완료 → 통과" "$R"
 
 # 정리
 rm -rf "$TASK_DIR/phase-1-base" "$TASK_DIR/phase-2-ui" "$TASK_DIR/phase-3-int"
+cleanup_normal
+
+echo ""
+
+# ─── 10. 문서 품질 강화 검증 ──────────────
+echo "─── 문서 품질 강화 검증 ───"
+
+QUALITY_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"},"2":{"title":"Step 2"}}}}'
+
+# TC-Q1: folder 없는 dev_phases → fallback으로 CHECK 7 진입 → phase.md 없어서 차단
+NOFOLDER_DEV_PHASES='{"1":{"name":"test","steps":{"1":{"title":"Step 1"}}}}'
+setup_normal "$NOFOLDER_DEV_PHASES" 1 1
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: folder 없음 → fallback → phase.md 없어서 차단" "$R"
+
+# TC-Q2: bash-gate도 동일
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: folder 없음 → fallback → phase.md 없어서 차단" "$R"
+
+# TC-Q3: phase.md 존재하지만 필수 섹션 누락 → 차단 (plan-gate)
+setup_normal "$QUALITY_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+echo "# Phase 1 빈약한 문서" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: phase.md 필수 섹션 누락 → 차단" "$R"
+
+# TC-Q4: bash-gate도 동일
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: phase.md 필수 섹션 누락 → 차단" "$R"
+
+# TC-Q5: phase.md에 필수 섹션 있음 → 통과 (대조군)
+printf "# Phase 1\n\n## 목표\n- test goal\n\n## 범위\n- test scope\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "plan-gate: phase.md 필수 섹션 있음 → 통과" "$R"
+
+# TC-Q6: Step 2 진행 시 Step 1에 실행출력 없음 → 차단 (plan-gate)
+setup_normal "$QUALITY_DEV_PHASES" 1 2
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n- Step 2\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected | ✅ |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-2.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 이전 step 실행출력 없음 → 차단" "$R"
+
+# TC-Q7: bash-gate도 동일
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: 이전 step 실행출력 없음 → 차단" "$R"
+
+# TC-Q8: Step 1에 실행출력 있음 → 통과 (대조군)
+printf "| TC-1 | test | expected | ✅ |\n\n## 실행 결과\n\$ pytest\n1 passed\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "plan-gate: 이전 step 실행출력 있음 → 통과" "$R"
+
+# TC-Q9: completion-gate — round.md에 ## 결론 없으면 통과 카운트 안 올라감
+setup "normal" "verification" "true"
+VERIFY_DIR="$TASK_DIR/verifications"
+mkdir -p "$VERIFY_DIR"
+echo "통과" > "$VERIFY_DIR/round-1.md"
+echo "통과" > "$VERIFY_DIR/round-2.md"
+echo "통과" > "$VERIFY_DIR/round-3.md"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_block "completion-gate: round.md에 ## 결론 없음 → 차단" "$R"
+
+# TC-Q10: round.md에 ## 결론 있음 → 통과
+printf "통과\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
+printf "통과\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
+printf "통과\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-3.md"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "completion-gate: round.md에 ## 결론 있음 → 통과" "$R"
+
+# 정리
+rm -rf "$TASK_DIR/phase-1-test" "$VERIFY_DIR"
 cleanup_normal
 
 echo ""
