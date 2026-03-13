@@ -6,12 +6,14 @@
 set -euo pipefail
 
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-ok()  { echo -e "${GREEN}✓${NC}  $*"; }
-err() { echo -e "${RED}✗${NC}  $*"; }
+ok()   { echo -e "${GREEN}✓${NC}  $*"; }
+warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
+err()  { echo -e "${RED}✗${NC}  $*"; }
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -71,6 +73,15 @@ for subdir in "$PACKAGE_DIR/agents"/*/; do
     cp "$f" "$TARGET_DIR/agents/$dir_name/$(basename "$f")"
     ok "$(basename "$f") (agents/$dir_name)"
   done
+done
+
+# 소스에 없는 설치된 agent 파일 삭제
+for installed in "$TARGET_DIR/agents/"*.md; do
+  [ -f "$installed" ] || continue
+  if [ ! -f "$PACKAGE_DIR/agents/$(basename "$installed")" ]; then
+    rm -f "$installed"
+    warn "$(basename "$installed") 삭제 (소스에 없음)"
+  fi
 done
 
 # skills (로컬 설치)

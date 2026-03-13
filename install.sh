@@ -341,6 +341,15 @@ for subdir in "$PACKAGE_DIR/agents"/*/; do
   done
 done
 
+# 소스에 없는 설치된 agent 파일 삭제
+for installed in "$TARGET_DIR/agents/"*.md; do
+  [ -f "$installed" ] || continue
+  if [ ! -f "$PACKAGE_DIR/agents/$(basename "$installed")" ]; then
+    rm -f "$installed"
+    warn "$(basename "$installed") 삭제 (소스에 없음)"
+  fi
+done
+
 # skills (로컬 .claude/skills/ 에 설치)
 install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
 
