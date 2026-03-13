@@ -10,14 +10,13 @@ TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
 # --- ai-bouncer start ---
 
-# 세션 격리: session_id 추출
-AGENT_SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
-SNAPSHOT_FILE="/tmp/.ai-bouncer-snapshot-${AGENT_SESSION_ID:-default}"
+SNAPSHOT_FILE="/tmp/.ai-bouncer-snapshot"
 
 # 스냅샷 없으면 → gate 비활성 판단 (bash-gate가 스냅샷 미생성) → 스킵
 [ -f "$SNAPSHOT_FILE" ] || exit 0
 
 # 승인된 sub-agent는 부모 task 기준으로 이미 gate 통과 → audit 스킵
+AGENT_SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
 if [ -n "$AGENT_SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
   if grep -q "^${AGENT_SESSION_ID}|" "$APPROVED_FILE" 2>/dev/null; then

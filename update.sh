@@ -248,12 +248,17 @@ patch_stop_hooks "$TARGET_DIR/settings.json"
 
 # update.sh / uninstall.sh → 프로젝트 루트
 if [ -n "$REPO_ROOT" ]; then
-  cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
-  chmod +x "$REPO_ROOT/update.sh"
-  ok "update.sh (프로젝트 루트)"
-  cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
-  chmod +x "$REPO_ROOT/uninstall.sh"
-  ok "uninstall.sh (프로젝트 루트)"
+  # 동일 파일이면 복사 스킵 (로컬 실행 시 자기 자신 복사 방지)
+  if [ "$(realpath "$PACKAGE_DIR/update.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/update.sh" 2>/dev/null)" ]; then
+    cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
+    chmod +x "$REPO_ROOT/update.sh"
+    ok "update.sh (프로젝트 루트)"
+  fi
+  if [ "$(realpath "$PACKAGE_DIR/uninstall.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/uninstall.sh" 2>/dev/null)" ]; then
+    cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
+    chmod +x "$REPO_ROOT/uninstall.sh"
+    ok "uninstall.sh (프로젝트 루트)"
+  fi
 fi
 
 # 매니페스트 업데이트 (로컬 우선)

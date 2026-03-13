@@ -476,6 +476,193 @@ cleanup_normal
 
 echo ""
 
+# ─── 11. CHECK 4/5/6 팀 구성 검증 ────────
+echo "─── CHECK 4/5/6 팀 구성 검증 ───"
+
+TEAM_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+
+# TC-T1: NORMAL + development + team_name 비어있음 → 차단 (plan-gate CHECK 4)
+setup_normal "$TEAM_DEV_PHASES" 1 1
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['team_name'] = ''
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: team_name 비어있음 → 차단" "$R"
+
+# TC-T2: NORMAL + development + 팀 config.json 없음 → 차단 (plan-gate CHECK 5)
+setup_normal "$TEAM_DEV_PHASES" 1 1
+rm -rf "$HOME/.claude/teams/e2e-test-team"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 팀 config.json 없음 → 차단" "$R"
+
+# TC-T3: NORMAL + development + 팀 멤버 0명 → 차단 (plan-gate CHECK 6)
+setup_normal "$TEAM_DEV_PHASES" 1 1
+echo '{"members":[]}' > "$HOME/.claude/teams/e2e-test-team/config.json"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 팀 멤버 0명 → 차단" "$R"
+
+cleanup_normal
+
+echo ""
+
+# ─── 12. CHECK 6.5 + CHECK 7b/7d/7e ─────
+echo "─── CHECK 6.5 + step 파일 검증 ───"
+
+STEP_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"},"2":{"title":"Step 2"}}}}'
+
+# TC-S1: development + phase=0 → 차단 (CHECK 6.5)
+setup_normal "$STEP_DEV_PHASES" 0 1
+# setup_normal은 current_dev_phase를 설정하므로 수동 오버라이드
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['current_dev_phase'] = 0
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: dev_phase=0 → 차단" "$R"
+
+# TC-S2: development + step=0 → 차단 (CHECK 6.5)
+setup_normal "$STEP_DEV_PHASES" 1 0
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['current_step'] = 0
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: step=0 → 차단" "$R"
+
+# TC-S3: 이전 step 파일 미존재 → 차단 (CHECK 7b)
+setup_normal "$STEP_DEV_PHASES" 1 2
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n- Step 2\n" > "$TASK_DIR/phase-1-test/phase.md"
+# step-1.md 없음 (이전 step 파일 미존재)
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-2.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 이전 step 파일 미존재 → 차단" "$R"
+
+# TC-S4: 현재 step 파일 미존재 → 차단 (CHECK 7d)
+setup_normal "$STEP_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+# step-1.md 없음 (현재 step 파일 미존재)
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 현재 step 파일 미존재 → 차단" "$R"
+
+# TC-S5: 현재 step에 TC 행 없음 → 차단 (CHECK 7e)
+echo "# Step 1 (TC 없음)" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 현재 step TC 미정의 → 차단" "$R"
+
+# TC-S6: bash-gate도 동일 (CHECK 7d — 현재 step 파일 미존재)
+setup_normal "$STEP_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: 현재 step 파일 미존재 → 차단" "$R"
+
+# TC-S7: bash-gate CHECK 7e — TC 미정의
+echo "# Step 1 (TC 없음)" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: 현재 step TC 미정의 → 차단" "$R"
+
+rm -rf "$TASK_DIR/phase-1-test"
+cleanup_normal
+
+echo ""
+
+# ─── 13. commit_strategy 검증 ────────────
+echo "─── commit_strategy 검증 ───"
+
+CS_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+
+# 백업 config.json
+cp .claude/ai-bouncer/config.json /tmp/.ai-bouncer-config-backup.json
+
+# TC-C1: commit_strategy=none → git commit 차단
+setup_normal "$CS_DEV_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected | ✅ |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+python3 -c "
+import json
+c = json.load(open('.claude/ai-bouncer/config.json'))
+c['commit_strategy'] = 'none'
+json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: commit_strategy=none → git commit 차단" "$R"
+
+# TC-C2: commit_strategy=per-step + step 미완료 → git commit 차단
+python3 -c "
+import json
+c = json.load(open('.claude/ai-bouncer/config.json'))
+c['commit_strategy'] = 'per-step'
+json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: per-step + step 미완료 → git commit 차단" "$R"
+
+# TC-C3: commit_strategy=per-step + step 완료 → git commit 통과
+printf "| TC-1 | test | expected | ✅ |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "bash-gate: per-step + step 완료 → git commit 통과" "$R"
+
+# TC-C4: commit_strategy=per-phase + 마지막 step 미완료 → 차단
+python3 -c "
+import json
+c = json.load(open('.claude/ai-bouncer/config.json'))
+c['commit_strategy'] = 'per-phase'
+json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: per-phase + 마지막 step 미완료 → 차단" "$R"
+
+# config.json 복원
+cp /tmp/.ai-bouncer-config-backup.json .claude/ai-bouncer/config.json
+rm -f /tmp/.ai-bouncer-config-backup.json
+rm -rf "$TASK_DIR/phase-1-test"
+cleanup_normal
+
+echo ""
+
+# ─── 14. completion-gate cancelled + 워크플로우 화이트리스트 ───
+echo "─── cancelled + 화이트리스트 ───"
+
+# TC-W1: cancelled → completion-gate 통과
+setup "normal" "verification" "true"
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['workflow_phase'] = 'cancelled'
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "completion-gate: cancelled → 즉시 통과" "$R"
+
+# TC-W2: 잘못된 workflow_phase → plan-gate 차단
+setup "normal" "development" "true"
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['workflow_phase'] = 'invalid_phase'
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: 잘못된 workflow_phase → 차단" "$R"
+
+# TC-W3: 잘못된 workflow_phase → bash-gate 차단
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "bash-gate: 잘못된 workflow_phase → 차단" "$R"
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 setup "simple" "development" "true"
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot

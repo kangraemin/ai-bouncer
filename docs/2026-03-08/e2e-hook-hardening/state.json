@@ -7,7 +7,7 @@
   "plan_approved": true,
   "team_name": "e2e-test-team",
   "current_dev_phase": 1,
-  "current_step": 2,
+  "current_step": 1,
   "dev_phases": {
     "1": {
       "name": "test",
@@ -15,9 +15,6 @@
       "steps": {
         "1": {
           "title": "Step 1"
-        },
-        "2": {
-          "title": "Step 2"
         }
       }
     }
