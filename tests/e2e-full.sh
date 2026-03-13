@@ -290,7 +290,75 @@ assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "pl
 assert_contains "재설치 후 bouncer 규칙 주입" "$TARGET/CLAUDE.md" "ai-bouncer-rule"
 
 # ═══════════════════════════════════════════════════════════════
-echo -e "\n${BOLD}─── 7. 정리 ───${NC}"
+echo -e "\n${BOLD}─── 7. CLAUDE.md 콘텐츠 보존 ───${NC}"
+
+# 깨끗한 상태에서 다시 시작: uninstall → 사용자 콘텐츠 작성 → install → 검증
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --uninstall) 2>&1 | tail -2
+
+# 사용자 고유 콘텐츠가 있는 CLAUDE.md 작성
+mkdir -p "$TARGET"
+cat > "$TARGET/CLAUDE.md" <<'USEREOF'
+# My Project Rules
+
+## UI 버그 수정 원칙
+- 진단 먼저 → 단일 수정 → 테스트 → 커밋
+
+## CSS 원칙
+- 전체 parent→child chain 분석 후 수정
+USEREOF
+
+# CM-1: install 후 기존 콘텐츠 보존
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -2
+if grep -q "UI 버그 수정 원칙" "$TARGET/CLAUDE.md" 2>/dev/null && \
+   grep -q "ai-bouncer-rule" "$TARGET/CLAUDE.md" 2>/dev/null; then
+  pass "CM-1: install 후 사용자 콘텐츠 + bouncer 규칙 공존"
+else
+  fail "CM-1: install 후 사용자 콘텐츠가 사라짐"
+fi
+
+# CM-2: update 후 기존 콘텐츠 보존
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -2
+if grep -q "CSS 원칙" "$TARGET/CLAUDE.md" 2>/dev/null && \
+   grep -q "ai-bouncer-rule" "$TARGET/CLAUDE.md" 2>/dev/null; then
+  pass "CM-2: update 후 사용자 콘텐츠 보존"
+else
+  fail "CM-2: update 후 사용자 콘텐츠가 사라짐"
+fi
+
+# CM-3: uninstall 후 사용자 콘텐츠 보존 + bouncer 규칙 제거
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --uninstall) 2>&1 | tail -2
+if grep -q "UI 버그 수정 원칙" "$TARGET/CLAUDE.md" 2>/dev/null && \
+   ! grep -q "ai-bouncer-rule" "$TARGET/CLAUDE.md" 2>/dev/null; then
+  pass "CM-3: uninstall 후 사용자 콘텐츠 보존 + bouncer 제거"
+else
+  fail "CM-3: uninstall 후 사용자 콘텐츠 손실 또는 bouncer 잔존"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 8. 백업 파일 정리 ───${NC}"
+
+# 다시 install
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -2
+
+# BK-1: 최초 install 후 backup 파일 없음
+BK_COUNT=$(find "$TARGET" -name "*.backup-*" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$BK_COUNT" = "0" ]; then
+  pass "BK-1: 최초 install 후 backup 파일 없음"
+else
+  fail "BK-1: 최초 install 후 backup 파일 ${BK_COUNT}개 잔존"
+fi
+
+# BK-2: update 후 backup 파일 정리됨
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -2
+BK_COUNT=$(find "$TARGET" -name "*.backup-*" 2>/dev/null | wc -l | tr -d ' ')
+if [ "$BK_COUNT" = "0" ]; then
+  pass "BK-2: update 후 backup 파일 정리됨"
+else
+  fail "BK-2: update 후 backup 파일 ${BK_COUNT}개 잔존"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 9. 정리 ───${NC}"
 
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
 # TEST_DIR은 trap이 정리

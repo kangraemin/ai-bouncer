@@ -728,6 +728,14 @@ PYEOF
 
 ok "매니페스트 저장됨"
 
+# ── 백업 파일 정리 ──────────────────────────────────────────────
+BACKUP_COUNT=0
+while IFS= read -r -d '' backup; do
+  rm -f "$backup"
+  BACKUP_COUNT=$((BACKUP_COUNT + 1))
+done < <(find "$TARGET_DIR" -name "*.backup-*" -print0 2>/dev/null)
+[ "$BACKUP_COUNT" -gt 0 ] && ok "${BACKUP_COUNT}개 백업 파일 정리됨"
+
 # ── 완료 ──────────────────────────────────────────────────────
 header "설치 완료"
 echo -e "  ${BOLD}설정 요약${NC}"

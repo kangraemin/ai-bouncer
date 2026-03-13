@@ -221,6 +221,9 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 
 Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
+> SIMPLE 모드에서는 `dev_phases`, `current_dev_phase`, `current_step`을 사용하지 않는다 (빈 객체/0 유지가 정상).
+> hook은 SIMPLE 모드에서 이 필드를 검증하지 않는다.
+
 ### Phase S3: 검증 + 완료
 
 개발 완료 후:
@@ -328,6 +331,16 @@ Lead가 수행:
 > git commit/push도 Lead가 직접 하지 않는다."
 
 **subagent/single 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
+
+> **subagent/single 모드 state.json 업데이트 의무:**
+>
+> team 모드와 동일하게, 다음 시점에 state.json을 반드시 업데이트한다:
+> - **Lead**: `dev_phases` 초기화 후 `current_dev_phase = 1`, `current_step = 1` 설정
+> - **QA** (또는 Lead가 겸임 시 Lead): Step 테스트 통과 시 `current_step++`
+> - **Lead**: Phase 완료 시 `current_dev_phase++`, `current_step = 1` 리셋
+>
+> plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
+> single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
 #### 3-2. 팀 구성
 

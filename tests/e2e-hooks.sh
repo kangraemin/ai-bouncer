@@ -769,6 +769,111 @@ cleanup_normal
 
 echo ""
 
+# ─── 7. subagent 모드 hook 동작 ──────────────
+echo "─── subagent 모드 hook 동작 ───"
+
+CONFIG_FILE=".claude/ai-bouncer/config.json"
+ORIG_CONFIG=$(cat "$CONFIG_FILE")
+
+# subagent 모드 헬퍼
+setup_subagent() {
+  local dev_phases="${1:-\{\}}" current_phase="${2:-1}" current_step="${3:-1}"
+  python3 -c "
+import json, sys
+s = json.load(open('$STATE_FILE'))
+s['mode'] = 'normal'
+s['workflow_phase'] = 'development'
+s['plan_approved'] = True
+s['team_name'] = ''
+s['current_dev_phase'] = $current_phase
+s['current_step'] = $current_step
+s['dev_phases'] = json.loads(sys.argv[1])
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+" "$dev_phases"
+  # config.json에 agent_mode=subagent 설정
+  python3 -c "
+import json
+c = json.load(open('$CONFIG_FILE'))
+c['agent_mode'] = 'subagent'
+json.dump(c, open('$CONFIG_FILE', 'w'), indent=2)
+"
+  echo "$TEST_SID" > "$ACTIVE_FILE"
+  echo "# Plan" > "$TASK_DIR/plan.md"
+  rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
+}
+
+cleanup_subagent() {
+  echo "$ORIG_CONFIG" > "$CONFIG_FILE"
+  rm -f "$TASK_DIR/plan.md"
+  rm -rf "$TASK_DIR/phase-1-test"
+}
+
+# SA-1: subagent + team_name="" + development → plan-gate 통과 (team CHECK 스킵)
+SA1_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_subagent "$SA1_PHASES" 1 1
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "SA-1: subagent + team_name='' → plan-gate 통과" "$R"
+cleanup_subagent
+
+# SA-2: subagent + dev_phases 정상 + 올바른 카운터 → plan-gate 통과
+SA2_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"},"2":{"title":"Step 2"}}}}'
+setup_subagent "$SA2_PHASES" 1 2
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n- Step 2\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | ✅ |\n\n## 실행 결과\nOK\n" > "$TASK_DIR/phase-1-test/step-1.md"
+printf "| TC-2 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-2.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "SA-2: subagent + 올바른 카운터/아티팩트 → plan-gate 통과" "$R"
+cleanup_subagent
+
+# SA-3: subagent + dev_phases={} + development → plan-gate 차단 (CHECK 6.7)
+setup_subagent '{}' 1 1
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "SA-3: subagent + dev_phases={} → plan-gate 차단" "$R"
+cleanup_subagent
+
+# SA-4: subagent + current_step=2 but step-1.md 없음 → plan-gate 차단
+SA4_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"},"2":{"title":"Step 2"}}}}'
+setup_subagent "$SA4_PHASES" 1 2
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n- Step 2\n" > "$TASK_DIR/phase-1-test/phase.md"
+# step-1.md 의도적으로 생성 안 함
+printf "| TC-2 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-2.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "SA-4: subagent + step-1.md 없음 → plan-gate 차단" "$R"
+cleanup_subagent
+
+# SA-5: subagent + step-1.md에 ✅ 없음 → plan-gate 차단
+SA5_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"},"2":{"title":"Step 2"}}}}'
+setup_subagent "$SA5_PHASES" 1 2
+mkdir -p "$TASK_DIR/phase-1-test"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n- Step 2\n" > "$TASK_DIR/phase-1-test/phase.md"
+printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
+printf "| TC-2 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-2.md"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "SA-5: subagent + step-1.md ✅ 없음 → plan-gate 차단" "$R"
+cleanup_subagent
+
+echo ""
+
+# ─── 8. SIMPLE 모드 카운터 무시 ──────────────
+echo "─── SIMPLE 모드 카운터 무시 ───"
+
+# SM-1: SIMPLE + dev_phases={} + counters=0 + approved → plan-gate 통과
+setup "simple" "development" "true"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "SM-1: SIMPLE + dev_phases={} + counters=0 → plan-gate 통과" "$R"
+
+# SM-2: SIMPLE + development → completion-gate 통과
+setup "simple" "development" "true"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "SM-2: SIMPLE + development → completion-gate 통과" "$R"
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 setup "simple" "development" "true"
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
