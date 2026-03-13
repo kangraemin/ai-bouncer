@@ -341,14 +341,8 @@ for subdir in "$PACKAGE_DIR/agents"/*/; do
   done
 done
 
-# 소스에서 제거된 agent 파일: 안내만 출력, 파일 유지
-# (manifest는 INSTALLED_FILES 기반으로 자동 갱신되므로 별도 처리 불필요)
-for installed in "$TARGET_DIR/agents/"*.md; do
-  [ -f "$installed" ] || continue
-  if [ ! -f "$PACKAGE_DIR/agents/$(basename "$installed")" ]; then
-    info "$(basename "$installed") — 소스에서 제거됨 (파일 유지)"
-  fi
-done
+# 소스에서 제거된 agent 파일: 삭제하지 않고 유지 (사용자 파일 보호)
+# manifest는 INSTALLED_FILES 기반으로 자동 갱신되므로 별도 처리 불필요
 
 # skills (로컬 .claude/skills/ 에 설치)
 install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
