@@ -197,7 +197,14 @@ else
 fi
 
 # planning 상태에서는 등록 안 됨
+# 다른 .active 파일이 development 상태면 subagent-track이 그걸 찾으므로 격리 필요
 setup "simple" "planning" "false"
+OTHER_ACTIVES=()
+while IFS= read -r -d '' af; do
+  [ "$af" = "$ACTIVE_FILE" ] && continue
+  OTHER_ACTIVES+=("$af")
+  mv "$af" "${af}.bak-e2e"
+done < <(find docs -name ".active" -print0 2>/dev/null)
 echo "{\"session_id\":\"sub-002\"}" | bash hooks/subagent-track.sh 2>/dev/null
 if ! grep -q "sub-002" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
   echo "  ✅ planning 상태 → 등록 안 됨"
@@ -206,6 +213,9 @@ else
   echo "  ❌ planning 상태인데 등록됨"
   FAIL=$((FAIL + 1))
 fi
+for af in "${OTHER_ACTIVES[@]}"; do
+  mv "${af}.bak-e2e" "$af" 2>/dev/null || true
+done
 
 echo ""
 

@@ -139,6 +139,12 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   fi
 
   if [ "$COMMIT_STRATEGY" = "per-phase" ]; then
+    STEP_COUNT_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | length" "$STATE_FILE" 2>/dev/null)
+    if [ "${STEP_COUNT_CS:-0}" -le 0 ] 2>/dev/null; then
+      jq -n --arg p "$CS_PHASE" \
+        '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
+      exit 0
+    fi
     LAST_STEP_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | keys | map(tonumber) | max" "$STATE_FILE" 2>/dev/null)
     LAST_STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${LAST_STEP_CS}.md"
     if [ -f "$LAST_STEP_FILE_CS" ] && grep -q '✅' "$LAST_STEP_FILE_CS" 2>/dev/null; then
