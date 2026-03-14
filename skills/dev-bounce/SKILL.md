@@ -117,14 +117,14 @@ print(json.dumps(results, ensure_ascii=False))
 
 ### Phase 0-B: TASK_DIR 초기화
 
-`[INTENT:개발요청]` 수신 후 TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** (Phase 1-B에서 plan 기반으로 판별).
+TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** — Phase 1-B에서 plan 기반으로 판별하기 때문.
 
 TASK_DIR 초기화 (Python으로 실행):
 
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
 2. `docs_base`: `docs/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
-4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim)
+4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
 5. `state.json` 생성:
 
 ```json

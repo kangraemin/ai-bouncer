@@ -2,7 +2,6 @@
 # ai-bouncer install/update/uninstall
 # Usage:
 #   bash install.sh            — 신규 설치 또는 업데이트
-#   bash install.sh --update   — 최신 파일로 업데이트
 #   bash install.sh --uninstall — 제거
 
 set -euo pipefail
