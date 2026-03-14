@@ -62,7 +62,24 @@ print(json.dumps(results, ensure_ascii=False))
 ### 결과 처리 (반드시 따를 것)
 
 **Case A: `active`가 있음**
-→ 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
+
+사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
+
+- **A-1: 사용자 요청이 active 작업의 연장/이어하기인 경우**
+  → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
+
+- **A-2: 사용자 요청이 active 작업과 무관한 새 작업인 경우**
+  → **반드시 AskUserQuestion으로 사용자에게 확인.** 임의로 .active 해제/삭제 금지.
+  ```
+  기존 active 작업이 있습니다: [날짜/작업명] (workflow_phase)
+
+  1. 기존 작업 유지하고 새 작업 시작 (병렬)
+  2. 기존 작업 중단하고 새 작업 시작 (전환)
+  3. 기존 작업 이어서 진행
+  ```
+  - 선택 1 → 기존 .active 그대로 두고, 새 TASK_DIR 생성 + 새 .active 생성. Phase 0 진행.
+  - 선택 2 → 기존 .active 해제 후, 새 TASK_DIR 생성. Phase 0 진행.
+  - 선택 3 → Case A-1과 동일하게 재개.
 
 **Case B: `active`는 없고 `incomplete`가 1개 이상**
 → **반드시 AskUserQuestion으로 사용자에게 확인** 후 진행. 임의로 선택 금지.
