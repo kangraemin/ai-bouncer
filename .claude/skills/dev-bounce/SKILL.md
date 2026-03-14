@@ -98,22 +98,9 @@ print(json.dumps(results, ensure_ascii=False))
    - `[INTENT:개발요청]` → Phase 0-B 진행
 4. intent 에이전트 shutdown
 
-### Phase 0-B: 복잡도 판별
+### Phase 0-B: TASK_DIR 초기화
 
-`[INTENT:개발요청]` 수신 후 Main Claude가 직접 복잡도 판별.
-
-**기본값은 NORMAL이다.** 아래 조건을 **전부** 충족할 때만 SIMPLE:
-
-| SIMPLE 필수 조건 (전부 충족해야 함) |
-|------|
-| 변경 파일 1~2개 |
-| 문서/설정 수정 또는 단순 버그 수정 (한 줄~수 줄 변경) |
-| 새 테스트 케이스 불필요 |
-| 구현 방향이 100% 명확 (설계 판단 없음) |
-
-**애매하면 NORMAL.** 조건 하나라도 불확실하면 NORMAL로 분류한다.
-
-판별 후 TASK_DIR 초기화 + state.json 생성:
+`[INTENT:개발요청]` 수신 후 TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** (Phase 1-B에서 plan 기반으로 판별).
 
 TASK_DIR 초기화 (Python으로 실행):
 
@@ -126,7 +113,7 @@ TASK_DIR 초기화 (Python으로 실행):
 ```json
 {
   "workflow_phase": "planning",
-  "mode": "simple 또는 normal",
+  "mode": "pending",
   "planning": {"no_question_streak": 0},
   "plan_approved": false,
   "team_name": "",
@@ -139,8 +126,7 @@ TASK_DIR 초기화 (Python으로 실행):
 }
 ```
 
-- `mode: simple` → Phase S1 진행
-- `mode: normal` → Phase 1 진행
+→ Phase 1 진행
 
 **agent_mode 확인** (config.json에서 읽기):
 
@@ -152,13 +138,11 @@ print(cfg.get('agent_mode', 'team'))
 "
 ```
 
-`agent_mode` 값에 따라 NORMAL 모드의 Phase 1/3/4 동작이 달라진다 (아래 참조).
+`agent_mode` 값에 따라 NORMAL 모드의 Phase 3/4 동작이 달라진다 (아래 참조).
 
 ---
 
-## SIMPLE 모드
-
-### Phase S1: 계획 수립
+## Phase 1: 계획 수립 (SIMPLE/NORMAL 공통)
 
 Main Claude가 직접 수행 (팀 스폰 없음):
 
@@ -192,20 +176,48 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - 기대 결과: 구체적 출력
    ```
    ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-5. plan mode 내부 plan 파일에 계획 요약 정리
+5. plan mode 내부 plan 파일에 계획 요약 정리 — **plan.md의 핵심을 반영해야 한다:**
+   - 각 변경 파일별 Before/After 코드 핵심 (전체 복사 아닌 변경 포인트 요약)
+   - 신규 파일이 있으면 용도와 핵심 로직
+   - 검증 방법 (명령어 + 기대 결과)
+   ⚠️ "파일명: 한 줄 설명"만 나열하는 것은 부실 요약이다. plan.md를 안 읽어도 변경 내용을 이해할 수 있어야 한다.
 6. 계획 요약을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
 7. ExitPlanMode 호출 → accept/reject UI 표시
-   - accept → Phase S2 진행
+   - accept → Phase 1-B 진행
    - reject → 사용자 피드백 반영 → plan.md 수정 → 다시 step 6~7
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
-### Phase S2: 개발
+---
 
-> ExitPlanMode accept 후 state.json 업데이트됨 (Phase S1 Step 8).
+### Phase 1-B: 복잡도 판별
+
+ExitPlanMode accept 후, **plan.md 내용을 기반으로** 복잡도를 판별한다.
+
+**기본값은 NORMAL이다.** 아래 조건을 **전부** 충족할 때만 SIMPLE:
+
+| SIMPLE 필수 조건 (전부 충족해야 함) |
+|------|
+| 변경 파일 1~2개 |
+| 문서/설정 수정 또는 단순 버그 수정 (한 줄~수 줄 변경) |
+| 새 테스트 케이스 불필요 |
+| 구현 방향이 100% 명확 (설계 판단 없음) |
+
+**애매하면 NORMAL.** 조건 하나라도 불확실하면 NORMAL로 분류한다.
+
+판별 후 state.json `mode`를 `"simple"` 또는 `"normal"`로 업데이트.
+
+- `mode: simple` → Phase S2 진행
+- `mode: normal` → Phase 3 진행
+
+---
+
+## SIMPLE 모드
+
+### Phase S2: 개발
 
 #### TC 작성 (필수)
 
-승인 후 반드시 `{TASK_DIR}/tests.md`에 TC를 작성한다. TC 스킵 금지.
+반드시 `{TASK_DIR}/tests.md`에 TC를 작성한다. TC 스킵 금지.
 
 테이블 + 실행출력 형식으로 작성한다. **실행출력이 비어있으면 검증 미완료로 간주하여 Phase 진행 불가.**
 
@@ -231,12 +243,36 @@ TC-02: <실행한 명령어>
 1. TC 먼저 작성
 2. TC 기반으로 코드 개발
 3. 개발 완료 후 TC 실행 → tests.md에 실행출력 + 판정(✅/❌) 기록
-4. 모든 TC ✅일 때만 Phase S3 진행
+4. 모든 TC ✅일 때만 커밋 → Phase S3 진행
 
 Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 > SIMPLE 모드에서는 `dev_phases`, `current_dev_phase`, `current_step`을 사용하지 않는다 (빈 객체/0 유지가 정상).
 > hook은 SIMPLE 모드에서 이 필드를 검증하지 않는다.
+
+#### S2 커밋
+
+개발 완료 + TC 전부 ✅ 후, Phase S3 진입 전에 커밋한다.
+
+`.claude/ai-bouncer/config.json`에서 커밋 전략 확인:
+
+```bash
+python3 -c "
+import json
+cfg = json.load(open('.claude/ai-bouncer/config.json'))
+print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
+"
+```
+
+| commit_strategy | SIMPLE 모드 커밋 시점 | commit_skill | 커밋 방법 |
+|---|---|---|---|
+| `per-step` | TC 전부 ✅ 직후 (SIMPLE에는 step이 없으므로 개발 완료 = 1 step) | `true` | `/commit` 스킬 호출 |
+| `per-step` | TC 전부 ✅ 직후 | `false` | `git add` + `git commit` + `git push` |
+| `per-phase` | TC 전부 ✅ 직후 (동일) | `true` | `/commit` 스킬 호출 |
+| `per-phase` | TC 전부 ✅ 직후 (동일) | `false` | `git add` + `git commit` + `git push` |
+| `none` | — | — | 커밋 스킵 (수동 관리) |
+
+커밋 실패 시 Phase S3 진행 금지 — 원인 해결 후 재시도.
 
 ### Phase S3: 검증 + 완료
 
@@ -262,43 +298,29 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ## NORMAL 모드
 
-### Phase 1: 계획 수립
+### docs 디렉토리 구조
 
-Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
+```
+docs/YYYY-MM-DD/task-name/
+├── .active                    # 세션 잠금
+├── state.json                 # 워크플로우 상태
+├── plan.md                    # 승인된 계획
+├── phase-1-<이름>/            # 디렉토리 (flat file 금지)
+│   ├── phase.md               # 필수: ## 목표, ## 범위, ## Steps
+│   ├── step-1.md              # TC + 실행출력
+│   └── step-2.md
+├── phase-2-<이름>/
+│   ├── phase.md
+│   └── step-1.md
+└── verifications/             # 반드시 복수형
+    ├── round-1.md
+    ├── round-2.md
+    └── round-3.md
+```
 
-1. EnterPlanMode 호출
-2. 관련 코드 탐색 (Read/Grep/Glob)
-3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. `{TASK_DIR}/plan.md` 작성 (plan mode 안에서 Write — plan-gate가 `*/plan.md` 허용, Before/After 필수):
-   ```markdown
-   # <작업 제목>
-
-   ## 변경 파일별 상세
-   ### `파일경로/파일명`
-   - **변경 이유**: ...
-   - **Before** (현재 코드):
-   ```
-   현재 코드
-   ```
-   - **After** (변경 후):
-   ```
-   변경 코드
-   ```
-   - **영향 범위**: ...
-
-   ## 검증
-   - 검증 명령어: `실행할 명령어`
-   - 기대 결과: 구체적 출력
-   ```
-   ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-5. plan mode 내부 plan 파일에 계획 요약 정리
-6. 계획 요약을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
-7. ExitPlanMode 호출 → accept/reject UI 표시
-   - accept → Phase 3 진행
-   - reject → 사용자 피드백 반영 → plan.md 수정 → 다시 step 6~7
-8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
-
----
+⚠️ `phase-N.md` (flat 파일) 생성 금지 — 반드시 `phase-N-<이름>/phase.md` 디렉토리 구조 사용.
+⚠️ `verification/` (단수형) 생성 금지 — 반드시 `verifications/` (복수형) 사용.
+hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 ### Phase 3: Dev Team 구성 + 개발
 
@@ -353,11 +375,11 @@ Lead가 수행:
 각 개발 Phase의 각 Step마다:
 
 ```
-5-1. QA: docs/<task>/phase-N-*/step-M.md에 TC 먼저 작성
+5-1. QA: docs/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
      → [STEP:N:테스트정의완료] 출력
 
 5-2. Dev: TC 통과할 최소 코드 구현
-          docs/<task>/phase-N-*/step-M.md 구현 내용 업데이트
+          docs/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
      → [STEP:N:개발완료]
        빌드 명령: <명령어>
        결과: ✅ 성공
@@ -396,7 +418,7 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 | `per-phase` | 개발 Phase 마지막 Step 통과 후 | `false` | `git add` + `git commit` + `git push` |
 | `none` | — | — | 커밋 스킵 (수동 관리) |
 
-커밋 실패 시 다음 Step 진행 금지 — 원인 해결 후 재시도.
+커밋 실패 시 다음 진행 금지 — 원인 해결 후 재시도. (per-step: 다음 Step 차단, per-phase: 다음 Phase 차단)
 
 #### 3-5. 블로킹 에스컬레이션
 
