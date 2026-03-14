@@ -165,9 +165,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 1. EnterPlanMode 호출
 2. 관련 코드 탐색 (Read/Grep/Glob)
 3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. 계획 내용을 plan mode 내부 plan 파일에 정리
-5. ExitPlanMode 호출 (plan mode 종료)
-6. `{TASK_DIR}/plan.md` 직접 작성 (plan mode 밖에서 Write 사용, Before/After 필수):
+4. `{TASK_DIR}/plan.md` 작성 (plan mode 안에서 Write — plan-gate가 `*/plan.md` 허용, Before/After 필수):
    ```markdown
    # <작업 제목>
 
@@ -194,14 +192,13 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - 기대 결과: 구체적 출력
    ```
    ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-7. 사용자에게 계획 표시 + 승인 대기
+5. plan mode 내부 plan 파일에도 계획 요약 정리 (사용자가 plan mode UI에서 확인)
+6. ExitPlanMode 호출 = **사용자 승인 완료** (plan mode UI에서 계획을 확인하고 승인하는 자연스러운 흐름)
+7. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
-### Phase S2: 승인 + 개발
+### Phase S2: 개발
 
-승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
-
-승인 시 state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
-(hook이 이 두 플래그를 검증하므로 반드시 승인 후 업데이트해야 코드 수정이 가능)
+> ExitPlanMode 시점에 이미 승인 완료 + state.json 업데이트됨 (Phase S1 Step 6~7).
 
 #### TC 작성 (필수)
 
@@ -269,9 +266,7 @@ Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
 1. EnterPlanMode 호출
 2. 관련 코드 탐색 (Read/Grep/Glob)
 3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. 계획 내용을 plan mode 내부 plan 파일에 정리
-5. ExitPlanMode 호출 (plan mode 종료)
-6. `{TASK_DIR}/plan.md` 직접 작성 (plan mode 밖에서 Write 사용, Before/After 필수):
+4. `{TASK_DIR}/plan.md` 작성 (plan mode 안에서 Write — plan-gate가 `*/plan.md` 허용, Before/After 필수):
    ```markdown
    # <작업 제목>
 
@@ -293,27 +288,11 @@ Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
    - 기대 결과: 구체적 출력
    ```
    ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-7. 사용자에게 계획 표시 + 승인 대기:
+5. plan mode 내부 plan 파일에도 계획 요약 정리 (사용자가 plan mode UI에서 확인)
+6. ExitPlanMode 호출 = **사용자 승인 완료**
+7. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
-```
-[PLAN:승인대기]
-
-<plan.md 내용>
-
-수정 요청이 있으면 말씀해주세요. 승인하시면 개발을 시작합니다.
-```
-
----
-
-### Phase 2: 계획 승인 처리
-
-승인 신호 감지: `승인`, `시작`, `ㄱㄱ`, `ㅇㅇ`, `진행`, `go`, `ok`
-
-수정 요청 시: EnterPlanMode 재진입 → Main Claude가 직접 수정 → ExitPlanMode → plan.md 재작성 → 재승인 대기
-
-승인 시 state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
-
-`[PLAN:승인됨]` 출력 → Phase 3 진행
+> 수정 요청은 plan mode 안에서 처리된다. 사용자가 plan mode UI에서 피드백 → Claude가 plan.md 수정 → 다시 ExitPlanMode.
 
 ---
 
