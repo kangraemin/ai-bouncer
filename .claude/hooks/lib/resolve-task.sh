@@ -126,3 +126,50 @@ if [ -n "$TASK_NAME" ]; then
   TASK_DIR="${DOCS_BASE}/${TASK_NAME}"
   STATE_FILE="${TASK_DIR}/state.json"
 fi
+
+# Fallback: 매칭 실패 시 활성 development/verification 태스크를 read-only로 적용
+# → 미등록 subagent도 gate 검증 대상이 됨 (nested subagent 우회 방지)
+if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
+  _fallback_find_active() {
+    local base="$1"
+    [ -d "$base" ] || return 1
+    for af in "$base"/*/.active; do
+      [ -f "$af" ] || continue
+      local td sf phase mode
+      td=$(dirname "$af")
+      sf="${td}/state.json"
+      [ -f "$sf" ] || continue
+      phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)
+      mode=$(jq -r '.mode // ""' "$sf" 2>/dev/null)
+      # SIMPLE 모드는 subagent를 사용하지 않으므로 fallback 대상에서 제외
+      [ "$mode" = "simple" ] && continue
+      case "$phase" in
+        development|verification)
+          TASK_NAME=$(basename "$td")
+          DOCS_BASE="$base"
+          TASK_DIR="$td"
+          STATE_FILE="$sf"
+          return 0 ;;
+      esac
+    done
+    return 1
+  }
+
+  # 날짜별 구조
+  if [ -d "docs" ]; then
+    for dd in docs/*/; do
+      [ -d "$dd" ] || continue
+      _fallback_find_active "$dd" && break
+    done
+  fi
+
+  # persistent 경로
+  if [ -z "$TASK_NAME" ]; then
+    _fallback_find_active "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+  fi
+
+  # flat 구조 (하위 호환)
+  if [ -z "$TASK_NAME" ]; then
+    _fallback_find_active "docs"
+  fi
+fi
