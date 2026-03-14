@@ -11,9 +11,28 @@ RED='\033[0;31m'
 BOLD='\033[1m'
 NC='\033[0m'
 
+DIM='\033[2m'
+
 ok()   { echo -e "${GREEN}✓${NC}  $*"; }
+skip() { echo -e "${DIM}·  $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC}  $*"; }
+
+UPDATED=0
+UNCHANGED=0
+
+copy_if_changed() {
+  local src="$1" dst="$2" label="$3"
+  mkdir -p "$(dirname "$dst")"
+  if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+    skip "$label"
+    ((UNCHANGED++))
+  else
+    cp "$src" "$dst"
+    ok "$label"
+    ((UPDATED++))
+  fi
+}
 
 PACKAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -58,9 +77,7 @@ echo ""
 for agent in "$PACKAGE_DIR/agents/"*.md; do
   [ -f "$agent" ] || continue
   dst="$TARGET_DIR/agents/$(basename "$agent")"
-  mkdir -p "$(dirname "$dst")"
-  cp "$agent" "$dst"
-  ok "$(basename "$agent") (agent)"
+  copy_if_changed "$agent" "$dst" "$(basename "$agent") (agent)"
 done
 
 # agents 서브디렉토리 (guides/ 등) 동적 복사
@@ -70,8 +87,7 @@ for subdir in "$PACKAGE_DIR/agents"/*/; do
   mkdir -p "$TARGET_DIR/agents/$dir_name"
   for f in "$subdir"*.md; do
     [ -f "$f" ] || continue
-    cp "$f" "$TARGET_DIR/agents/$dir_name/$(basename "$f")"
-    ok "$(basename "$f") (agents/$dir_name)"
+    copy_if_changed "$f" "$TARGET_DIR/agents/$dir_name/$(basename "$f")" "$(basename "$f") (agents/$dir_name)"
   done
 done
 
@@ -93,8 +109,10 @@ done
 # skills (로컬 설치)
 SKILL_DST="$TARGET_DIR/skills/dev-bounce"
 mkdir -p "$SKILL_DST"
-cp -r "$PACKAGE_DIR/skills/dev-bounce/." "$SKILL_DST/"
-ok "dev-bounce (skill)"
+for sf in "$PACKAGE_DIR/skills/dev-bounce/"*; do
+  [ -f "$sf" ] || continue
+  copy_if_changed "$sf" "$SKILL_DST/$(basename "$sf")" "$(basename "$sf") (skill)"
+done
 
 # hooks (managed block 교체)
 install_hook() {
@@ -156,8 +174,7 @@ HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"
 if [ -f "$HOOKS_MANIFEST" ] && [ "$ENFORCEMENT_MODE" = "hooks" ]; then
   # hooks.json 자체도 복사
   mkdir -p "$TARGET_DIR/hooks"
-  cp "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json"
-  ok "hooks.json (manifest)"
+  copy_if_changed "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json" "hooks.json (manifest)"
 
   python3 -c "
 import json, sys
@@ -172,10 +189,8 @@ for hook_type, hooks in manifest.items():
     if [ "$htype" = "managed" ]; then
       install_hook "$src" "$dst"
     else
-      mkdir -p "$(dirname "$dst")"
-      cp "$src" "$dst"
+      copy_if_changed "$src" "$dst" "$hfile (hook)"
       chmod +x "$dst"
-      ok "$hfile (hook)"
     fi
   done
 else
@@ -187,9 +202,8 @@ if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
   mkdir -p "$TARGET_DIR/hooks/lib"
   for lib in "$PACKAGE_DIR/hooks/lib/"*.sh; do
     [ -f "$lib" ] || continue
-    cp "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    copy_if_changed "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")" "$(basename "$lib") (lib)"
     chmod +x "$TARGET_DIR/hooks/lib/$(basename "$lib")"
-    ok "$(basename "$lib") (lib)"
   done
 fi
 
@@ -267,14 +281,12 @@ patch_stop_hooks "$TARGET_DIR/settings.json"
 if [ -n "$REPO_ROOT" ]; then
   # 동일 파일이면 복사 스킵 (로컬 실행 시 자기 자신 복사 방지)
   if [ "$(realpath "$PACKAGE_DIR/update.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/update.sh" 2>/dev/null)" ]; then
-    cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
+    copy_if_changed "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh" "update.sh (프로젝트 루트)"
     chmod +x "$REPO_ROOT/update.sh"
-    ok "update.sh (프로젝트 루트)"
   fi
   if [ "$(realpath "$PACKAGE_DIR/uninstall.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/uninstall.sh" 2>/dev/null)" ]; then
-    cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
+    copy_if_changed "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh" "uninstall.sh (프로젝트 루트)"
     chmod +x "$REPO_ROOT/uninstall.sh"
-    ok "uninstall.sh (프로젝트 루트)"
   fi
 fi
 
@@ -292,4 +304,4 @@ json.dump(m, open('$MANIFEST','w'), indent=2)
 ok "매니페스트 ($SHA)"
 
 echo ""
-echo -e "${GREEN}✓${NC}  ${BOLD}업데이트 완료${NC}"
+echo -e "${GREEN}✓${NC}  ${BOLD}업데이트 완료${NC} — ${GREEN}${UPDATED}개 업데이트${NC}, ${DIM}${UNCHANGED}개 변경 없음${NC}"

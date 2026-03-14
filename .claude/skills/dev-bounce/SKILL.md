@@ -192,13 +192,16 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - 기대 결과: 구체적 출력
    ```
    ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-5. plan mode 내부 plan 파일에 계획 요약 정리 후 **턴을 종료한다.**
-   ⚠️ **Claude가 ExitPlanMode를 직접 호출하지 않는다.** 사용자가 plan mode UI에서 계획을 검토·수정 요청·승인한다. 승인 시 ExitPlanMode가 자동 호출된다.
-6. (사용자 승인 후) state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+5. plan mode 내부 plan 파일에 계획 요약 정리
+6. 계획 요약을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
+7. ExitPlanMode 호출 → accept/reject UI 표시
+   - accept → Phase S2 진행
+   - reject → 사용자 피드백 반영 → plan.md 수정 → 다시 step 6~7
+8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
 ### Phase S2: 개발
 
-> 사용자가 plan mode에서 승인 후 state.json 업데이트됨 (Phase S1 Step 6).
+> ExitPlanMode accept 후 state.json 업데이트됨 (Phase S1 Step 8).
 
 #### TC 작성 (필수)
 
@@ -288,9 +291,12 @@ Main Claude가 직접 수행 (팀 스폰 없음, SIMPLE S1과 동일):
    - 기대 결과: 구체적 출력
    ```
    ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-5. plan mode 내부 plan 파일에 계획 요약 정리 후 **턴을 종료한다.**
-   ⚠️ **Claude가 ExitPlanMode를 직접 호출하지 않는다.** 사용자가 plan mode UI에서 계획을 검토·수정 요청·승인한다. 승인 시 ExitPlanMode가 자동 호출된다.
-6. (사용자 승인 후) state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+5. plan mode 내부 plan 파일에 계획 요약 정리
+6. 계획 요약을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
+7. ExitPlanMode 호출 → accept/reject UI 표시
+   - accept → Phase 3 진행
+   - reject → 사용자 피드백 반영 → plan.md 수정 → 다시 step 6~7
+8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
 ---
 
