@@ -26,11 +26,11 @@ copy_if_changed() {
   mkdir -p "$(dirname "$dst")"
   if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
     skip "$label"
-    ((UNCHANGED++))
+    UNCHANGED=$((UNCHANGED + 1))
   else
     cp "$src" "$dst"
     ok "$label"
-    ((UPDATED++))
+    UPDATED=$((UPDATED + 1))
   fi
 }
 
@@ -125,11 +125,13 @@ install_hook() {
   if [ ! -f "$dst" ]; then
     cp "$src" "$dst"
     chmod +x "$dst"
-    ok "$(basename "$dst") (새로 설치)"
+    ok "$(basename "$dst") (hook — 새로 설치)"
+    UPDATED=$((UPDATED + 1))
     return
   fi
 
-  python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
+  local changed
+  changed=$(python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
 import sys, re
 
 src_path, dst_path = sys.argv[1], sys.argv[2]
@@ -142,7 +144,11 @@ s_start = src.find(start_marker)
 s_end   = src.find(end_marker)
 
 if s_start == -1 or s_end == -1:
-    open(dst_path, 'w', encoding='utf-8').write(src)
+    if src != dst:
+        open(dst_path, 'w', encoding='utf-8').write(src)
+        print("changed")
+    else:
+        print("unchanged")
     sys.exit(0)
 
 managed_block = src[s_start : s_end + len(end_marker)]
@@ -160,10 +166,21 @@ else:
     else:
         new_dst = dst.rstrip('\n') + '\n\n' + managed_block + '\n'
 
-open(dst_path, 'w', encoding='utf-8').write(new_dst)
+if new_dst == dst:
+    print("unchanged")
+else:
+    open(dst_path, 'w', encoding='utf-8').write(new_dst)
+    print("changed")
 PYEOF
+)
   chmod +x "$dst"
-  ok "$(basename "$dst") (hook)"
+  if [ "$changed" = "changed" ]; then
+    ok "$(basename "$dst") (hook)"
+    UPDATED=$((UPDATED + 1))
+  else
+    skip "$(basename "$dst") (hook)"
+    UNCHANGED=$((UNCHANGED + 1))
+  fi
 }
 
 # enforcement_mode 확인 — prompt-only면 hook 복사 스킵
@@ -176,13 +193,7 @@ if [ -f "$HOOKS_MANIFEST" ] && [ "$ENFORCEMENT_MODE" = "hooks" ]; then
   mkdir -p "$TARGET_DIR/hooks"
   copy_if_changed "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json" "hooks.json (manifest)"
 
-  python3 -c "
-import json, sys
-manifest = json.load(open(sys.argv[1]))
-for hook_type, hooks in manifest.items():
-    for h in hooks:
-        print(h['type'], h['file'])
-" "$HOOKS_MANIFEST" | while read -r htype hfile; do
+  while read -r htype hfile; do
     src="$PACKAGE_DIR/hooks/$hfile"
     dst="$TARGET_DIR/hooks/$hfile"
     [ -f "$src" ] || continue
@@ -192,7 +203,13 @@ for hook_type, hooks in manifest.items():
       copy_if_changed "$src" "$dst" "$hfile (hook)"
       chmod +x "$dst"
     fi
-  done
+  done < <(python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hook_type, hooks in manifest.items():
+    for h in hooks:
+        print(h['type'], h['file'])
+" "$HOOKS_MANIFEST")
 else
   ok "hook 복사 스킵 (enforcement_mode=prompt-only)"
 fi
@@ -215,7 +232,8 @@ inject_stop_compat() {
 
   [ -f "$dst" ] || return 0
 
-  python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
+  local changed
+  changed=$(python3 - "$src" "$dst" "$START" "$END" <<'PYEOF'
 import sys
 
 src_path     = sys.argv[1]
@@ -229,6 +247,7 @@ dst = open(dst_path, encoding='utf-8').read()
 s_start = src.find(start_marker)
 s_end   = src.find(end_marker)
 if s_start == -1 or s_end == -1:
+    print("unchanged")
     sys.exit(0)
 managed_block = src[s_start : s_end + len(end_marker)]
 
@@ -243,9 +262,20 @@ else:
     else:
         new_dst = managed_block + '\n' + dst
 
-open(dst_path, 'w', encoding='utf-8').write(new_dst)
+if new_dst == dst:
+    print("unchanged")
+else:
+    open(dst_path, 'w', encoding='utf-8').write(new_dst)
+    print("changed")
 PYEOF
-  ok "$(basename "$dst") (stop compat)"
+)
+  if [ "$changed" = "changed" ]; then
+    ok "$(basename "$dst") (stop compat)"
+    UPDATED=$((UPDATED + 1))
+  else
+    skip "$(basename "$dst") (stop compat)"
+    UNCHANGED=$((UNCHANGED + 1))
+  fi
 }
 
 patch_stop_hooks() {
@@ -302,6 +332,7 @@ m['updated_at'] = datetime.datetime.now().isoformat()
 json.dump(m, open('$MANIFEST','w'), indent=2)
 "
 ok "매니페스트 ($SHA)"
+UPDATED=$((UPDATED + 1))
 
 echo ""
 echo -e "${GREEN}✓${NC}  ${BOLD}업데이트 완료${NC} — ${GREEN}${UPDATED}개 업데이트${NC}, ${DIM}${UNCHANGED}개 변경 없음${NC}"
