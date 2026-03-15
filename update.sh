@@ -44,6 +44,12 @@ if [ ! -f "$PACKAGE_DIR/agents/intent.md" ]; then
   git clone --depth 1 "${AI_BOUNCER_REPO:-https://github.com/kangraemin/ai-bouncer.git}" "$TMPDIR_UPDATE/ai-bouncer" -q
   PACKAGE_DIR="$TMPDIR_UPDATE/ai-bouncer"
   echo -e "${GREEN}✓${NC}  다운로드 완료"
+
+  # bootstrap: clone된 최신 update.sh로 재실행 (구 버전 코드 실행 방지)
+  if [ "${_UPDATE_BOOTSTRAPPED:-}" != "1" ] && [ -f "$PACKAGE_DIR/update.sh" ]; then
+    export _UPDATE_BOOTSTRAPPED=1
+    exec bash "$PACKAGE_DIR/update.sh" "$@"
+  fi
 fi
 
 # 설치 경로 감지: 로컬(.claude/) 우선, 글로벌(~/.claude/) fallback
