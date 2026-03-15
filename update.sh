@@ -54,13 +54,13 @@ TARGET_DIR=""
 # 1. 로컬 설치 확인
 if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/config.json" ]; then
   CONFIG_FILE="$REPO_ROOT/.claude/ai-bouncer/config.json"
-  TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('target_dir','$REPO_ROOT/.claude'))")
+  TARGET_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('target_dir',sys.argv[2]))" "$CONFIG_FILE" "$REPO_ROOT/.claude")
 fi
 
 # 2. 글로벌 설치 확인 (하위 호환)
 if [ -z "$TARGET_DIR" ] && [ -f "$HOME/.claude/ai-bouncer/config.json" ]; then
   CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
-  TARGET_DIR=$(python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('target_dir','$HOME/.claude'))")
+  TARGET_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('target_dir',sys.argv[2]))" "$CONFIG_FILE" "$HOME/.claude")
 fi
 
 if [ -z "$TARGET_DIR" ]; then
@@ -284,14 +284,14 @@ patch_stop_hooks() {
 
   local stop_hooks
   stop_hooks=$(python3 -c "
-import json
-cfg = json.load(open('$settings_file'))
+import json, sys
+cfg = json.load(open(sys.argv[1]))
 for g in cfg.get('hooks', {}).get('Stop', []):
     for h in g.get('hooks', []):
         cmd = h.get('command', '')
         if cmd and 'completion-gate' not in cmd:
             print(cmd)
-" 2>/dev/null)
+" "$settings_file" 2>/dev/null)
 
   [ -z "$stop_hooks" ] && return 0
 
@@ -310,11 +310,11 @@ patch_stop_hooks "$TARGET_DIR/settings.json"
 # update.sh / uninstall.sh → 프로젝트 루트
 if [ -n "$REPO_ROOT" ]; then
   # 동일 파일이면 복사 스킵 (로컬 실행 시 자기 자신 복사 방지)
-  if [ "$(realpath "$PACKAGE_DIR/update.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/update.sh" 2>/dev/null)" ]; then
+  if [ ! -f "$REPO_ROOT/update.sh" ] || [ "$(realpath "$PACKAGE_DIR/update.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/update.sh" 2>/dev/null)" ]; then
     copy_if_changed "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh" "update.sh (프로젝트 루트)"
     chmod +x "$REPO_ROOT/update.sh"
   fi
-  if [ "$(realpath "$PACKAGE_DIR/uninstall.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/uninstall.sh" 2>/dev/null)" ]; then
+  if [ ! -f "$REPO_ROOT/uninstall.sh" ] || [ "$(realpath "$PACKAGE_DIR/uninstall.sh" 2>/dev/null)" != "$(realpath "$REPO_ROOT/uninstall.sh" 2>/dev/null)" ]; then
     copy_if_changed "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh" "uninstall.sh (프로젝트 루트)"
     chmod +x "$REPO_ROOT/uninstall.sh"
   fi
@@ -325,12 +325,14 @@ MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 mkdir -p "$BOUNCER_DATA_DIR"
 SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
 python3 -c "
-import json, datetime, os
-m = json.load(open('$MANIFEST')) if os.path.exists('$MANIFEST') else {}
-m['version'] = '$SHA'
+import json, datetime, os, sys
+manifest_path = sys.argv[1]
+sha = sys.argv[2]
+m = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
+m['version'] = sha
 m['updated_at'] = datetime.datetime.now().isoformat()
-json.dump(m, open('$MANIFEST','w'), indent=2)
-"
+json.dump(m, open(manifest_path,'w'), indent=2)
+" "$MANIFEST" "$SHA"
 ok "매니페스트 ($SHA)"
 UPDATED=$((UPDATED + 1))
 

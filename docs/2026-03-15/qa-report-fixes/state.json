@@ -7,7 +7,7 @@
   "plan_approved": true,
   "team_name": "qa-fixes",
   "current_dev_phase": 2,
-  "current_step": 1,
+  "current_step": 2,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
@@ -37,7 +37,7 @@
       "steps": {
         "1": {
           "name": "install.sh (C-4, C-5, I-5, M-3)",
-          "status": "pending"
+          "status": "done"
         },
         "2": {
           "name": "update.sh (C-5, I-4)",
