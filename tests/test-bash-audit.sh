@@ -13,7 +13,7 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) 
 AUDIT_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/hooks/bash-audit.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
-cleanup() { rm -rf "$TMPDIR_ROOT"; rm -f /tmp/.ai-bouncer-snapshot; }
+cleanup() { rm -rf "$TMPDIR_ROOT"; rm -f /tmp/.ai-bouncer-snapshot-default; }
 trap cleanup EXIT
 
 make_audit_input() {
@@ -43,7 +43,7 @@ tc_a1() {
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add src" -q
 
   # 스냅샷 생성 (bash-gate가 block할 때 저장하는 것과 동일)
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # 파일 변경 (휴리스틱을 우회한 케이스 시뮬레이션)
   echo "hacked" > "$dir/src.txt"
@@ -70,7 +70,7 @@ tc_a2() {
   mkdir -p "$dir/docs/my-task"
 
   # 스냅샷 생성
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # 예외 경로에 파일 쓰기
   echo "# Plan" > "$dir/docs/my-task/plan.md"
@@ -94,7 +94,7 @@ tc_a3() {
   make_repo "$dir"
 
   # 스냅샷 없음 (gate가 비활성 = 조건 충족)
-  rm -f /tmp/.ai-bouncer-snapshot
+  rm -f /tmp/.ai-bouncer-snapshot-default
 
   # 파일 변경
   echo "new content" > "$dir/new-file.txt"
@@ -124,7 +124,7 @@ tc_a4() {
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add files" -q
 
   # 스냅샷
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # 두 파일 모두 변경
   echo "hacked1" > "$dir/a.txt"
@@ -150,7 +150,7 @@ tc_a5() {
   make_repo "$dir"
 
   # 스냅샷 (신규 파일 없는 상태)
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # untracked 파일 생성
   echo "exploit" > "$dir/exploit.ts"
@@ -172,7 +172,7 @@ tc_a6() {
   local dir="$TMPDIR_ROOT/tc_a6"
   make_repo "$dir"
 
-  rm -f /tmp/.ai-bouncer-snapshot
+  rm -f /tmp/.ai-bouncer-snapshot-default
 
   # Non-Bash 도구 → 스킵
   local out; out=$(cd "$dir" && echo '{"tool_name":"Write","tool_input":{}}' | bash "$AUDIT_SCRIPT" 2>/dev/null)
@@ -198,7 +198,7 @@ tc_a7() {
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add state" -q
 
   # Snapshot
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # Delete state.json (simulating rm attack)
   rm -f "$dir/docs/my-task/state.json"
@@ -226,7 +226,7 @@ tc_a8() {
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add data" -q
 
   # Snapshot
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # Modify
   echo "hacked" > "$dir/.claude/ai-bouncer/data.txt"
@@ -252,7 +252,7 @@ tc_a9() {
   mkdir -p "$dir/.claude/plans"
 
   # Snapshot
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # Write to .claude/plans/ (should be allowed)
   echo "plan content" > "$dir/.claude/plans/my-plan.md"
@@ -279,7 +279,7 @@ tc_b26() {
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add target" -q
 
   # Snapshot
-  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot)
+  (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # Simulate: curl wrote to target.txt via redirect (already caught by > pattern)
   echo "downloaded" > "$dir/target.txt"
