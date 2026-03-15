@@ -69,6 +69,17 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ram/programming/vibecoding/ai-bouncer/.claude/scripts/update-check.sh",
+            "timeout": 30
+          }
+        ]
+      }
     ]
   },
   "env": {
