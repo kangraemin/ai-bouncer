@@ -115,6 +115,10 @@ assert_file "dev-bounce SKILL.md 설치됨"  "$TARGET/skills/dev-bounce/SKILL.md
 # guides
 assert_file "tc-guide.md 설치됨"  "$TARGET/agents/guides/tc-guide.md"
 
+# scripts
+assert_file "update-check.sh 설치됨"  "$TARGET/scripts/update-check.sh"
+assert_ok "update-check.sh 실행 가능"  test -x "$TARGET/scripts/update-check.sh"
+
 # hooks.json
 assert_file "hooks.json 설치됨"  "$TARGET/hooks/hooks.json"
 
@@ -127,6 +131,7 @@ assert_contains "completion-gate 등록됨"  "$TARGET/settings.json" "completion
 assert_contains "subagent-track 등록됨"   "$TARGET/settings.json" "subagent-track.sh"
 assert_contains "subagent-cleanup 등록됨" "$TARGET/settings.json" "subagent-cleanup.sh"
 assert_contains "AGENT_TEAMS env 등록됨"  "$TARGET/settings.json" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
+assert_contains "SessionStart hook 등록됨"  "$TARGET/settings.json" "update-check.sh"
 
 # CLAUDE.md
 assert_file "CLAUDE.md 생성됨"  "$TARGET/CLAUDE.md"
@@ -234,6 +239,7 @@ assert_file "update 후 settings.json 존재"  "$TARGET/settings.json"
 assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-gate.sh"
 assert_file "update 후 tc-guide.md 존재"    "$TARGET/agents/guides/tc-guide.md"
 assert_file "update 후 hooks.json 존재"     "$TARGET/hooks/hooks.json"
+assert_file "update 후 update-check.sh 존재"  "$TARGET/scripts/update-check.sh"
 
 # 커스텀 agent 보호 테스트
 echo "custom agent" > "$TARGET/agents/my-custom-agent.md"
@@ -268,6 +274,7 @@ assert_no_file "uninstall 후 SKILL.md 없음"        "$TARGET/skills/dev-bounce
 assert_no_file "uninstall 후 tc-guide.md 없음"     "$TARGET/agents/guides/tc-guide.md"
 assert_no_file "uninstall 후 manifest.json 없음"   "$TARGET/ai-bouncer/manifest.json"
 assert_no_file "uninstall 후 config.json 없음"     "$TARGET/ai-bouncer/config.json"
+assert_no_file "uninstall 후 update-check.sh 없음"  "$TARGET/scripts/update-check.sh"
 
 # settings.json에서 bouncer hook이 제거되었는지 확인
 if [ -f "$TARGET/settings.json" ]; then
@@ -275,6 +282,11 @@ if [ -f "$TARGET/settings.json" ]; then
     fail "uninstall 후 settings.json에 hook 남아있음"
   else
     pass "uninstall 후 settings.json에서 hook 제거됨"
+  fi
+  if grep -q "update-check.sh" "$TARGET/settings.json" 2>/dev/null; then
+    fail "uninstall 후 settings.json에 SessionStart hook 남아있음"
+  else
+    pass "uninstall 후 settings.json에서 SessionStart hook 제거됨"
   fi
 else
   pass "uninstall 후 settings.json 정리됨"
@@ -301,6 +313,8 @@ assert_file "재설치 후 settings.json 존재"    "$TARGET/settings.json"
 assert_file "재설치 후 CLAUDE.md 존재"        "$TARGET/CLAUDE.md"
 assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "plan-gate.sh"
 assert_contains "재설치 후 bouncer 규칙 주입" "$TARGET/CLAUDE.md" "ai-bouncer-rule"
+assert_file "재설치 후 update-check.sh 존재"  "$TARGET/scripts/update-check.sh"
+assert_contains "재설치 후 SessionStart hook 등록됨"  "$TARGET/settings.json" "update-check.sh"
 
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 7. CLAUDE.md 콘텐츠 보존 ───${NC}"

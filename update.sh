@@ -224,6 +224,16 @@ if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
   done
 fi
 
+# scripts/ 동적 복사
+if [ -d "$PACKAGE_DIR/scripts" ]; then
+  mkdir -p "$TARGET_DIR/scripts"
+  for script in "$PACKAGE_DIR/scripts/"*.sh; do
+    [ -f "$script" ] || continue
+    copy_if_changed "$script" "$TARGET_DIR/scripts/$(basename "$script")" "$(basename "$script") (script)"
+    chmod +x "$TARGET_DIR/scripts/$(basename "$script")"
+  done
+fi
+
 # Stop hook 호환성 패치
 inject_stop_compat() {
   local src="$1" dst="$2"
@@ -319,6 +329,27 @@ if [ -n "$REPO_ROOT" ]; then
     chmod +x "$REPO_ROOT/uninstall.sh"
   fi
 fi
+
+# post-update: SessionStart hook 등록
+_register_session_start() {
+  local sf="$1"
+  [ -f "$sf" ] || return 0
+  local cmd="$TARGET_DIR/scripts/update-check.sh"
+  grep -q "update-check.sh" "$sf" 2>/dev/null && return 0
+  $PYTHON -c "
+import json, sys
+sf, cmd = sys.argv[1], sys.argv[2]
+cfg = json.load(open(sf))
+hooks = cfg.setdefault('hooks', {})
+ss = hooks.setdefault('SessionStart', [])
+ss.append({'hooks': [{'type': 'command', 'command': cmd, 'timeout': 30}]})
+json.dump(cfg, open(sf, 'w'), indent=2, ensure_ascii=False)
+print('\n')
+" "$sf" "$cmd" 2>/dev/null
+  ok "SessionStart hook 등록"
+}
+PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
+_register_session_start "$TARGET_DIR/settings.json"
 
 # 매니페스트 업데이트 (로컬 우선)
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"

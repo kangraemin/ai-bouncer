@@ -141,7 +141,9 @@ def is_bouncer_hook(group):
     return False
 
 hooks = cfg.get('hooks', {})
-for hook_type in ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop']:
+BOUNCER_HOOKS.add('update-check.sh')
+
+for hook_type in ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionStart']:
     if hook_type in hooks:
         original = hooks[hook_type]
         filtered = [g for g in original if not is_bouncer_hook(g)]
@@ -205,6 +207,9 @@ open(claude_file, 'w', encoding='utf-8').write(new_content)
 print("  CLAUDE.md ai-bouncer 규칙 블록 제거됨")
 PYEOF
 fi
+
+# scripts/ 정리
+rm -rf "$TARGET_DIR/scripts"
 
 # 빈 디렉토리 정리
 for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" \

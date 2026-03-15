@@ -383,6 +383,16 @@ if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
   done
 fi
 
+# scripts/ 동적 복사
+if [ -d "$PACKAGE_DIR/scripts" ]; then
+  mkdir -p "$TARGET_DIR/scripts"
+  for script in "$PACKAGE_DIR/scripts/"*.sh; do
+    [ -f "$script" ] || continue
+    copy_file "$script" "$TARGET_DIR/scripts/$(basename "$script")"
+    chmod +x "$TARGET_DIR/scripts/$(basename "$script")"
+  done
+fi
+
 # update.sh / uninstall.sh → 프로젝트 루트
 cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
 chmod +x "$REPO_ROOT/update.sh"
@@ -611,6 +621,15 @@ if enforcement_mode == 'hooks' and os.path.exists(hooks_manifest_path):
             add_hook(hook_type, matcher, entry['file'])
 else:
     print('  · hook 등록 스킵 (enforcement_mode=prompt-only)')
+
+# SessionStart hook: update-check.sh (enforcement_mode 무관)
+update_cmd = os.path.join(target_dir, 'scripts', 'update-check.sh')
+ss_list = hooks.setdefault('SessionStart', [])
+if not is_registered(ss_list, 'update-check.sh'):
+    ss_list.append({'hooks': [{'type': 'command', 'command': update_cmd, 'timeout': 30}]})
+    print(f"  ✓ SessionStart hook 등록: update-check.sh")
+else:
+    print(f"  · SessionStart hook 이미 등록됨: update-check.sh")
 
 with open(settings_file, 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
