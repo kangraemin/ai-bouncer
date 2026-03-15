@@ -6,4 +6,20 @@ HANDOFF.md
 .claude/ai-bouncer/.version-checked
 .claude/**/*.backup-*
 docs/
+# ai-bouncer installed files
+.claude/agents/intent.md
+.claude/agents/verifier.md
+.claude/agents/lead.md
+.claude/agents/dev.md
+.claude/agents/qa.md
+.claude/hooks/plan-gate.sh
+.claude/hooks/doc-reminder.sh
+.claude/hooks/completion-gate.sh
+.claude/hooks/bash-gate.sh
+.claude/hooks/bash-audit.sh
+.claude/hooks/subagent-track.sh
+.claude/hooks/subagent-cleanup.sh
+.claude/hooks/lib/resolve-task.sh
+update.sh
+uninstall.sh
 # --- ai-bouncer end ---

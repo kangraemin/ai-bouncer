@@ -380,6 +380,24 @@ if [ -n "$REPO_ROOT" ]; then
 docs/"
   fi
 
+  # bouncer installed files (manifest 기반 — 사용자 파일과 정확히 구분)
+  if [ -f "$MANIFEST" ]; then
+    MANIFEST_LINES=$(python3 -c "
+import json, sys, os
+files = json.load(open(sys.argv[1])).get('files', [])
+# 절대경로·비정상 경로 제외 (구버전 manifest 방어)
+valid = [f for f in files if f and not os.path.isabs(f)]
+print('\n'.join('.claude/' + f for f in valid))
+" "$MANIFEST" 2>/dev/null || echo "")
+    if [ -n "$MANIFEST_LINES" ]; then
+      GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+# ai-bouncer installed files
+${MANIFEST_LINES}
+update.sh
+uninstall.sh"
+    fi
+  fi
+
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 ${GITIGNORE_END}"
 

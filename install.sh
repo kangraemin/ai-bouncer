@@ -443,6 +443,19 @@ if [ "$DOCS_TRACK_BOOL" = "false" ]; then
 docs/"
 fi
 
+# bouncer installed files (manifest 기반 — 사용자 파일과 정확히 구분)
+GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+# ai-bouncer installed files"
+for f in "${INSTALLED_FILES[@]}"; do
+  # 절대경로·비정상 경로 제외 (방어)
+  [[ "$f" = /* ]] && continue
+  GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+.claude/${f}"
+done
+GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+update.sh
+uninstall.sh"
+
 GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 ${GITIGNORE_END}"
 
