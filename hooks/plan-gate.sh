@@ -47,7 +47,9 @@ PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
+CURRENT_STEP=${CURRENT_STEP:-0}; CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
 
 # CHECK 1.5: workflow_phase 화이트리스트
 case "$WORKFLOW_PHASE" in
@@ -119,8 +121,8 @@ case "$AGENT_MODE" in
 
       # CHECK 6: team members < 1 → BLOCK
       MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-      MEMBER_COUNT=${MEMBER_COUNT:-0}
-      if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+      MEMBER_COUNT=${MEMBER_COUNT:-0}; MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
+      if [ "$MEMBER_COUNT" -lt 1 ]; then
         jq -n '{
           decision: "block",
           reason: "⛔ [team] 팀 멤버가 없습니다. Lead 에이전트를 먼저 스폰하세요."
@@ -139,7 +141,7 @@ esac
 
 # CHECK 6.5: development + step=0 방어
 if [ "$WORKFLOW_PHASE" = "development" ]; then
-  if [ "$CURRENT_DEV_PHASE" -le 0 ] 2>/dev/null || [ "$CURRENT_STEP" -le 0 ] 2>/dev/null; then
+  if [ "$CURRENT_DEV_PHASE" -le 0 ] || [ "$CURRENT_STEP" -le 0 ]; then
     jq -n '{decision:"block", reason:"⛔ development이지만 dev_phase/step 미설정"}'
     exit 0
   fi
@@ -148,7 +150,8 @@ fi
 # CHECK 6.7: dev_phases 비어있는지 검증
 if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
   DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
-  if [ "${DEV_PHASES_COUNT:-0}" -le 0 ] 2>/dev/null; then
+  DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT//[^0-9]/}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
+  if [ "$DEV_PHASES_COUNT" -le 0 ]; then
     jq -n '{decision:"block", reason:"⛔ dev_phases가 비어있습니다. Lead가 phase 구조를 먼저 정의해야 합니다."}'
     exit 0
   fi
@@ -190,7 +193,7 @@ if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
 fi
 
 # CHECK 7: current_dev_phase > 0 AND current_step > 0
-if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/dev/null; then
+if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"
   STEP_KEY="$CURRENT_STEP"
 
@@ -236,7 +239,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
 
   # CHECK 7a-2: phase.md 필수 섹션 검증
   for section in "## 목표" "## 범위" "## Steps"; do
-    if ! grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
+    if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
       jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
         decision: "block",
         reason: ("Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)
@@ -269,7 +272,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
     fi
 
     # CHECK 7c-2: 이전 step의 TC 실행출력 검증
-    if ! grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
+    if ! LC_ALL=en_US.UTF-8 grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
         reason: ("Dev Phase " + $phase + " Step " + $step + "의 TC에 실행출력이 없습니다. 테스트 실행 결과를 반드시 기록하세요.")

@@ -7,7 +7,7 @@
   "plan_approved": true,
   "team_name": "qa-fixes",
   "current_dev_phase": 1,
-  "current_step": 2,
+  "current_step": 3,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
@@ -18,7 +18,7 @@
         },
         "2": {
           "name": "bash-gate (C-3, I-1, M-1)",
-          "status": "pending"
+          "status": "done"
         },
         "3": {
           "name": "plan-gate (I-1, M-1)",
