@@ -46,6 +46,20 @@ for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
         }
         break
 
+# 1-b) state.json 없는 고아 .active 탐지
+if not results['active']:
+    for active_file in sorted(glob.glob('docs/*/*/.active'), reverse=True):
+        task_dir = os.path.dirname(active_file)
+        if not os.path.isfile(os.path.join(task_dir, 'state.json')):
+            results['active'] = {
+                'task_dir': task_dir,
+                'state_file': None,
+                'phase': '',
+                'is_stale': True,
+                'active_file': active_file
+            }
+            break
+
 # 2) .active 없으면 미완료 작업 스캔
 if not results['active']:
     for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
