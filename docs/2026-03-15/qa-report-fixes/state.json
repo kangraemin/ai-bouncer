@@ -7,7 +7,7 @@
   "plan_approved": true,
   "team_name": "qa-fixes",
   "current_dev_phase": 2,
-  "current_step": 3,
+  "current_step": 4,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
@@ -45,7 +45,7 @@
         },
         "3": {
           "name": "uninstall.sh (M-2)",
-          "status": "pending"
+          "status": "done"
         },
         "4": {
           "name": "tests (I-6)",

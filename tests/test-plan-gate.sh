@@ -13,7 +13,11 @@ fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) 
 HOOK_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/hooks/plan-gate.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
-cleanup() { rm -rf "$TMPDIR_ROOT"; }
+FAKE_HOME="$TMPDIR_ROOT/_fake_home"
+mkdir -p "$FAKE_HOME/.claude"
+ORIG_HOME="$HOME"
+export HOME="$FAKE_HOME"
+cleanup() { HOME="$ORIG_HOME"; rm -rf "$TMPDIR_ROOT"; }
 trap cleanup EXIT
 
 make_input() {
@@ -175,9 +179,8 @@ assert_block() {
 # Cleanup helper for team dirs
 TEAM_DIRS_TO_CLEAN=()
 cleanup_teams() {
-  for td in "${TEAM_DIRS_TO_CLEAN[@]}"; do
-    rm -rf "$td"
-  done
+  # HOME이 FAKE_HOME이므로 TMPDIR_ROOT 정리 시 자동 삭제됨
+  :
 }
 
 # ---------------------------------------------------------------------------
