@@ -343,8 +343,12 @@ done
 # 소스에서 제거된 agent 파일: 삭제하지 않고 유지 (사용자 파일 보호)
 # manifest는 INSTALLED_FILES 기반으로 자동 갱신되므로 별도 처리 불필요
 
-# skills (로컬 .claude/skills/ 에 설치)
-install_skill "$PACKAGE_DIR/skills/dev-bounce" "dev-bounce"
+# skills (로컬 .claude/skills/ 에 설치 — 동적)
+for skill_src in "$PACKAGE_DIR/skills"/*/; do
+  [ -d "$skill_src" ] || continue
+  skill_name=$(basename "$skill_src")
+  install_skill "$skill_src" "$skill_name"
+done
 
 # hooks.json 매니페스트 기반 동적 설치
 HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"

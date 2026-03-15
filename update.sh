@@ -106,12 +106,16 @@ for installed in "$TARGET_DIR/agents/"*.md; do
   fi
 done
 
-# skills (로컬 설치)
-SKILL_DST="$TARGET_DIR/skills/dev-bounce"
-mkdir -p "$SKILL_DST"
-for sf in "$PACKAGE_DIR/skills/dev-bounce/"*; do
-  [ -f "$sf" ] || continue
-  copy_if_changed "$sf" "$SKILL_DST/$(basename "$sf")" "$(basename "$sf") (skill)"
+# skills (동적 — skills/*/ 전체)
+for skill_dir in "$PACKAGE_DIR/skills"/*/; do
+  [ -d "$skill_dir" ] || continue
+  skill_name=$(basename "$skill_dir")
+  SKILL_DST="$TARGET_DIR/skills/$skill_name"
+  mkdir -p "$SKILL_DST"
+  for sf in "$skill_dir"*; do
+    [ -f "$sf" ] || continue
+    copy_if_changed "$sf" "$SKILL_DST/$(basename "$sf")" "$(basename "$sf") (skill/$skill_name)"
+  done
 done
 
 # hooks (managed block 교체)
