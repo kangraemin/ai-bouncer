@@ -10,14 +10,14 @@ AGENT_SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 [ -z "$AGENT_SESSION_ID" ] && exit 0
 
 # 부모의 활성 task 찾기: development/verification phase인 .active task 검색
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 FOUND_TASK_DIR=""
 
 # 날짜별 구조 스캔
 if [ -d "$REPO_ROOT/docs" ]; then
   for date_dir in "$REPO_ROOT/docs"/*/; do
     [ -d "$date_dir" ] || continue
-    for active_file in "$date_dir"*/.active; do
+    for active_file in "${date_dir}"*/.active; do
       [ -f "$active_file" ] || continue
       task_dir=$(dirname "$active_file")
       state_file="${task_dir}/state.json"

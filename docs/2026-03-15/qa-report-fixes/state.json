@@ -7,7 +7,7 @@
   "plan_approved": true,
   "team_name": "qa-fixes",
   "current_dev_phase": 1,
-  "current_step": 3,
+  "current_step": 4,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
@@ -22,7 +22,7 @@
         },
         "3": {
           "name": "plan-gate (I-1, M-1)",
-          "status": "pending"
+          "status": "done"
         },
         "4": {
           "name": "subagent-track (I-2, I-3)",
