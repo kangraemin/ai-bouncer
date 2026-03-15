@@ -7,14 +7,14 @@
   "plan_approved": true,
   "team_name": "qa-fixes",
   "current_dev_phase": 1,
-  "current_step": 1,
+  "current_step": 2,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
       "steps": {
         "1": {
           "name": "bash-audit + subagent-cleanup (C-1, C-2)",
-          "status": "pending"
+          "status": "done"
         },
         "2": {
           "name": "bash-gate (C-3, I-1, M-1)",
