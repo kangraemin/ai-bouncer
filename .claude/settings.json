@@ -48,6 +48,14 @@
             "command": "/Users/ram/programming/vibecoding/ai-bouncer/.claude/hooks/completion-gate.sh"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ram/programming/vibecoding/ai-bouncer/.claude/hooks/stop-active-cleanup.sh"
+          }
+        ]
       }
     ],
     "SubagentStart": [

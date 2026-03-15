@@ -184,6 +184,7 @@ if old_enforcement != enforcement_mode:
             add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
             add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
             add_hook('Stop', None, 'completion-gate.sh')
+            add_hook('Stop', None, 'stop-active-cleanup.sh')
             add_hook('SubagentStart', None, 'subagent-track.sh')
             add_hook('SubagentStop', None, 'subagent-cleanup.sh')
         print("  ✓ settings.json: hook 재등록됨")
@@ -787,7 +788,7 @@ for g in cfg.get('hooks', {}).get('Stop', []):
   while IFS= read -r hook_path; do
     [ -f "$hook_path" ] || continue
     case "$(basename "$hook_path")" in
-      completion-gate.sh|subagent-track.sh|subagent-cleanup.sh) continue ;;
+      completion-gate.sh|subagent-track.sh|subagent-cleanup.sh|stop-active-cleanup.sh) continue ;;
     esac
     inject_stop_compat "$PACKAGE_DIR/hooks/stop-bouncer-compat.sh" "$hook_path"
   done <<< "$stop_hooks"

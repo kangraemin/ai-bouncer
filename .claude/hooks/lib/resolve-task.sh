@@ -63,17 +63,11 @@ _resolve_from_base() {
       return 0
     fi
 
-    # 다른 세션의 태스크 → stale 여부 확인
+    # 다른 세션의 태스크: session_id 불일치 시 skip (삭제 금지)
+    # /clear 후 session_id가 바뀌어도 .active를 임의로 삭제하지 않는다.
+    # 태스크 생애주기는 Context Restore + 사용자 상호작용이 담당.
     if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
-      local phase
-      phase=$(jq -r '.workflow_phase // ""' "$state_file" 2>/dev/null)
-      local approved
-      approved=$(jq -r '.plan_approved // false' "$state_file" 2>/dev/null)
-      # 미승인 planning 태스크 → stale, .active 삭제하여 자동 정리
-      if [ "$phase" = "planning" ] && [ "$approved" != "true" ]; then
-        rm -f "$active_file"
-        continue
-      fi
+      continue
     fi
 
     # 미클레임 태스크 (빈 .active) 기록

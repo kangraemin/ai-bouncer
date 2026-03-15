@@ -8,7 +8,8 @@
     {"matcher": "Bash", "file": "bash-audit.sh", "type": "managed"}
   ],
   "Stop": [
-    {"file": "completion-gate.sh", "type": "managed"}
+    {"file": "completion-gate.sh", "type": "managed"},
+    {"file": "stop-active-cleanup.sh", "type": "managed"}
   ],
   "SubagentStart": [
     {"file": "subagent-track.sh", "type": "copy"}
