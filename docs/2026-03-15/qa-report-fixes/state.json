@@ -6,8 +6,8 @@
   },
   "plan_approved": true,
   "team_name": "qa-fixes",
-  "current_dev_phase": 1,
-  "current_step": 4,
+  "current_dev_phase": 2,
+  "current_step": 1,
   "dev_phases": {
     "1": {
       "name": "hook-fixes",
@@ -26,10 +26,10 @@
         },
         "4": {
           "name": "subagent-track (I-2, I-3)",
-          "status": "pending"
+          "status": "done"
         }
       },
-      "status": "in_progress",
+      "status": "done",
       "folder": "phase-1-hook-fixes"
     },
     "2": {
@@ -52,7 +52,7 @@
           "status": "pending"
         }
       },
-      "status": "pending",
+      "status": "in_progress",
       "folder": "phase-2-install-test-fixes"
     }
   },

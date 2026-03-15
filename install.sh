@@ -206,7 +206,7 @@ fi
 
 # ── 설치 범위 ──────────────────────────────────────────────────
 header "설치 범위"
-# TODO: 전역 설치 임시 비활성화 — 로컬 전용
+# NOTE: 전역 설치 임시 비활성화 — 로컬 전용
 # echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
 # echo "  2) 로컬 (.claude/)  — 현재 프로젝트에만 적용"
 # echo ""
@@ -249,7 +249,7 @@ copy_file() {
   fi
 
   cp "$src" "$dst"
-  INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('$dst', '$TARGET_DIR'))" 2>/dev/null || echo "$dst")")
+  INSTALLED_FILES+=("$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$dst" "$TARGET_DIR" 2>/dev/null || echo "$dst")")
   ok "$(basename "$dst")"
 }
 
@@ -260,7 +260,7 @@ install_skill() {
   mkdir -p "$dst_dir"
   cp -r "$src_dir/." "$dst_dir/"
   for f in "$src_dir"/*; do
-    [ -f "$f" ] && INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('${dst_dir}/$(basename "$f")', '$TARGET_DIR'))" 2>/dev/null || echo "skills/${skill_name}/$(basename "$f")")")
+    [ -f "$f" ] && INSTALLED_FILES+=("$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "${dst_dir}/$(basename "$f")" "$TARGET_DIR" 2>/dev/null || echo "skills/${skill_name}/$(basename "$f")")")
   done
   ok "${skill_name} (skill)"
 }
@@ -317,7 +317,7 @@ PYEOF
   fi
 
   chmod +x "$dst"
-  INSTALLED_FILES+=("$(python3 -c "import os; print(os.path.relpath('$dst', '$TARGET_DIR'))" 2>/dev/null || echo "$dst")")
+  INSTALLED_FILES+=("$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$dst" "$TARGET_DIR" 2>/dev/null || echo "$dst")")
 }
 
 # ── 파일 설치 ──────────────────────────────────────────────────
@@ -490,16 +490,21 @@ ok "에이전트 모드: $AGENT_MODE"
 
 # config.json 저장
 mkdir -p "$BOUNCER_DATA_DIR"
-cat > "$BOUNCER_DATA_DIR/config.json" << JSON
-{
-  "docs_git_track": $DOCS_TRACK_BOOL,
-  "commit_strategy": "$COMMIT_STRATEGY",
-  "commit_skill": $COMMIT_SKILL_BOOL,
-  "target_dir": "$TARGET_DIR",
-  "enforcement_mode": "$ENFORCEMENT_MODE",
-  "agent_mode": "$AGENT_MODE"
+python3 - "$BOUNCER_DATA_DIR/config.json" "$DOCS_TRACK_BOOL" "$COMMIT_STRATEGY" "$COMMIT_SKILL_BOOL" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" <<'PYEOF'
+import json, sys
+path = sys.argv[1]
+cfg = {
+    "docs_git_track": sys.argv[2] == "true",
+    "commit_strategy": sys.argv[3],
+    "commit_skill": sys.argv[4] == "true",
+    "target_dir": sys.argv[5],
+    "enforcement_mode": sys.argv[6],
+    "agent_mode": sys.argv[7]
 }
-JSON
+with open(path, 'w') as f:
+    json.dump(cfg, f, indent=2)
+    f.write('\n')
+PYEOF
 ok "config.json 저장됨"
 
 # ── CLAUDE.md 규칙 주입 ─────────────────────────────────────────
@@ -665,14 +670,14 @@ patch_stop_hooks() {
 
   local stop_hooks
   stop_hooks=$(python3 -c "
-import json
-cfg = json.load(open('$settings_file'))
+import json, sys
+cfg = json.load(open(sys.argv[1]))
 for g in cfg.get('hooks', {}).get('Stop', []):
     for h in g.get('hooks', []):
         cmd = h.get('command', '')
         if cmd and 'completion-gate' not in cmd:
             print(cmd)
-" 2>/dev/null)
+" "$settings_file" 2>/dev/null)
 
   [ -z "$stop_hooks" ] && return 0
 
