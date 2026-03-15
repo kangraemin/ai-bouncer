@@ -31,7 +31,19 @@ for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
     task_dir = os.path.dirname(state_file)
     active_file = os.path.join(task_dir, '.active')
     if os.path.isfile(active_file):
-        results['active'] = {'task_dir': task_dir, 'state_file': state_file}
+        try:
+            state = json.load(open(state_file))
+        except:
+            state = {}
+        phase = state.get('workflow_phase', '')
+        is_stale = (phase == 'done')
+        results['active'] = {
+            'task_dir': task_dir,
+            'state_file': state_file,
+            'phase': phase,
+            'is_stale': is_stale,
+            'active_file': active_file
+        }
         break
 
 # 2) .active 없으면 미완료 작업 스캔
@@ -63,7 +75,15 @@ print(json.dumps(results, ensure_ascii=False))
 
 **Case A: `active`가 있음**
 
-사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
+먼저 `is_stale` 확인:
+
+**A-0: stale** (`is_stale == true` — `workflow_phase == "done"`인데 `.active` 존재, 불가능한 상태)
+→ 자동 처리 (사용자에게 확인 없이):
+  1. `.active` 파일 삭제: `rm -f {active_file}`
+  2. 한 줄 안내: `⚠️ 잔여 잠금 파일 자동 정리: {task_dir} (done 상태였음)`
+→ Case C로 진행 (새 작업 시작)
+
+**A-1/A-2: stale 아님** (`workflow_phase != "done"`) — 사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
 
 - **A-1: 사용자 요청이 active 작업의 연장/이어하기인 경우**
   → 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
@@ -310,8 +330,8 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
      ✅/⚠️ plan.md 대비 변경 확인: N/M 파일 일치
      (⚠️ 미변경: 파일명 — 의도된 것인지 확인 필요)
      ```
-3. active_file 삭제: `rm -f {active_file}`
-4. state.json `workflow_phase`를 `"done"`으로 업데이트
+3. state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
+4. active_file 삭제: `rm -f {active_file}`            ← 그 다음
 5. 사용자에게 완료 보고
 
 ---
@@ -513,8 +533,8 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 
 5. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
    - verifier + 전체 팀 shutdown
-   - active_file 삭제: `rm -f {active_file}`
-   - state.json `workflow_phase`를 `"done"`으로 업데이트
+   - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
+   - active_file 삭제: `rm -f {active_file}`             ← 그 다음
      ⚠️ task_dir 자체는 절대 삭제하지 않는다. 모든 문서 보존.
    - 사용자에게 완료 보고
 
