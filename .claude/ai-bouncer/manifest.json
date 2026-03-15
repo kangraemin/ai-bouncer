@@ -1,5 +1,5 @@
 {
-  "version": "39173b2",
+  "version": "ff55dbe",
   "installed_at": "2026-03-08T20:07:19.986553",
   "files": [
     "agents/intent.md",
@@ -16,5 +16,5 @@
     "hooks/subagent-cleanup.sh",
     "hooks/lib/resolve-task.sh"
   ],
-  "updated_at": "2026-03-15T14:35:19.433468"
+  "updated_at": "2026-03-15T21:10:20.622625"
 }
