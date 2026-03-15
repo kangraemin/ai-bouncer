@@ -59,6 +59,11 @@ case "$WORKFLOW_PHASE" in
     exit 0 ;;
 esac
 
+# CHECK 1.7: plan_approved=true + state.json 자체 쓰기 → 단계 전환 허용
+if [ "$PLAN_APPROVED" = "true" ] && [ "$FILE_PATH" = "$STATE_FILE" ]; then
+  exit 0
+fi
+
 # CHECK 2: planning 단계 → BLOCK
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   jq -n '{
