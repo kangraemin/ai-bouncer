@@ -30,8 +30,30 @@ MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 # cancelled 상태 → 즉시 통과 (사용자가 작업 포기 선택)
 [ "$WORKFLOW_PHASE" = "cancelled" ] && exit 0
 
-# SIMPLE 모드: 3회 연속 검증 불필요
-[ "$MODE" = "simple" ] && exit 0
+# SIMPLE 모드: 3회 연속 검증 불필요, but S3 완료 강제
+if [ "$MODE" = "simple" ]; then
+  if [ "$WORKFLOW_PHASE" = "done" ] || [ "$WORKFLOW_PHASE" = "cancelled" ]; then
+    exit 0
+  fi
+  if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "development" ]; then
+    TESTS_FILE="${TASK_DIR}/tests.md"
+    if [ -f "$TESTS_FILE" ]; then
+      # ⬜ 또는 ❌ 있으면 아직 개발 중 → 통과
+      if grep -qE '⬜|❌' "$TESTS_FILE" 2>/dev/null; then
+        exit 0
+      fi
+      # ✅만 있으면 작업 완료됐지만 S3 미실행 → 차단
+      if grep -q '✅' "$TESTS_FILE" 2>/dev/null; then
+        jq -n --arg task "$TASK_NAME" '{
+          decision: "block",
+          reason: ("SIMPLE 모드 Phase S3 미완료: 작업 [" + $task + "] 모든 TC가 ✅이지만 완료 처리가 안 됐습니다. Phase S3를 실행하세요: state.json workflow_phase=\"done\" 설정 + .active 삭제. 작업 취소하려면 workflow_phase를 \"cancelled\"로 변경하세요.")
+        }'
+        exit 0
+      fi
+    fi
+  fi
+  exit 0
+fi
 
 # 검증 단계에서만 체크 (NORMAL 모드)
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
