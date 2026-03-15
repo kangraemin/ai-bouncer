@@ -425,6 +425,56 @@ else
   ok "docs/ git 미추적 (기본값)"
 fi
 
+# ── .gitignore managed block 주입 ─────────────────────────────
+header ".gitignore 설정"
+
+GITIGNORE_FILE="$REPO_ROOT/.gitignore"
+GITIGNORE_START="# --- ai-bouncer start ---"
+GITIGNORE_END="# --- ai-bouncer end ---"
+
+# managed block 생성
+GITIGNORE_BLOCK="${GITIGNORE_START}
+# ai-bouncer runtime artifacts
+.claude/ai-bouncer/.version-checked
+.claude/**/*.backup-*"
+
+if [ "$DOCS_TRACK_BOOL" = "false" ]; then
+  GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+docs/"
+fi
+
+GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+${GITIGNORE_END}"
+
+if [ -f "$GITIGNORE_FILE" ]; then
+  EXISTING=$(cat "$GITIGNORE_FILE")
+  if echo "$EXISTING" | grep -qF "$GITIGNORE_START"; then
+    # 기존 블록 교체 (sed로 start~end 사이 교체)
+    python3 - "$GITIGNORE_FILE" "$GITIGNORE_BLOCK" "$GITIGNORE_START" "$GITIGNORE_END" <<'PYEOF'
+import sys
+path = sys.argv[1]
+block = sys.argv[2]
+start = sys.argv[3]
+end = sys.argv[4]
+content = open(path, encoding='utf-8').read()
+s = content.find(start)
+e = content.find(end)
+if s != -1 and e != -1:
+    content = content[:s] + block + content[e + len(end):]
+open(path, 'w', encoding='utf-8').write(content)
+PYEOF
+    ok ".gitignore managed block 교체됨"
+  else
+    # 기존 파일 끝에 append
+    printf '\n%s\n' "$GITIGNORE_BLOCK" >> "$GITIGNORE_FILE"
+    ok ".gitignore managed block 추가됨"
+  fi
+else
+  # 신규 생성
+  printf '%s\n' "$GITIGNORE_BLOCK" > "$GITIGNORE_FILE"
+  ok ".gitignore 생성 + managed block 주입"
+fi
+
 # 커밋 전략 선택
 header "커밋 전략"
 if [ "$CI_MODE" = "true" ]; then
