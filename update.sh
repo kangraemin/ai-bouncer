@@ -429,6 +429,22 @@ PYEOF
     ok ".gitignore 생성 + managed block 주입"
   fi
   UPDATED=$((UPDATED + 1))
+
+  # 이미 추적 중인 bouncer 파일 untrack
+  if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
+    if [ -f "$MANIFEST" ]; then
+      TRACKED_FILES=$(python3 -c "
+import json, sys
+files = json.load(open(sys.argv[1])).get('files', [])
+valid = [f for f in files if f and not f.startswith('/')]
+print('\n'.join('.claude/' + f for f in valid))
+" "$MANIFEST" 2>/dev/null || echo "")
+      while IFS= read -r f; do
+        [ -n "$f" ] && git -C "$REPO_ROOT" rm --cached "$f" 2>/dev/null || true
+      done <<< "$TRACKED_FILES"
+    fi
+    git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
+  fi
 fi
 
 # 매니페스트 업데이트 (로컬 우선)

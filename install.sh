@@ -196,6 +196,14 @@ else:
     env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
     print(f"  ✓ env: AGENT_TEAMS 제거 (agent_mode={agent_mode})")
 
+# SessionStart: auto-update hook 등록 (enforcement_mode 무관, 항상)
+update_check_cmd = os.path.join(target_dir, 'scripts', 'update-check.sh')
+ss = hooks.setdefault('SessionStart', [])
+already_ss = any('update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
+if not already_ss:
+    ss.append({'hooks': [{'type': 'command', 'command': update_check_cmd, 'timeout': 30}]})
+    print("  ✓ SessionStart hook 등록 (auto-update)")
+
 with open(settings_file, 'w') as f:
     json.dump(settings, f, indent=2, ensure_ascii=False)
     f.write('\n')
@@ -486,6 +494,15 @@ else
   # 신규 생성
   printf '%s\n' "$GITIGNORE_BLOCK" > "$GITIGNORE_FILE"
   ok ".gitignore 생성 + managed block 주입"
+fi
+
+# 이미 추적 중인 bouncer 파일 untrack
+if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
+  for f in "${INSTALLED_FILES[@]}"; do
+    [[ "$f" = /* ]] && continue
+    git -C "$REPO_ROOT" rm --cached ".claude/$f" 2>/dev/null || true
+  done
+  git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
 fi
 
 # 커밋 전략 선택
