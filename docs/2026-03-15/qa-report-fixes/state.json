@@ -1,5 +1,5 @@
 {
-  "workflow_phase": "development",
+  "workflow_phase": "done",
   "mode": "normal",
   "planning": {
     "no_question_streak": 0
@@ -49,15 +49,15 @@
         },
         "4": {
           "name": "tests (I-6)",
-          "status": "pending"
+          "status": "done"
         }
       },
-      "status": "in_progress",
+      "status": "done",
       "folder": "phase-2-install-test-fixes"
     }
   },
   "verification": {
-    "rounds_passed": 0
+    "rounds_passed": 3
   },
   "task_dir": "docs/2026-03-15/qa-report-fixes",
   "active_file": "docs/2026-03-15/qa-report-fixes/.active"

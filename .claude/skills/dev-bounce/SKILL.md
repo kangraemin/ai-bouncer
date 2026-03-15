@@ -117,14 +117,14 @@ print(json.dumps(results, ensure_ascii=False))
 
 ### Phase 0-B: TASK_DIR 초기화
 
-`[INTENT:개발요청]` 수신 후 TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** (Phase 1-B에서 plan 기반으로 판별).
+TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** — Phase 1-B에서 plan 기반으로 판별하기 때문.
 
 TASK_DIR 초기화 (Python으로 실행):
 
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
 2. `docs_base`: `docs/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
-4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim)
+4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
 5. `state.json` 생성:
 
 ```json
@@ -166,7 +166,20 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 1. EnterPlanMode 호출
 2. 관련 코드 탐색 (Read/Grep/Glob)
 3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. `{TASK_DIR}/plan.md` 작성 (plan mode 안에서 Write — plan-gate가 `*/plan.md` 허용, Before/After 필수):
+4. plan mode plan 파일에 상세 계획 작성 — **이것이 사용자에게 보이는 원본이다. 대충 쓸 수 없다.**
+   plan mode plan 파일 경로는 EnterPlanMode 호출 시 시스템이 알려준다.
+   필수 포함 내용:
+   - 각 변경 파일별 Before/After 코드 (변경 포인트가 명확히 보여야 함)
+   - 신규 파일이 있으면 용도와 핵심 로직
+   - 검증 방법 (명령어 + 기대 결과)
+   ⚠️ "파일명: 한 줄 설명"만 나열하는 것은 부실 계획이다. 이 plan만 읽고도 변경 내용을 이해할 수 있어야 한다.
+   ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
+5. 계획을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
+6. ExitPlanMode 호출 → accept/reject UI 표시
+   - accept → step 7 진행
+   - reject → 사용자 피드백 반영 → plan mode plan 수정 → 다시 step 5~6
+7. 승인 후 `{TASK_DIR}/plan.md` 생성 (plan mode plan 기반으로 구조화 + 상세화):
+   plan mode plan의 내용을 아래 템플릿으로 확장한다. Before/After는 전체 코드를 포함한다.
    ```markdown
    # <작업 제목>
 
@@ -175,11 +188,11 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - **변경 이유**: ...
    - **Before** (현재 코드):
    ```
-   현재 코드
+   현재 코드 전체
    ```
    - **After** (변경 후):
    ```
-   변경 코드
+   변경 코드 전체
    ```
    - **영향 범위**: 이 변경이 영향을 주는 다른 파일/함수
 
@@ -192,16 +205,6 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - 검증 명령어: `실행할 명령어`
    - 기대 결과: 구체적 출력
    ```
-   ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
-5. plan mode 내부 plan 파일에 계획 요약 정리 — **plan.md의 핵심을 반영해야 한다:**
-   - 각 변경 파일별 Before/After 코드 핵심 (전체 복사 아닌 변경 포인트 요약)
-   - 신규 파일이 있으면 용도와 핵심 로직
-   - 검증 방법 (명령어 + 기대 결과)
-   ⚠️ "파일명: 한 줄 설명"만 나열하는 것은 부실 요약이다. plan.md를 안 읽어도 변경 내용을 이해할 수 있어야 한다.
-6. 계획 요약을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
-7. ExitPlanMode 호출 → accept/reject UI 표시
-   - accept → Phase 1-B 진행
-   - reject → 사용자 피드백 반영 → plan.md 수정 → 다시 step 6~7
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
 
 ---

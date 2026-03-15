@@ -12,8 +12,13 @@ APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
 
 # 해당 session_id 행 제거
 TEMP=$(mktemp)
-grep -v "^${AGENT_SESSION_ID}|" "$APPROVED_FILE" > "$TEMP" 2>/dev/null || true
-mv "$TEMP" "$APPROVED_FILE"
+grep -v "^${AGENT_SESSION_ID}|" "$APPROVED_FILE" > "$TEMP" 2>/dev/null
+# grep 결과 없어도(exit 1) 정상 — 해당 행만 없는 것. 단, 파일 자체 에러 시 원본 보존
+if [ -f "$TEMP" ]; then
+  mv "$TEMP" "$APPROVED_FILE"
+else
+  rm -f "$TEMP"
+fi
 
 # 파일이 비었으면 삭제
 [ -s "$APPROVED_FILE" ] || rm -f "$APPROVED_FILE"

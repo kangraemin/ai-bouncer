@@ -145,7 +145,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
         '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
       exit 0
     fi
-    LAST_STEP_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | keys | map(tonumber) | max" "$STATE_FILE" 2>/dev/null)
+    LAST_STEP_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | keys | map(tonumber) | max // 0" "$STATE_FILE" 2>/dev/null)
     LAST_STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${LAST_STEP_CS}.md"
     if [ -f "$LAST_STEP_FILE_CS" ] && grep -q '✅' "$LAST_STEP_FILE_CS" 2>/dev/null; then
       exit 0
@@ -263,7 +263,9 @@ PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
+CURRENT_STEP=${CURRENT_STEP:-0}; CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
 
 # 스냅샷 저장 함수 (Layer 2용) — 세션 격리
 save_snapshot() {
@@ -381,8 +383,8 @@ case "$AGENT_MODE" in
       fi
 
       MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-      MEMBER_COUNT=${MEMBER_COUNT:-0}
-      if [ "$MEMBER_COUNT" -lt 1 ] 2>/dev/null; then
+      MEMBER_COUNT=${MEMBER_COUNT:-0}; MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
+      if [ "$MEMBER_COUNT" -lt 1 ]; then
         save_snapshot
         jq -n '{
           decision: "block",
@@ -402,7 +404,7 @@ esac
 
 # CHECK 6.5: development + step=0 방어
 if [ "$WORKFLOW_PHASE" = "development" ]; then
-  if [ "$CURRENT_DEV_PHASE" -le 0 ] 2>/dev/null || [ "$CURRENT_STEP" -le 0 ] 2>/dev/null; then
+  if [ "$CURRENT_DEV_PHASE" -le 0 ] || [ "$CURRENT_STEP" -le 0 ]; then
     save_snapshot
     jq -n '{decision:"block", reason:"⛔ [bash-gate] development이지만 dev_phase/step 미설정"}'
     exit 0
@@ -420,7 +422,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
 fi
 
 # CHECK 7: step 검증
-if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/dev/null; then
+if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"
   STEP_KEY="$CURRENT_STEP"
 
@@ -442,7 +444,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
 
   # CHECK 7a-2: phase.md 필수 섹션 검증
   for section in "## 목표" "## 범위" "## Steps"; do
-    if ! grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
+    if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
       save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
         decision: "block",
@@ -475,7 +477,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] 2>/dev/null && [ "$CURRENT_STEP" -gt 0 ] 2>/de
     fi
 
     # CHECK 7c-2: 이전 step의 TC 실행출력 검증
-    if ! grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
+    if ! LC_ALL=en_US.UTF-8 grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
       save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",

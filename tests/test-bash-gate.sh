@@ -62,7 +62,7 @@ CFGEOF
   mkdir -p "$dir/docs/${date_dir}/${task_name}/${phase_folder}"
 
   # phase.md 생성
-  echo "# 개발 Phase 1: test" > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/phase.md"
+  printf "# 개발 Phase 1: test\n\n## 목표\ntest phase\n\n## 범위\ntest\n\n## Steps\n- step 1\n" > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/phase.md"
 
   if [ "$create_step" = "yes" ]; then
     if [ "$fill_tc" = "yes" ]; then
