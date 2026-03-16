@@ -20,6 +20,4 @@ docs/
 .claude/hooks/subagent-track.sh
 .claude/hooks/subagent-cleanup.sh
 .claude/hooks/lib/resolve-task.sh
-update.sh
-uninstall.sh
 # --- ai-bouncer end ---
