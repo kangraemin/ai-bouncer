@@ -143,6 +143,42 @@ tc_c5() {
 }
 
 # ---------------------------------------------------------------------------
+# TC-C6: normal + development + 미완료 phase → BLOCK
+# ---------------------------------------------------------------------------
+tc_c6() {
+  local dir="$TMPDIR_ROOT/tc_c6"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['current_dev_phase'] = 2
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}, '2': {'name': 'p2', 'folder': 'phase-2', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-C6: normal + development + 미완료 phase → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-C7: normal + development + 완료된 phase → ALLOW
+# ---------------------------------------------------------------------------
+tc_c7() {
+  local dir="$TMPDIR_ROOT/tc_c7"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['current_dev_phase'] = 3
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}, '2': {'name': 'p2', 'folder': 'phase-2', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-C7: normal + development + 완료된 phase → ALLOW" "$out"
+}
+
+# ---------------------------------------------------------------------------
 # SIMPLE 모드 테스트
 # ---------------------------------------------------------------------------
 
@@ -175,7 +211,7 @@ tc_cs2() {
 echo -e "${YELLOW}=== completion-gate.sh E2E Tests (Artifact-based) ===${NC}"
 echo ""
 
-tc_c1; tc_c2; tc_c3; tc_c4; tc_c5
+tc_c1; tc_c2; tc_c3; tc_c4; tc_c5; tc_c6; tc_c7
 tc_cs1; tc_cs2
 
 echo ""

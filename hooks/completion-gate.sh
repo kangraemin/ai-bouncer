@@ -55,6 +55,19 @@ if [ "$MODE" = "simple" ]; then
   exit 0
 fi
 
+# NORMAL 모드: development 상태에서 미완료 phase가 있으면 차단
+if [ "$MODE" = "normal" ] && [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "development" ]; then
+  CURRENT_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+  TOTAL_PHASES=$(jq -r '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
+  if [ "$TOTAL_PHASES" -gt 0 ] && [ "$CURRENT_PHASE" -gt 0 ] && [ "$CURRENT_PHASE" -le "$TOTAL_PHASES" ] 2>/dev/null; then
+    jq -n --arg task "$TASK_NAME" --arg current "$CURRENT_PHASE" --arg total "$TOTAL_PHASES" '{
+      decision: "block",
+      reason: ("NORMAL 모드 개발 미완료: 작업 [" + $task + "] Phase " + $current + "/" + $total + " 진행 중입니다. 남은 Phase를 완료 후 검증 단계로 진행하세요. 작업 취소하려면 workflow_phase를 \"cancelled\"로 변경하세요.")
+    }'
+    exit 0
+  fi
+fi
+
 # 검증 단계에서만 체크 (NORMAL 모드)
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   VERIFY_DIR="${TASK_DIR}/verifications"
