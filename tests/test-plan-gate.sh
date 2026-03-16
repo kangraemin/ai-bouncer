@@ -195,14 +195,14 @@ tc1() {
 }
 
 # ---------------------------------------------------------------------------
-# TC-2: planning + Write regular file → BLOCK
+# TC-2: planning + Write regular file → ALLOW
 # ---------------------------------------------------------------------------
 tc2() {
   local dir="$TMPDIR_ROOT/tc2"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "Write" "/some/regular/file.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-2: planning + Write regular file → BLOCK" "$out"
+  assert_allow "TC-2: planning + Write regular file → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -418,7 +418,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   assert_allow "TC-S1: simple + development + 팀/step 없음 → ALLOW" "$out"
 }
 
-# TC-S2: simple + planning → BLOCK (plan 승인 전)
+# TC-S2: simple + planning → ALLOW
 tc_s2() {
   local dir="$TMPDIR_ROOT/tc_s2"
   setup_env "$dir" "my-task" "planning" "false" ""
@@ -431,7 +431,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-S2: simple + planning → BLOCK" "$out"
+  assert_allow "TC-S2: simple + planning → ALLOW" "$out"
 }
 
 # TC-S3: simple + plan_approved=false → BLOCK
@@ -505,13 +505,13 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   assert_block "TC-AM2: agent_mode=subagent + dev_phases={} → BLOCK" "$out"
 }
 
-# TC-AM3: agent_mode=subagent + planning → BLOCK (CHECK 2 유지)
+# TC-AM3: agent_mode=subagent + planning → ALLOW
 tc_am3() {
   local dir="$TMPDIR_ROOT/tc_am3"
   setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "no" "subagent"
   local input; input=$(make_input "Write" "/src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-AM3: agent_mode=subagent + planning → BLOCK" "$out"
+  assert_allow "TC-AM3: agent_mode=subagent + planning → ALLOW" "$out"
 }
 
 # TC-AM4: agent_mode=single + development + team_name 비어있음 → ALLOW

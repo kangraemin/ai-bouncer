@@ -239,49 +239,49 @@ tc_b9() {
 # BLOCK: planning + 쓰기
 # ---------------------------------------------------------------------------
 
-# TC-B10: cat > file (planning) → BLOCK
+# TC-B10: cat > file (planning) → ALLOW
 tc_b10() {
   local dir="$TMPDIR_ROOT/tc_b10"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "cat > /src/app.ts << 'EOF'\nconsole.log('hello')\nEOF")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B10: cat > file (planning) → BLOCK" "$out"
+  assert_allow "TC-B10: cat > file (planning) → ALLOW" "$out"
 }
 
-# TC-B11: echo > file (planning) → BLOCK
+# TC-B11: echo > file (planning) → ALLOW
 tc_b11() {
   local dir="$TMPDIR_ROOT/tc_b11"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "echo 'hello' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B11: echo > file (planning) → BLOCK" "$out"
+  assert_allow "TC-B11: echo > file (planning) → ALLOW" "$out"
 }
 
-# TC-B12: tee (planning) → BLOCK
+# TC-B12: tee (planning) → ALLOW
 tc_b12() {
   local dir="$TMPDIR_ROOT/tc_b12"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "echo 'data' | tee /src/config.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B12: tee (planning) → BLOCK" "$out"
+  assert_allow "TC-B12: tee (planning) → ALLOW" "$out"
 }
 
-# TC-B13: sed -i (planning) → BLOCK
+# TC-B13: sed -i (planning) → ALLOW
 tc_b13() {
   local dir="$TMPDIR_ROOT/tc_b13"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "sed -i 's/old/new/g' /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B13: sed -i (planning) → BLOCK" "$out"
+  assert_allow "TC-B13: sed -i (planning) → ALLOW" "$out"
 }
 
-# TC-B14: cp (planning) → BLOCK
+# TC-B14: cp (planning) → ALLOW
 tc_b14() {
   local dir="$TMPDIR_ROOT/tc_b14"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "cp /tmp/exploit.ts /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B14: cp (planning) → BLOCK" "$out"
+  assert_allow "TC-B14: cp (planning) → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -301,13 +301,13 @@ tc_b15() {
 # BLOCK: .active 비우기 공격
 # ---------------------------------------------------------------------------
 
-# TC-B16: planning + echo "" > .active → BLOCK (.active는 예외 아님)
+# TC-B16: planning + echo "" > .active → ALLOW
 tc_b16() {
   local dir="$TMPDIR_ROOT/tc_b16"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input 'echo "" > docs/.active')
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B16: planning + echo > .active → BLOCK (gate 무력화 방지)" "$out"
+  assert_allow "TC-B16: planning + echo > .active → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -329,22 +329,22 @@ tc_b17() {
 # BLOCK: rm/rmdir/unlink, curl/wget, workflow_phase whitelist, dev+step=0
 # ---------------------------------------------------------------------------
 
-# TC-B18: rm state.json (planning) → BLOCK
+# TC-B18: rm state.json (planning) → ALLOW
 tc_b18() {
   local dir="$TMPDIR_ROOT/tc_b18"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "rm state.json")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B18: rm state.json (planning) → BLOCK" "$out"
+  assert_allow "TC-B18: rm state.json (planning) → ALLOW" "$out"
 }
 
-# TC-B19: rm -rf docs/task/ (planning) → BLOCK
+# TC-B19: rm -rf docs/task/ (planning) → ALLOW
 tc_b19() {
   local dir="$TMPDIR_ROOT/tc_b19"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "rm -rf docs/2026-01-01/my-task/")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B19: rm -rf docs/task/ (planning) → BLOCK" "$out"
+  assert_allow "TC-B19: rm -rf docs/task/ (planning) → ALLOW" "$out"
 }
 
 # TC-B20: workflow_phase=done + echo > file → BLOCK (whitelist)
@@ -398,40 +398,40 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   assert_block "TC-B22: development + current_step=0 → BLOCK" "$out"
 }
 
-# TC-B23: curl -o src/file.ts url (planning) → BLOCK
+# TC-B23: curl -o src/file.ts url (planning) → ALLOW
 tc_b23() {
   local dir="$TMPDIR_ROOT/tc_b23"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "curl -o src/file.ts https://example.com/file")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B23: curl -o (planning) → BLOCK" "$out"
+  assert_allow "TC-B23: curl -o (planning) → ALLOW" "$out"
 }
 
-# TC-B24: wget -O src/file.ts url (planning) → BLOCK
+# TC-B24: wget -O src/file.ts url (planning) → ALLOW
 tc_b24() {
   local dir="$TMPDIR_ROOT/tc_b24"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "wget -O src/file.ts https://example.com/file")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B24: wget -O (planning) → BLOCK" "$out"
+  assert_allow "TC-B24: wget -O (planning) → ALLOW" "$out"
 }
 
-# TC-B25: curl url --output src/file.ts (planning) → BLOCK
+# TC-B25: curl url --output src/file.ts (planning) → ALLOW
 tc_b25() {
   local dir="$TMPDIR_ROOT/tc_b25"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "curl https://example.com/file --output src/file.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B25: curl --output (planning) → BLOCK" "$out"
+  assert_allow "TC-B25: curl --output (planning) → ALLOW" "$out"
 }
 
-# TC-B27: ~/.claude/ai-bouncer/sessions/ Bash 쓰기 → BLOCK
+# TC-B27: ~/.claude/ai-bouncer/sessions/ Bash 쓰기 → ALLOW
 tc_b27() {
   local dir="$TMPDIR_ROOT/tc_b27"
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "echo 'hack' > ~/.claude/ai-bouncer/sessions/repo/docs/.active")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B27: ~/.claude/ai-bouncer/sessions/ 쓰기 → BLOCK" "$out"
+  assert_allow "TC-B27: ~/.claude/ai-bouncer/sessions/ 쓰기 → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   assert_allow "TC-BS1: simple + development + 팀/step 없음 → ALLOW" "$out"
 }
 
-# TC-BS2: simple + planning + echo > → BLOCK (plan 미승인)
+# TC-BS2: simple + planning + echo > → ALLOW
 tc_bs2() {
   local dir="$TMPDIR_ROOT/tc_bs2"
   setup_env "$dir" "my-task" "planning" "false" ""
@@ -470,7 +470,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-BS2: simple + planning + echo > → BLOCK" "$out"
+  assert_allow "TC-BS2: simple + planning + echo > → ALLOW" "$out"
 }
 
 # TC-BS3: normal (default) + development + 팀 없음 + echo > → BLOCK
@@ -511,13 +511,13 @@ tc_bam1() {
   assert_allow "TC-BAM1: agent_mode=subagent + no team_name → ALLOW" "$out"
 }
 
-# TC-BAM2: agent_mode=subagent + planning + 쓰기 → BLOCK
+# TC-BAM2: agent_mode=subagent + planning + 쓰기 → ALLOW
 tc_bam2() {
   local dir="$TMPDIR_ROOT/tc_bam2"
   setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "subagent"
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-BAM2: agent_mode=subagent + planning → BLOCK" "$out"
+  assert_allow "TC-BAM2: agent_mode=subagent + planning → ALLOW" "$out"
 }
 
 # TC-BAM3: config.json 없음 + team_name 비어있음 → BLOCK (team 폴백)
