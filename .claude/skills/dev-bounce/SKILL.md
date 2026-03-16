@@ -67,7 +67,7 @@ if not results['active']:
             state = json.load(open(state_file))
         except: continue
         phase = state.get('workflow_phase', '')
-        if phase in ('done', ''): continue
+        if phase in ('done', 'cancelled', ''): continue
         task_dir = os.path.dirname(state_file)
         task_name = os.path.basename(task_dir)
         date_dir = os.path.basename(os.path.dirname(task_dir))
@@ -114,7 +114,7 @@ print(json.dumps(results, ensure_ascii=False))
   3. 기존 작업 이어서 진행
   ```
   - 선택 1 → 기존 .active 그대로 두고, 새 TASK_DIR 생성 + 새 .active 생성. Phase 0 진행.
-  - 선택 2 → 기존 task `state.json`의 `workflow_phase = "done"` 업데이트 후 `.active` 삭제. 새 TASK_DIR 생성. Phase 0 진행.
+  - 선택 2 → 기존 task `state.json`의 `workflow_phase = "cancelled"` 업데이트 후 `.active` 삭제. 새 TASK_DIR 생성. Phase 0 진행.
   - 선택 3 → Case A-1과 동일하게 재개.
 
 **Case B: `active`는 없고 `incomplete`가 1개 이상**
@@ -132,8 +132,8 @@ print(json.dumps(results, ensure_ascii=False))
 
 사용자가 선택하면:
 - **번호 선택**: 선택한 task_dir에 `.active` 파일 재생성 + `state.json`의 `workflow_phase`부터 재개.
-  나머지 incomplete 태스크는 모두 `workflow_phase = "done"` 처리 (재등장 방지).
-- **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "done"` 처리 → Case C 진행.
+  나머지 incomplete 태스크는 모두 `workflow_phase = "cancelled"` 처리 (재등장 방지).
+- **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "cancelled"` 처리 → Case C 진행.
 
 **Case C: `active`도 `incomplete`도 없음**
 → 새 작업 시작 (Phase 0부터)

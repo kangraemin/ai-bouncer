@@ -230,6 +230,34 @@ fi
 # state.json 파일 (.active는 예외 아님 — 비우기로 gate 무력화 방지)
 # rm/rmdir/unlink은 state.json도 예외 아님 (삭제 방지)
 if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brmdir\b|\bunlink\b'; then
+  _BG_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+  _BG_STATE=""
+  for _bg_af in "$_BG_REPO"/docs/*/.active "$_BG_REPO"/docs/*/*/.active; do
+    [ -f "$_bg_af" ] || continue
+    _bg_sf="$(dirname "$_bg_af")/state.json"
+    [ -f "$_bg_sf" ] || continue
+    _bg_sid=$(cat "$_bg_af" 2>/dev/null | tr -d '[:space:]')
+    if [ -z "$SESSION_ID" ] || [ -z "$_bg_sid" ] || [ "$_bg_sid" = "$SESSION_ID" ]; then
+      _BG_STATE="$_bg_sf"; break
+    fi
+  done
+  if [ -n "$_BG_STATE" ]; then
+    _BG_PHASE=$(jq -r '.workflow_phase // ""' "$_BG_STATE" 2>/dev/null)
+    if [ "$_BG_PHASE" = "planning" ]; then
+      # 패턴 1: dict literal / JSON ("workflow_phase":"done", 'workflow_phase':'done')
+      # 패턴 2: jq (.workflow_phase = "done")
+      # 패턴 3: 브라켓 접근 (state['workflow_phase'] = 'done')
+      _WP_BLOCKED=false
+      if echo "$CMD" | grep -qE "['\"](workflow_phase)['\"]\s*:\s*['\"](done|verification)['\"]"; then _WP_BLOCKED=true; fi
+      if echo "$CMD" | grep -qE "\.workflow_phase\s*=\s*['\"](done|verification)['\"]"; then _WP_BLOCKED=true; fi
+      if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]done['\"]"; then _WP_BLOCKED=true; fi
+      if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]verification['\"]"; then _WP_BLOCKED=true; fi
+      if [ "$_WP_BLOCKED" = "true" ]; then
+        jq -n '{decision:"block", reason:"⛔ [bash-gate] planning 단계에서 state.json을 done/verification으로 변경할 수 없습니다."}'
+        exit 0
+      fi
+    fi
+  fi
   EXCEPTION=true
 fi
 
@@ -276,6 +304,7 @@ save_snapshot() {
 # CHECK 1.5: workflow_phase 화이트리스트
 case "$WORKFLOW_PHASE" in
   planning|development|verification) ;;
+  done|cancelled) exit 0 ;;  # 완료/취소 상태 — gate 비활성
   *)
     save_snapshot
     jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 허용되지 않는 값입니다."}'

@@ -347,7 +347,7 @@ tc_b19() {
   assert_allow "TC-B19: rm -rf docs/task/ (planning) → ALLOW" "$out"
 }
 
-# TC-B20: workflow_phase=done + echo > file → BLOCK (whitelist)
+# TC-B20: workflow_phase=done + echo > file → ALLOW (완료 상태 — gate 비활성)
 tc_b20() {
   local dir="$TMPDIR_ROOT/tc_b20"
   setup_env "$dir" "my-task" "done" "true" ""
@@ -361,7 +361,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
   echo "# Plan" > "$dir/docs/2026-01-01/my-task/plan.md"
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-B20: workflow_phase=done + echo > file → BLOCK (화이트리스트)" "$out"
+  assert_allow "TC-B20: workflow_phase=done + echo > file → ALLOW (완료 상태 — gate 비활성)" "$out"
 }
 
 # TC-B21: workflow_phase=invalid + echo > file → BLOCK

@@ -41,6 +41,32 @@ fi
 # state.json 없으면 통과
 [ -f "$STATE_FILE" ] || exit 0
 
+# CHECK 1.6: planning 단계 state.json forward-skip 차단
+if [[ "$FILE_PATH" == */state.json ]]; then
+  _CURRENT_PHASE=$(jq -r '.workflow_phase // ""' "$STATE_FILE" 2>/dev/null)
+  if [ "$_CURRENT_PHASE" = "planning" ]; then
+    _NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+    _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
+import json, sys, re
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+    print(d.get('workflow_phase', ''))
+except:
+    m = re.search(r'\"workflow_phase\"\s*:\s*\"([^\"]+)\"', txt)
+    print(m.group(1) if m else '')
+" 2>/dev/null)
+    case "$_NEW_PHASE" in
+      done|verification)
+        jq -n --arg nxt "$_NEW_PHASE" '{
+          decision: "block",
+          reason: ("⛔ planning 단계에서 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
+        }'
+        exit 0 ;;
+    esac
+  fi
+fi
+
 # state.json 값 읽기
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
@@ -54,6 +80,7 @@ CURRENT_STEP=${CURRENT_STEP:-0}; CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_
 # CHECK 1.5: workflow_phase 화이트리스트
 case "$WORKFLOW_PHASE" in
   planning|development|verification) ;;
+  done|cancelled) exit 0 ;;  # 완료/취소 상태 — gate 비활성
   *)
     jq -n '{decision:"block", reason:"⛔ workflow_phase가 허용되지 않는 값입니다."}'
     exit 0 ;;
