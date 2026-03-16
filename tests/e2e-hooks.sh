@@ -905,17 +905,19 @@ echo "─── 미등록 subagent fallback ───"
 
 UNREGISTERED_SID="unregistered-sub-$(date +%s)"
 
-# UF-1: 미등록 subagent + 활성 development 태스크 → plan-gate 차단 (phase.md 없으므로)
+# UF-1: 미등록 subagent + claimed 태스크 → plan-gate 통과 (session isolation 우선)
+# 세션 간 격리(MSI) 도입으로 claimed 태스크는 fallback 대상에서 제외됨.
+# 정상 subagent는 approved-agents 메커니즘으로 제어 (SA 테스트 참고).
 FALLBACK_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
 setup_subagent "$FALLBACK_PHASES" 1 1
 # approved 파일에 등록 안 함 — 미등록 subagent 시뮬레이션
 rm -f /tmp/.ai-bouncer-approved-agents
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
-assert_block "UF-1: 미등록 subagent + development → plan-gate 차단" "$R"
+assert_pass "UF-1: 미등록 subagent + claimed 태스크 → plan-gate 통과 (MSI 트레이드오프)" "$R"
 
-# UF-2: 미등록 subagent + 활성 development 태스크 → bash-gate 차단
+# UF-2: 미등록 subagent + claimed 태스크 → bash-gate 통과 (session isolation 우선)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$UNREGISTERED_SID\"}")
-assert_block "UF-2: 미등록 subagent + development → bash-gate 차단" "$R"
+assert_pass "UF-2: 미등록 subagent + claimed 태스크 → bash-gate 통과 (MSI 트레이드오프)" "$R"
 cleanup_subagent
 
 # UF-3: 미등록 subagent + 활성 태스크 없음 → 통과
