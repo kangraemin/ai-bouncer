@@ -981,6 +981,70 @@ assert_pass "SM-4: SIMPLE + plan_approved=false → completion-gate 통과" "$R"
 
 echo ""
 
+# ─── 18. 세션 간 격리 (Multi-Session Isolation) ──────────────
+echo "─── 세션 간 격리 (MSI) ───"
+
+SESSION_A_SID="session-a-$(date +%s)"
+SESSION_B_SID="session-b-$(date +%s)"
+SESSION_A_DIR="$INSTALL_REPO/docs/$TODAY/msi-session-a"
+SESSION_A_STATE="$SESSION_A_DIR/state.json"
+SESSION_A_ACTIVE="$SESSION_A_DIR/.active"
+
+# Session A 태스크 셋업 (normal, development, Session A 소유)
+mkdir -p "$SESSION_A_DIR"
+python3 -c "
+import json
+s = {
+  'workflow_phase': 'development',
+  'mode': 'normal',
+  'plan_approved': True,
+  'team_name': 'msi-test-team',
+  'current_dev_phase': 1,
+  'current_step': 1,
+  'dev_phases': {'1': {'name': 'test', 'folder': 'phase-1-msi', 'steps': {}}},
+  'verification': {'rounds_passed': 0}
+}
+with open('$SESSION_A_STATE', 'w') as f: json.dump(s, f, indent=2)
+"
+echo "$SESSION_A_SID" > "$SESSION_A_ACTIVE"
+echo "# Session A Plan" > "$SESSION_A_DIR/plan.md"
+mkdir -p "$HOME/.claude/teams/msi-test-team"
+echo '{"members":["lead"]}' > "$HOME/.claude/teams/msi-test-team/config.json"
+mkdir -p "$SESSION_A_DIR/phase-1-msi"
+printf "## 목표\ntest\n## 범위\ntest\n## Steps\n1. test\n" > "$SESSION_A_DIR/phase-1-msi/phase.md"
+printf "| TC | 검증 항목 | 기대 결과 | 상태 |\n|----|----------|----------|------|\n| TC-01 | x | y | ⬜ |\n" > "$SESSION_A_DIR/phase-1-msi/step-1.md"
+
+# MSI-1: Session A(normal/dev) → Session B write → plan-gate 차단 안 됨
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$SESSION_B_SID\"}")
+assert_pass "MSI-1: Session A(normal/dev) → Session B write → plan-gate 통과" "$R"
+
+# MSI-2: Session A(planning) → Session B commit → bash-gate 차단 안 됨
+python3 -c "
+import json
+s = json.load(open('$SESSION_A_STATE'))
+s['workflow_phase'] = 'planning'
+s['plan_approved'] = False
+with open('$SESSION_A_STATE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m 'test'\"},\"session_id\":\"$SESSION_B_SID\"}")
+assert_pass "MSI-2: Session A(planning) → Session B git commit → bash-gate 통과" "$R"
+
+# MSI-3: Session A(normal/dev) → Session B completion-gate → 차단 안 됨
+python3 -c "
+import json
+s = json.load(open('$SESSION_A_STATE'))
+s['workflow_phase'] = 'development'
+s['plan_approved'] = True
+with open('$SESSION_A_STATE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$SESSION_B_SID\"}")
+assert_pass "MSI-3: Session A(normal/dev) → Session B completion-gate 통과" "$R"
+
+# 정리
+rm -rf "$SESSION_A_DIR" "$HOME/.claude/teams/msi-test-team"
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 
