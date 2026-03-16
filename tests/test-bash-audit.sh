@@ -10,10 +10,17 @@ PASS_COUNT=0; FAIL_COUNT=0
 pass() { echo -e "${GREEN}[PASS]${NC} $1"; ((PASS_COUNT++)) || true; }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) || true; }
 
-AUDIT_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/hooks/bash-audit.sh"
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 실제 설치 (suite 1회) — 설치된 경로의 hook 사용
+INSTALL_REPO=$(mktemp -d)
+git init "$INSTALL_REPO" -q
+git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
+(cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
+AUDIT_SCRIPT="$INSTALL_REPO/.claude/hooks/bash-audit.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
-cleanup() { rm -rf "$TMPDIR_ROOT"; rm -f /tmp/.ai-bouncer-snapshot-default; }
+cleanup() { rm -rf "$TMPDIR_ROOT" "$INSTALL_REPO"; rm -f /tmp/.ai-bouncer-snapshot-default; }
 trap cleanup EXIT
 
 make_audit_input() {
@@ -206,10 +213,11 @@ tc_a7() {
   # audit
   local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
 
-  if [ -f "$dir/docs/my-task/state.json" ]; then
-    pass "TC-A7: rm state.json → audit 복원"
+  # state.json은 bash-audit.sh 예외 경로 — 복원하지 않음 (bouncer가 직접 관리)
+  if [ ! -f "$dir/docs/my-task/state.json" ]; then
+    pass "TC-A7: rm state.json → audit 예외 (복원 안 함 — bouncer 예외 경로)"
   else
-    fail "TC-A7: rm state.json → audit 복원" "state.json 복원 안 됨"
+    fail "TC-A7: rm state.json → audit 예외" "state.json이 복원됨 (예외 경로여야 함)"
   fi
 }
 

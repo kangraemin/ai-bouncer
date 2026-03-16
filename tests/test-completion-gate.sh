@@ -10,10 +10,17 @@ PASS_COUNT=0; FAIL_COUNT=0
 pass() { echo -e "${GREEN}[PASS]${NC} $1"; ((PASS_COUNT++)) || true; }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) || true; }
 
-HOOK_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/hooks/completion-gate.sh"
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 실제 설치 (suite 1회) — 설치된 경로의 hook 사용
+INSTALL_REPO=$(mktemp -d)
+git init "$INSTALL_REPO" -q
+git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
+(cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
+HOOK_SCRIPT="$INSTALL_REPO/.claude/hooks/completion-gate.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
-cleanup() { rm -rf "$TMPDIR_ROOT"; }
+cleanup() { rm -rf "$TMPDIR_ROOT" "$INSTALL_REPO"; }
 trap cleanup EXIT
 
 setup_env() {
@@ -93,9 +100,9 @@ tc_c1() {
 tc_c2() {
   local dir="$TMPDIR_ROOT/tc_c2"
   setup_env "$dir" "my-task" "verification" "true"
-  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과"
-  create_round "$dir" "my-task" 2 "# Round 2\n검증 통과"
-  create_round "$dir" "my-task" 3 "# Round 3\n검증 통과"
+  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 2 "# Round 2\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 3 "# Round 3\n검증 통과\n\n## 결론\n통과"
   local out; out=$(run_hook "$dir")
   assert_allow "TC-C2: verification + 3 rounds 통과 → ALLOW" "$out"
 }
@@ -106,9 +113,9 @@ tc_c2() {
 tc_c3() {
   local dir="$TMPDIR_ROOT/tc_c3"
   setup_env "$dir" "my-task" "verification" "true"
-  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과"
-  create_round "$dir" "my-task" 2 "# Round 2\n검증 실패 — Step 1 오류"
-  create_round "$dir" "my-task" 3 "# Round 3\n검증 통과"
+  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 2 "# Round 2\n검증 실패 — Step 1 오류\n\n## 결론\n실패"
+  create_round "$dir" "my-task" 3 "# Round 3\n검증 통과\n\n## 결론\n통과"
   local out; out=$(run_hook "$dir")
   assert_block "TC-C3: verification + round-2 실패 → BLOCK" "$out"
 }
@@ -119,8 +126,8 @@ tc_c3() {
 tc_c4() {
   local dir="$TMPDIR_ROOT/tc_c4"
   setup_env "$dir" "my-task" "verification" "true"
-  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과"
-  create_round "$dir" "my-task" 2 "# Round 2\n검증 통과"
+  create_round "$dir" "my-task" 1 "# Round 1\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 2 "# Round 2\n검증 통과\n\n## 결론\n통과"
   local out; out=$(run_hook "$dir")
   assert_block "TC-C4: verification + round 2개만 → BLOCK" "$out"
 }

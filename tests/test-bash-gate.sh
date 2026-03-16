@@ -10,14 +10,21 @@ PASS_COUNT=0; FAIL_COUNT=0
 pass() { echo -e "${GREEN}[PASS]${NC} $1"; ((PASS_COUNT++)) || true; }
 fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) || true; }
 
-HOOK_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/hooks/bash-gate.sh"
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 실제 설치 (suite 1회) — 설치된 경로의 hook 사용
+INSTALL_REPO=$(mktemp -d)
+git init "$INSTALL_REPO" -q
+git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
+(cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
+HOOK_SCRIPT="$INSTALL_REPO/.claude/hooks/bash-gate.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
 FAKE_HOME="$TMPDIR_ROOT/_fake_home"
 mkdir -p "$FAKE_HOME/.claude"
 ORIG_HOME="$HOME"
 export HOME="$FAKE_HOME"
-cleanup() { HOME="$ORIG_HOME"; rm -rf "$TMPDIR_ROOT"; rm -f /tmp/.ai-bouncer-snapshot; }
+cleanup() { HOME="$ORIG_HOME"; rm -rf "$TMPDIR_ROOT" "$INSTALL_REPO"; rm -f /tmp/.ai-bouncer-snapshot; }
 trap cleanup EXIT
 
 make_input() {

@@ -3,17 +3,49 @@
 # 사용법: bash tests/e2e-hooks.sh
 set -euo pipefail
 
-cd "$(git rev-parse --show-toplevel)"
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+# 실제 설치 (suite 1회) — 설치된 경로의 hook 사용
+INSTALL_REPO=$(mktemp -d)
+git init "$INSTALL_REPO" -q
+git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
+(cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
+HOOKS_DIR="$INSTALL_REPO/.claude/hooks"
 
 PASS=0
 FAIL=0
-HOOKS_DIR="hooks"
 
-# 테스트 환경 설정
-TASK_DIR="docs/2026-03-08/e2e-hook-hardening"
+# 테스트 환경 설정 — 격리된 INSTALL_REPO 내 태스크 디렉토리 사용
+TODAY=$(date +%Y-%m-%d)
+TASK_DIR="$INSTALL_REPO/docs/$TODAY/e2e-hook-test"
+mkdir -p "$TASK_DIR"
 STATE_FILE="$TASK_DIR/state.json"
 ACTIVE_FILE="$TASK_DIR/.active"
 TEST_SID="e2e-test-session-$(date +%s)"
+
+# config.json 경로 (설치된 경로)
+CONFIG_FILE="$INSTALL_REPO/.claude/ai-bouncer/config.json"
+
+# 초기 state.json 생성
+python3 -c "
+import json
+s = {
+  'workflow_phase': 'development',
+  'mode': 'simple',
+  'plan_approved': True,
+  'team_name': '',
+  'current_dev_phase': 0,
+  'current_step': 0,
+  'dev_phases': {},
+  'verification': {'rounds_passed': 0}
+}
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+echo "$TEST_SID" > "$ACTIVE_FILE"
+echo "# Test Plan" > "$TASK_DIR/plan.md"
+
+cleanup() { rm -rf "$INSTALL_REPO"; rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*; }
+trap cleanup EXIT
 
 setup() {
   # state.json을 원하는 상태로 설정
@@ -35,7 +67,7 @@ with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
 # 헬퍼: hook 실행 후 차단 여부 확인
 run_hook() {
   local hook="$1" input="$2"
-  echo "$input" | bash "$HOOKS_DIR/$hook" 2>/dev/null || true
+  (cd "$INSTALL_REPO" && echo "$input" | bash "$HOOKS_DIR/$hook" 2>/dev/null) || true
 }
 
 assert_pass() {
@@ -105,7 +137,7 @@ assert_pass "SIMPLE + development + approved → 통과" "$R"
 
 setup "simple" "planning" "false"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "SIMPLE + planning → 차단" "$R"
+assert_pass "SIMPLE + planning → 통과 (탐색 허용)" "$R"
 
 setup "simple" "development" "false"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
@@ -122,7 +154,7 @@ assert_pass "~/.claude/plans/ → 항상 통과" "$R"
 
 # 위임 에이전트
 setup "simple" "development" "true"
-echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+echo "${TEST_SID}-sub|$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"${TEST_SID}-sub\"}")
 assert_pass "위임 에이전트 → 부모 task 기준 통과" "$R"
 rm -f /tmp/.ai-bouncer-approved-agents
@@ -148,10 +180,10 @@ assert_pass "1>/dev/null 2>/dev/null → 오탐 아님" "$R"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "echo > file.txt (development) → 통과" "$R"
 
-# planning에서 쓰기는 차단
+# planning에서 일반 쓰기는 허용 (탐색/Q&A 중 파일 쓰기 허용, 커밋만 차단)
 setup "simple" "planning" "false"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "echo > file.txt (planning) → 차단" "$R"
+assert_pass "echo > file.txt (planning) → 통과 (탐색 허용)" "$R"
 
 # git 명령어는 항상 통과
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git add test.py\"},\"session_id\":\"$TEST_SID\"}")
@@ -161,9 +193,9 @@ assert_pass "git add → 항상 통과" "$R"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 -c 'import json; ...' state.json\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "state.json 수정 → 예외 통과" "$R"
 
-# rm state.json은 예외 아님
+# rm state.json: planning 단계 ALLOW 적용 (CHECK 2)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm state.json\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "rm state.json (planning) → 차단" "$R"
+assert_pass "rm state.json (planning) → 통과 (planning ALLOW)" "$R"
 
 # python 오탐 (python_version 같은 변수)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo python_version\"},\"session_id\":\"$TEST_SID\"}")
@@ -177,7 +209,7 @@ echo "─── subagent-track/cleanup ───"
 setup "simple" "development" "true"
 
 # SubagentStart
-R=$(echo "{\"session_id\":\"sub-001\",\"agent_id\":\"agent-1\"}" | bash hooks/subagent-track.sh 2>/dev/null)
+R=$((cd "$INSTALL_REPO" && echo "{\"session_id\":\"sub-001\",\"agent_id\":\"agent-1\"}" | bash "$HOOKS_DIR/subagent-track.sh" 2>/dev/null) || true)
 if [ -f /tmp/.ai-bouncer-approved-agents ] && grep -q "sub-001" /tmp/.ai-bouncer-approved-agents; then
   echo "  ✅ SubagentStart: sub-001 등록됨"
   PASS=$((PASS + 1))
@@ -187,7 +219,7 @@ else
 fi
 
 # SubagentStop
-echo "{\"session_id\":\"sub-001\"}" | bash hooks/subagent-cleanup.sh 2>/dev/null
+(cd "$INSTALL_REPO" && echo "{\"session_id\":\"sub-001\"}" | bash "$HOOKS_DIR/subagent-cleanup.sh" 2>/dev/null) || true
 if [ ! -f /tmp/.ai-bouncer-approved-agents ] || ! grep -q "sub-001" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
   echo "  ✅ SubagentStop: sub-001 제거됨"
   PASS=$((PASS + 1))
@@ -204,8 +236,8 @@ while IFS= read -r -d '' af; do
   [ "$af" = "$ACTIVE_FILE" ] && continue
   OTHER_ACTIVES+=("$af")
   mv "$af" "${af}.bak-e2e"
-done < <(find docs -name ".active" -print0 2>/dev/null)
-echo "{\"session_id\":\"sub-002\"}" | bash hooks/subagent-track.sh 2>/dev/null
+done < <(find "$INSTALL_REPO/docs" -name ".active" -print0 2>/dev/null)
+(cd "$INSTALL_REPO" && echo "{\"session_id\":\"sub-002\"}" | bash "$HOOKS_DIR/subagent-track.sh" 2>/dev/null) || true
 if ! grep -q "sub-002" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
   echo "  ✅ planning 상태 → 등록 안 됨"
   PASS=$((PASS + 1))
@@ -213,7 +245,7 @@ else
   echo "  ❌ planning 상태인데 등록됨"
   FAIL=$((FAIL + 1))
 fi
-for af in "${OTHER_ACTIVES[@]}"; do
+for af in "${OTHER_ACTIVES[@]+"${OTHER_ACTIVES[@]}"}"; do
   mv "${af}.bak-e2e" "$af" 2>/dev/null || true
 done
 
@@ -230,7 +262,7 @@ setup "normal" "verification" "true"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_block "NORMAL + verification + round 없음 → 차단" "$R"
 
-echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+echo "${TEST_SID}-sub|$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
 R=$(run_hook completion-gate.sh "{\"session_id\":\"${TEST_SID}-sub\"}")
 assert_pass "위임 에이전트 → completion-gate 스킵" "$R"
 rm -f /tmp/.ai-bouncer-approved-agents
@@ -247,7 +279,7 @@ assert_pass "스냅샷 없음 → audit 스킵" "$R"
 
 # 승인된 에이전트는 스킵
 touch "/tmp/.ai-bouncer-snapshot-${TEST_SID}-sub"
-echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+echo "${TEST_SID}-sub|$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
 R=$(run_hook bash-audit.sh "{\"tool_name\":\"Bash\",\"session_id\":\"${TEST_SID}-sub\"}")
 assert_pass "승인된 에이전트 → audit 스킵" "$R"
 rm -f /tmp/.ai-bouncer-approved-agents
@@ -264,7 +296,7 @@ R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\
 assert_pass "tests.md Bash 쓰기 → 예외 통과" "$R"
 
 # .active 파일 삭제
-R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm -f docs/2026-03-08/e2e-hook-hardening/.active\"},\"session_id\":\"$TEST_SID\"}")
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm -f $ACTIVE_FILE\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass ".active 삭제 → 예외 통과" "$R"
 
 echo ""
@@ -297,7 +329,7 @@ assert_pass "NORMAL + 정상 dev_phases + echo > → 통과" "$R"
 
 # TC-5: sub-agent + dev_phases={} 부모 + Write → BLOCK
 setup_normal '{}' 1 1
-echo "${TEST_SID}-sub|$(pwd)/$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
+echo "${TEST_SID}-sub|$TASK_DIR" > /tmp/.ai-bouncer-approved-agents
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"${TEST_SID}-sub\"}")
 assert_block "sub-agent + dev_phases={} 부모 + Write → 차단" "$R"
 
@@ -591,7 +623,7 @@ echo "─── commit_strategy 검증 ───"
 CS_DEV_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
 
 # 백업 config.json
-cp .claude/ai-bouncer/config.json /tmp/.ai-bouncer-config-backup.json
+cp "$CONFIG_FILE" /tmp/.ai-bouncer-config-backup.json
 
 # TC-C1: commit_strategy=none → git commit 차단
 setup_normal "$CS_DEV_PHASES" 1 1
@@ -600,9 +632,9 @@ printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 
 printf "| TC-1 | test | expected | ✅ |\n" > "$TASK_DIR/phase-1-test/step-1.md"
 python3 -c "
 import json
-c = json.load(open('.claude/ai-bouncer/config.json'))
+c = json.load(open('$CONFIG_FILE'))
 c['commit_strategy'] = 'none'
-json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+json.dump(c, open('$CONFIG_FILE', 'w'), indent=2)
 "
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
 assert_block "bash-gate: commit_strategy=none → git commit 차단" "$R"
@@ -610,9 +642,9 @@ assert_block "bash-gate: commit_strategy=none → git commit 차단" "$R"
 # TC-C2: commit_strategy=per-step + step 미완료 → git commit 차단
 python3 -c "
 import json
-c = json.load(open('.claude/ai-bouncer/config.json'))
+c = json.load(open('$CONFIG_FILE'))
 c['commit_strategy'] = 'per-step'
-json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+json.dump(c, open('$CONFIG_FILE', 'w'), indent=2)
 "
 printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
@@ -626,16 +658,16 @@ assert_pass "bash-gate: per-step + step 완료 → git commit 통과" "$R"
 # TC-C4: commit_strategy=per-phase + 마지막 step 미완료 → 차단
 python3 -c "
 import json
-c = json.load(open('.claude/ai-bouncer/config.json'))
+c = json.load(open('$CONFIG_FILE'))
 c['commit_strategy'] = 'per-phase'
-json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+json.dump(c, open('$CONFIG_FILE', 'w'), indent=2)
 "
 printf "| TC-1 | test | expected |\n" > "$TASK_DIR/phase-1-test/step-1.md"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
 assert_block "bash-gate: per-phase + 마지막 step 미완료 → 차단" "$R"
 
 # config.json 복원
-cp /tmp/.ai-bouncer-config-backup.json .claude/ai-bouncer/config.json
+cp /tmp/.ai-bouncer-config-backup.json "$CONFIG_FILE"
 rm -f /tmp/.ai-bouncer-config-backup.json
 rm -rf "$TASK_DIR/phase-1-test"
 cleanup_normal
@@ -678,7 +710,7 @@ echo "─── QA 회귀 테스트 ───"
 
 # TC-QA1: subagent-cleanup — approved 파일 없이 호출 → 빈 파일 생성 안 됨 (C-1)
 rm -f /tmp/.ai-bouncer-approved-agents
-echo '{"session_id":"orphan-session"}' | bash hooks/subagent-cleanup.sh 2>/dev/null
+(cd "$INSTALL_REPO" && echo '{"session_id":"orphan-session"}' | bash "$HOOKS_DIR/subagent-cleanup.sh" 2>/dev/null) || true
 if [ ! -f /tmp/.ai-bouncer-approved-agents ]; then
   echo "  ✅ QA1: cleanup — approved 없이 호출 → 빈 파일 생성 안 됨"
   PASS=$((PASS + 1))
@@ -690,7 +722,7 @@ rm -f /tmp/.ai-bouncer-approved-agents
 
 # TC-QA2: subagent-cleanup — grep 매칭 0건(다른 세션만 존재) → 기존 항목 보존 (C-1)
 echo "other-session|/some/path" > /tmp/.ai-bouncer-approved-agents
-echo '{"session_id":"nonexistent-session"}' | bash hooks/subagent-cleanup.sh 2>/dev/null
+(cd "$INSTALL_REPO" && echo '{"session_id":"nonexistent-session"}' | bash "$HOOKS_DIR/subagent-cleanup.sh" 2>/dev/null) || true
 if [ -f /tmp/.ai-bouncer-approved-agents ] && grep -q "other-session" /tmp/.ai-bouncer-approved-agents 2>/dev/null; then
   echo "  ✅ QA2: cleanup — 매칭 없는 세션 제거 → 기존 항목 보존"
   PASS=$((PASS + 1))
@@ -705,12 +737,12 @@ EMPTY_STEPS_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{}}}'
 setup_normal "$EMPTY_STEPS_PHASES" 1 1
 mkdir -p "$TASK_DIR/phase-1-test"
 printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
-cp .claude/ai-bouncer/config.json /tmp/.ai-bouncer-config-backup-qa.json
+cp "$CONFIG_FILE" /tmp/.ai-bouncer-config-backup-qa.json
 python3 -c "
 import json
-c = json.load(open('.claude/ai-bouncer/config.json'))
+c = json.load(open('$CONFIG_FILE'))
 c['commit_strategy'] = 'per-phase'
-json.dump(c, open('.claude/ai-bouncer/config.json', 'w'), indent=2)
+json.dump(c, open('$CONFIG_FILE', 'w'), indent=2)
 "
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$TEST_SID\"}")
 # block은 예상 (step 없으니까), 하지만 "null" 참조는 버그
@@ -726,7 +758,7 @@ else
   echo "  ❌ QA3: per-phase + steps={} → 차단되지 않음"
   FAIL=$((FAIL + 1))
 fi
-cp /tmp/.ai-bouncer-config-backup-qa.json .claude/ai-bouncer/config.json
+cp /tmp/.ai-bouncer-config-backup-qa.json "$CONFIG_FILE"
 rm -f /tmp/.ai-bouncer-config-backup-qa.json
 rm -rf "$TASK_DIR/phase-1-test"
 cleanup_normal
@@ -779,10 +811,9 @@ cleanup_normal
 
 echo ""
 
-# ─── 7. subagent 모드 hook 동작 ──────────────
+# ─── 16. subagent 모드 hook 동작 ──────────────
 echo "─── subagent 모드 hook 동작 ───"
 
-CONFIG_FILE=".claude/ai-bouncer/config.json"
 ORIG_CONFIG=$(cat "$CONFIG_FILE")
 
 # subagent 모드 헬퍼
@@ -869,7 +900,7 @@ cleanup_subagent
 
 echo ""
 
-# ─── 7.5. 미등록 subagent fallback (resolve-task.sh) ──────
+# ─── 16.5. 미등록 subagent fallback (resolve-task.sh) ──────
 echo "─── 미등록 subagent fallback ───"
 
 UNREGISTERED_SID="unregistered-sub-$(date +%s)"
@@ -900,10 +931,10 @@ while IFS= read -r -d '' af; do
   [ "$af" = "$ACTIVE_FILE" ] && continue
   OTHER_ACTIVES_UF+=("$af")
   mv "$af" "${af}.bak-uf"
-done < <(find docs -name ".active" -print0 2>/dev/null)
+done < <(find "$INSTALL_REPO/docs" -name ".active" -print0 2>/dev/null)
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
 assert_pass "UF-4: 미등록 subagent + planning만 → 통과 (fallback 안 됨)" "$R"
-for af in "${OTHER_ACTIVES_UF[@]}"; do
+for af in "${OTHER_ACTIVES_UF[@]+"${OTHER_ACTIVES_UF[@]}"}"; do
   mv "${af}.bak-uf" "$af" 2>/dev/null || true
 done
 
@@ -920,7 +951,7 @@ cleanup_subagent
 
 echo ""
 
-# ─── 8. SIMPLE 모드 카운터 무시 ──────────────
+# ─── 17. SIMPLE 모드 카운터 무시 ──────────────
 echo "─── SIMPLE 모드 카운터 무시 ───"
 
 # SM-1: SIMPLE + dev_phases={} + counters=0 + approved → plan-gate 통과
@@ -936,8 +967,7 @@ assert_pass "SM-2: SIMPLE + development → completion-gate 통과" "$R"
 echo ""
 
 # ─── 정리 ─────────────────────────────────
-setup "simple" "development" "true"
-rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
+rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 
 echo "═══════════════════════════════════════════"
 echo "  결과: ✅ $PASS 통과 / ❌ $FAIL 실패"
