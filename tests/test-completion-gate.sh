@@ -182,7 +182,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 # SIMPLE 모드 테스트
 # ---------------------------------------------------------------------------
 
-# TC-CS1: simple + verification + round 없음 → ALLOW (3회 검증 불필요)
+# TC-CS1: simple + plan_approved + non-done → BLOCK (Phase S3 강제)
 tc_cs1() {
   local dir="$TMPDIR_ROOT/tc_cs1"
   setup_env "$dir" "my-task" "verification" "true"
@@ -194,7 +194,7 @@ s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local out; out=$(run_hook "$dir")
-  assert_allow "TC-CS1: simple + verification + round 없음 → ALLOW" "$out"
+  assert_block "TC-CS1: simple + plan_approved + non-done → BLOCK" "$out"
 }
 
 # TC-CS2: normal + verification + round 없음 → BLOCK (기존 동작 유지)
@@ -205,6 +205,36 @@ tc_cs2() {
   assert_block "TC-CS2: normal + verification + round 없음 → BLOCK" "$out"
 }
 
+# TC-CS3: simple + plan_approved=false → ALLOW (계획 미승인 차단 없음)
+tc_cs3() {
+  local dir="$TMPDIR_ROOT/tc_cs3"
+  setup_env "$dir" "my-task" "development" "false"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-CS3: simple + plan_approved=false → ALLOW" "$out"
+}
+
+# TC-CS4: simple + done → ALLOW
+tc_cs4() {
+  local dir="$TMPDIR_ROOT/tc_cs4"
+  setup_env "$dir" "my-task" "done" "true"
+  python3 -c "
+import json
+f = '$dir/docs/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'simple'
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-CS4: simple + done → ALLOW" "$out"
+}
+
 # ---------------------------------------------------------------------------
 # Run all TCs
 # ---------------------------------------------------------------------------
@@ -212,7 +242,7 @@ echo -e "${YELLOW}=== completion-gate.sh E2E Tests (Artifact-based) ===${NC}"
 echo ""
 
 tc_c1; tc_c2; tc_c3; tc_c4; tc_c5; tc_c6; tc_c7
-tc_cs1; tc_cs2
+tc_cs1; tc_cs2; tc_cs3; tc_cs4
 
 echo ""
 echo "---"

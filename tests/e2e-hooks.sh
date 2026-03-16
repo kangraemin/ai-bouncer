@@ -256,7 +256,7 @@ echo "─── completion-gate.sh ───"
 
 setup "simple" "development" "true"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
-assert_pass "SIMPLE 모드 → completion-gate 스킵" "$R"
+assert_block "SIMPLE + development + approved → completion-gate 차단" "$R"
 
 setup "normal" "verification" "true"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
@@ -959,10 +959,25 @@ setup "simple" "development" "true"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "SM-1: SIMPLE + dev_phases={} + counters=0 → plan-gate 통과" "$R"
 
-# SM-2: SIMPLE + development → completion-gate 통과
+# SM-2: SIMPLE + development + approved → completion-gate 차단 (Phase S3 강제)
 setup "simple" "development" "true"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
-assert_pass "SM-2: SIMPLE + development → completion-gate 통과" "$R"
+assert_block "SM-2: SIMPLE + development + approved → completion-gate 차단" "$R"
+
+# SM-3: SIMPLE + done → completion-gate 통과
+python3 -c "
+import json
+s = json.load(open('$STATE_FILE'))
+s['workflow_phase'] = 'done'
+with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
+"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "SM-3: SIMPLE + done → completion-gate 통과" "$R"
+
+# SM-4: SIMPLE + plan_approved=false + development → completion-gate 통과
+setup "simple" "development" "false"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "SM-4: SIMPLE + plan_approved=false → completion-gate 통과" "$R"
 
 echo ""
 
