@@ -282,13 +282,8 @@ case "$WORKFLOW_PHASE" in
     exit 0 ;;
 esac
 
-# CHECK 2: planning → BLOCK
+# CHECK 2: planning → ALLOW (탐색/Q&A 중 파일 쓰기 허용, 커밋은 위 섹션에서 차단)
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
-  save_snapshot
-  jq -n '{
-    decision: "block",
-    reason: "⛔ [bash-gate] Planning 단계에서 Bash를 통한 파일 쓰기가 차단되었습니다. Q&A 완료 후 계획 승인을 받으세요."
-  }'
   exit 0
 fi
 
