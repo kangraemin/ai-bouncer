@@ -290,7 +290,7 @@ docs/
 **PostToolUse** — `doc-reminder` (Edit/Write)
 → step 문서 없으면 ⛔ 차단
 
-PreToolUse에서 미리 막으면 step 문서 자체를 쓸 수가 없어서 PostToolUse에서 체크. 코드는 바꿨는데 step 문서가 없으면 그때 차단.
+PreToolUse에서 막으면 문서 자체를 못 씀. PostToolUse에서 확인 — 코드는 바꿨는데 step 문서 없으면 차단.
 
 | 검사 항목 | 이유 |
 |---|---|
@@ -299,7 +299,7 @@ PreToolUse에서 미리 막으면 step 문서 자체를 쓸 수가 없어서 Pos
 **PostToolUse** — `bash-audit` (Bash)
 → 무단 변경 감지 시 🔄 자동 되돌림 (차단 아님)
 
-bash-gate은 명령어 패턴(`>`, `tee`, `cp` 등)으로 사전 차단하지만 스크립트 내부는 못 봄. bash-audit은 실행 전후 `git diff`를 비교해 몰래 바뀐 파일을 감지하고 되돌림. 이미 실행된 뒤라 차단은 불가.
+PreToolUse(bash-gate)는 쓰기 패턴 감지로 사전 차단, 스크립트 내부는 못 봄. PostToolUse(bash-audit)는 실행 전후 git diff 비교 — 무단 변경 감지 시 되돌림. 이미 실행됐으니 차단은 불가.
 
 | 검사 항목 | 이유 |
 |---|---|

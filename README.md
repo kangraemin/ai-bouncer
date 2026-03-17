@@ -290,7 +290,7 @@ Nine hooks registered automatically into `settings.json`, grouped by lifecycle e
 **PostToolUse** — `doc-reminder` (Edit/Write)
 → step doc missing → ⛔ blocks
 
-PreToolUse can't check this upfront — blocking before the write would prevent writing the step doc itself. So it checks after: if code was changed but the step doc doesn't exist, Claude is stopped until the doc is in place.
+PreToolUse would block the doc write itself. PostToolUse checks after: code changed but no step doc → blocked.
 
 | Check | Why |
 |---|---|
@@ -299,7 +299,7 @@ PreToolUse can't check this upfront — blocking before the write would prevent 
 **PostToolUse** — `bash-audit` (Bash)
 → unauthorized change detected → 🔄 auto-reverts (no block)
 
-bash-gate checks command patterns (`>`, `tee`, `cp`, etc.) but can't see inside scripts. bash-audit compares `git diff` before and after execution — if files changed without passing PreToolUse, it reverts them. Can't block since execution already finished.
+PreToolUse (bash-gate) catches obvious write patterns but can't see inside scripts. PostToolUse (bash-audit) diffs git before/after — unauthorized changes get reverted. Can't block; already executed.
 
 | Check | Why |
 |---|---|
