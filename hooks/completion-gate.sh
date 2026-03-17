@@ -89,16 +89,19 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
 
   while IFS= read -r rfile; do
     [ -z "$rfile" ] && continue
-    HAS_PASS=$(grep -q '통과' "$rfile" 2>/dev/null && echo 1 || echo 0)
-    HAS_FAIL=$(grep -q '실패' "$rfile" 2>/dev/null && echo 1 || echo 0)
-    # round.md 필수 섹션 체크 (빈 문서로 통과 방지)
+    ROUND_NUM=$(basename "$rfile" | grep -o '[0-9]*')
     HAS_REQUIRED=1
-    for section in "## 결론"; do
-      if ! grep -q "$section" "$rfile" 2>/dev/null; then
-        HAS_REQUIRED=0
-        break
-      fi
-    done
+    # 공통: ## 결론 섹션 필수 (행 시작 기준)
+    if ! grep -q "^## 결론" "$rfile" 2>/dev/null; then HAS_REQUIRED=0; fi
+    # Round 2 추가: ## 발견된 이슈 섹션 + 최소 내용 필요
+    if [ "$ROUND_NUM" = "2" ] && [ "$HAS_REQUIRED" = "1" ]; then
+      if ! grep -q "^## 발견된 이슈" "$rfile" 2>/dev/null; then HAS_REQUIRED=0; fi
+      ISSUES_CONTENT=$(grep -A3 "^## 발견된 이슈" "$rfile" 2>/dev/null | tail -3)
+      if [ -z "$(echo "$ISSUES_CONTENT" | tr -d '[:space:]')" ]; then HAS_REQUIRED=0; fi
+    fi
+    # 통과/실패: ## 결론 다음 줄 기준
+    HAS_PASS=$(grep -A1 "^## 결론" "$rfile" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
+    HAS_FAIL=$(grep -A1 "^## 결론" "$rfile" 2>/dev/null | grep -q "^실패" && echo 1 || echo 0)
     if [ "$HAS_PASS" = "1" ] && [ "$HAS_FAIL" = "0" ] && [ "$HAS_REQUIRED" = "1" ]; then
       CONSECUTIVE_PASS=$((CONSECUTIVE_PASS + 1))
     else
