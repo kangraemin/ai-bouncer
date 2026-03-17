@@ -6,17 +6,17 @@ Claude Code 생명주기에서 각 훅이 언제, 무엇을 하는지 정리한 
 
 ## 훅 목록
 
-| Hook | 이벤트 | 대상 도구 | 역할 |
-|---|---|---|---|
-| `plan-gate` | PreToolUse | Write / Edit / MultiEdit | 파일 쓰기 전 워크플로우 검증 |
-| `bash-gate` | PreToolUse | Bash | 파일 쓰기 패턴 + 커밋 검증 |
-| `doc-reminder` | PostToolUse | Write / Edit / MultiEdit | 코드 수정 후 step 문서 존재 검증 |
-| `bash-audit` | PostToolUse | Bash | bash-gate 우회 시 파일 강제 복원 |
-| `subagent-track` | SubagentStart | — | sub-agent session_id 승인 목록 등록 |
-| `subagent-cleanup` | SubagentStop | — | sub-agent 종료 시 승인 목록 제거 |
-| `completion-gate` | Stop | — | 응답 턴 종료 전 워크플로우 완료 검증 |
-| `stop-active-cleanup` | Stop | — | done 상태 `.active` 자동 삭제 |
-| `stop-bouncer-compat` | Stop | — | NORMAL 팀 작업 중 미커밋 체크 스킵 |
+| Hook | 시점 | 하는 일 |
+|---|---|---|
+| `plan-gate` | 파일 수정 전 | 계획·TC·이전 step 통과 여부 확인 → 안 맞으면 차단 |
+| `bash-gate` | 터미널 명령 전 | 위 동일 + 테스트 미통과 상태에서 커밋 시도 차단 |
+| `doc-reminder` | 파일 수정 후 | step 문서가 없으면 차단 |
+| `bash-audit` | 터미널 명령 후 | 조건 안 맞는데 파일이 바뀌어 있으면 자동으로 되돌림 |
+| `subagent-track` | 서브 에이전트 시작 시 | 서브 에이전트에게 조건 검사 면제 부여 |
+| `subagent-cleanup` | 서브 에이전트 종료 시 | 면제 회수 |
+| `completion-gate` | 응답 종료 전 | 검증 3회 통과 안 했으면 응답 종료 차단 |
+| `stop-active-cleanup` | 응답 종료 전 | 작업 완료 시 잠금 파일 자동 삭제 |
+| `stop-bouncer-compat` | 응답 종료 전 | 팀 작업 중엔 미커밋 경고 무시 |
 
 ---
 
@@ -26,41 +26,41 @@ Claude Code 생명주기에서 각 훅이 언제, 무엇을 하는지 정리한 
 sequenceDiagram
     actor U as 👤 User
     participant C as 🤖 Claude
-    participant PRE as 🔴 PreToolUse
+    participant PRE as 🔴 도구 쓰기 전
     participant T as 🛠 Tool
-    participant POST as 🟡 PostToolUse
-    participant SUB as 🔵 Sub-agent
-    participant STP as 🟠 Stop
+    participant POST as 🟡 도구 쓴 후
+    participant SUB as 🔵 서브 에이전트
+    participant STP as 🟠 응답 종료 전
 
     U->>C: 메시지 전송
 
     rect rgb(255, 220, 220)
-        note over PRE: plan-gate: 계획 없음·TC 없음·이전 step 실패·팀 없음 → Write/Edit 차단<br/>bash-gate: 위 동일 + 미완료 상태에서 커밋 시도 → Bash 차단
-        C->>PRE: 도구 실행 전 검증
-        PRE-->>C: ⛔ Block or ✅ Pass
+        note over PRE: 계획 검사: 계획 없음·TC 없음·이전 step 실패·팀 없음 → 파일 수정 차단<br/>커밋 검사: 위 동일 + 테스트 미통과 상태에서 커밋 시도 → 차단
+        C->>PRE: 조건 검사
+        PRE-->>C: ⛔ 차단 or ✅ 통과
     end
 
     C->>T: 도구 실행
     T-->>C: 완료
 
     rect rgb(255, 255, 200)
-        note over POST: doc-reminder: step 문서 없이 코드 수정 → 차단<br/>bash-audit: gate 우회해서 파일 바꾸면 → 자동 되돌림
-        C->>POST: 도구 완료 후 검증
-        POST-->>C: ⛔ Block or 🔄 자동 복원
+        note over POST: 문서 검사: step 문서 없이 코드 수정 → 차단<br/>변경 감시: 조건 안 맞는데 파일 바꾸면 → 자동 되돌림
+        C->>POST: 결과 검사
+        POST-->>C: ⛔ 차단 or 🔄 자동 복원
     end
 
-    opt Sub-agent 스폰 시
+    opt 서브 에이전트 쓸 때
         rect rgb(210, 230, 255)
-            note over SUB: 스폰된 에이전트는 gate 검사 면제, 종료되면 면제권 회수
+            note over SUB: 서브 에이전트는 위 조건 검사 없이 통과, 종료되면 원래대로 복귀
             C->>SUB: 스폰
             SUB-->>C: 종료
         end
     end
 
     rect rgb(255, 230, 200)
-        note over STP: completion-gate: 검증 3회 통과 전 → 턴 종료 차단<br/>stop-active-cleanup: done 상태 .active 자동 삭제<br/>stop-bouncer-compat: 팀 작업 중 미커밋 경고 스킵
-        C->>STP: 응답 종료 시도
-        STP-->>C: ⛔ Block or ✅ Pass
+        note over STP: 완료 검사: 검증 3회 통과 전 → 응답 종료 차단<br/>잠금 정리: 작업 완료 시 잠금 파일 자동 삭제<br/>경고 스킵: 팀 작업 중엔 미커밋 경고 무시
+        C->>STP: 종료 시도
+        STP-->>C: ⛔ 차단 or ✅ 통과
     end
 
     C-->>U: 응답
