@@ -231,6 +231,12 @@ fi
 TARGET_DIR="$REPO_ROOT/.claude"
 SCOPE="local"
 
+# 소스 레포 감지: 소스 레포에서는 update.sh/uninstall.sh를 설치 아티팩트로 취급하지 않음
+IS_SOURCE_REPO=false
+if [ -f "$REPO_ROOT/install.sh" ] && [ -f "$REPO_ROOT/agents/intent.md" ]; then
+  IS_SOURCE_REPO=true
+fi
+
 info "설치 대상: $TARGET_DIR"
 mkdir -p "$TARGET_DIR"
 
@@ -461,9 +467,11 @@ for f in "${INSTALLED_FILES[@]}"; do
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 .claude/${f}"
 done
-GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+if [ "$IS_SOURCE_REPO" = false ]; then
+  GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 update.sh
 uninstall.sh"
+fi
 
 GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 ${GITIGNORE_END}"
@@ -503,7 +511,9 @@ if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
     [[ "$f" = /* ]] && continue
     git -C "$REPO_ROOT" rm --cached ".claude/$f" 2>/dev/null || true
   done
-  git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
+  if [ "$IS_SOURCE_REPO" = false ]; then
+    git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
+  fi
 fi
 
 # 커밋 전략 선택
