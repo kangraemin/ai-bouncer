@@ -279,6 +279,8 @@ docs/
 **PreToolUse** — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
 → 하나라도 불충족 시 ⛔ 도구 실행 차단
 
+Edit/Write/Bash 실행 전마다 동작 — 조건 미충족이면 도구 호출 자체를 막음.
+
 | 검사 항목 | 이유 |
 |---|---|
 | 계획을 세우고 승인받았어? | 계획도 없이 코드 바꾸면 안 되니까 |
@@ -290,7 +292,7 @@ docs/
 **PostToolUse** — `doc-reminder` (Edit/Write)
 → step 문서 없으면 ⛔ 차단
 
-PreToolUse에서 막으면 문서 자체를 못 씀. PostToolUse에서 확인 — 코드는 바꿨는데 step 문서 없으면 차단.
+PreToolUse에서 막으면 문서 자체를 못 쓰니 — PostToolUse에서 확인: 코드는 바꿨는데 step 문서 없으면 차단.
 
 | 검사 항목 | 이유 |
 |---|---|
@@ -299,7 +301,7 @@ PreToolUse에서 막으면 문서 자체를 못 씀. PostToolUse에서 확인 �
 **PostToolUse** — `bash-audit` (Bash)
 → 무단 변경 감지 시 🔄 자동 되돌림 (차단 아님)
 
-PreToolUse(bash-gate)는 쓰기 패턴 감지로 사전 차단, 스크립트 내부는 못 봄. PostToolUse(bash-audit)는 실행 전후 git diff 비교 — 무단 변경 감지 시 되돌림. 이미 실행됐으니 차단은 불가.
+PreToolUse(bash-gate)는 쓰기 패턴 차단; PostToolUse(bash-audit)는 실행 전후 git diff 비교 — 빠져나간 변경 감지 시 되돌림.
 
 | 검사 항목 | 이유 |
 |---|---|
@@ -313,12 +315,16 @@ PreToolUse(bash-gate)는 쓰기 패턴 감지로 사전 차단, 스크립트 내
 **Stop** — `completion-gate`
 → 검증 미완료 시 ⛔ 응답 종료 차단
 
+Claude가 턴을 끝내려 할 때 동작 — 검증 3회 연속 통과 전까지 응답 종료를 막음.
+
 | 검사 항목 | 이유 |
 |---|---|
 | 검증 3회 연속 통과했어? | 덜 된 상태로 작업 종료하는 걸 막기 위해 |
 
 **Stop** — `stop-active-cleanup` · `stop-bouncer-compat`
 → 차단 없음 — 정리/스킵만
+
+매 Stop마다 동작 — 잠금 파일 정리 + 불필요한 경고 억제. 차단 없음.
 
 | 동작 | 이유 |
 |---|---|

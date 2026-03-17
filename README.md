@@ -279,6 +279,8 @@ Nine hooks registered automatically into `settings.json`, grouped by lifecycle e
 **PreToolUse** — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
 → any check fails → ⛔ blocks tool execution
 
+Runs before every Edit/Write/Bash — if any gate condition isn't met, the tool call is blocked before it executes.
+
 | Check | Why |
 |---|---|
 | Plan approved? | No editing without an approved plan |
@@ -290,7 +292,7 @@ Nine hooks registered automatically into `settings.json`, grouped by lifecycle e
 **PostToolUse** — `doc-reminder` (Edit/Write)
 → step doc missing → ⛔ blocks
 
-PreToolUse would block the doc write itself. PostToolUse checks after: code changed but no step doc → blocked.
+PreToolUse would block the doc write itself — so PostToolUse checks instead: code changed but no step doc → blocked.
 
 | Check | Why |
 |---|---|
@@ -299,7 +301,7 @@ PreToolUse would block the doc write itself. PostToolUse checks after: code chan
 **PostToolUse** — `bash-audit` (Bash)
 → unauthorized change detected → 🔄 auto-reverts (no block)
 
-PreToolUse (bash-gate) catches obvious write patterns but can't see inside scripts. PostToolUse (bash-audit) diffs git before/after — unauthorized changes get reverted. Can't block; already executed.
+PreToolUse (bash-gate) blocks obvious write patterns; PostToolUse (bash-audit) diffs git before/after and reverts anything that snuck through.
 
 | Check | Why |
 |---|---|
@@ -308,10 +310,12 @@ PreToolUse (bash-gate) catches obvious write patterns but can't see inside scrip
 **SubagentStart / SubagentStop** — `subagent-track` · `subagent-cleanup`
 → no block — tracks only
 
-Sub-agents inherit PreToolUse/PostToolUse permissions from the parent session — the parent already passed all checks, so re-blocking the sub-agent would be a false positive. Permissions are revoked on termination so they can't be reused by other agents.
+Parent already passed all checks — sub-agents skip PreToolUse/PostToolUse to avoid false positives. Permissions revoked on Stop so they can't be reused.
 
 **Stop** — `completion-gate`
 → verification incomplete → ⛔ blocks response
+
+Runs when Claude tries to end a turn — blocks the response until 3 consecutive verification rounds pass.
 
 | Check | Why |
 |---|---|
@@ -319,6 +323,8 @@ Sub-agents inherit PreToolUse/PostToolUse permissions from the parent session �
 
 **Stop** — `stop-active-cleanup` · `stop-bouncer-compat`
 → no block — cleanup / skip only
+
+Runs on every Stop — cleans up lock files and suppresses false-positive warnings. No blocking.
 
 | Action | Why |
 |---|---|
