@@ -321,7 +321,6 @@ Sub-agents inherit PreToolUse/PostToolUse permissions from the parent session �
 | Auto-delete lock file on completion | Next task shouldn't be blocked by a stale lock |
 | Suppress uncommitted-file warning during team tasks | Agents commit in parallel — warning would be a false positive |
 
-→ Full lifecycle diagram: [docs/hooks-lifecycle.md](docs/hooks-lifecycle.md)
 
 ---
 
