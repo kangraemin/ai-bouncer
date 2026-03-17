@@ -1,52 +1,54 @@
 # ai-bouncer Hook Lifecycle
 
-Claude Code 생명주기에서 각 훅이 언제, 무엇을 하는지 정리한 다이어그램.
+How each hook fires across the Claude Code lifecycle.
+
+[![한국어](https://img.shields.io/badge/lang-한국어-blue)](hooks-lifecycle.ko.md)
 
 ---
 
-## 훅 목록
+## Hooks by lifecycle event
 
 ### 🔴 PreToolUse — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
 
-Claude가 계획 없이 멋대로 코드 짜는 걸 막기 위해 도구 실행 전에 검사.
+Runs before every tool call to prevent unplanned code changes.
 
-| 검사 항목 | 이유 |
+| Check | Why |
 |---|---|
-| 계획을 세우고 승인받았어? | 계획도 없이 코드 바꾸면 안 되니까 |
-| TC(테스트 기준)가 작성됐어? | 테스트 기준도 없이 구현하면 안 되니까 |
-| 이전 step 테스트 통과했어? | 망가진 상태에서 다음 단계 가면 안 되니까 |
-| 팀이 구성됐어? _(NORMAL + team 모드만)_ | 에이전트 없이 개발 단계 진입하면 안 되니까 |
-| 테스트 미통과인데 커밋? _(Bash만)_ | 안 되는 코드 커밋하면 안 되니까 |
+| Plan approved? | No editing without an approved plan |
+| TC defined for this step? | No implementation without test criteria |
+| Previous step tests passing? | No moving forward from a broken state |
+| Team assembled? _(NORMAL + team mode only)_ | No dev phase without agents in place |
+| Committing with tests failing? _(Bash only)_ | No committing broken code |
 
 ### 🟡 PostToolUse — `doc-reminder` (Edit/Write) · `bash-audit` (Bash)
 
-도구 실행 후 결과를 검증.
+Runs after every tool call to catch anything that slipped through.
 
-| 검사 항목 | 이유 |
+| Check | Why |
 |---|---|
-| step 문서가 존재해? _(Edit/Write)_ | 문서 없이 코드만 바꾸면 추적이 안 되니까 |
-| 몰래 파일 바꿨어? _(Bash)_ → 자동 되돌림 | PreToolUse를 우회하는 걸 막기 위해 2중으로 감시 |
+| Step doc exists? _(Edit/Write)_ | Code changes without docs can't be traced |
+| Files changed without passing PreToolUse? _(Bash)_ → auto-revert | 2nd layer to catch any PreToolUse bypass |
 
 ### 🔵 SubagentStart / SubagentStop — `subagent-track` · `subagent-cleanup`
 
-| 시점 | 하는 일 | 이유 |
+| Event | Action | Why |
 |---|---|---|
-| 서브 에이전트 시작 | 위 검사 생략 처리 | Main이 이미 통과했으니 서브가 또 막힐 필요 없으니까 |
-| 서브 에이전트 종료 | 생략 처리 해제 | 다른 에이전트가 면제를 재사용하지 못하게 |
+| Sub-agent starts | Grant PreToolUse/PostToolUse bypass | Parent already passed all checks — re-blocking would be a false positive |
+| Sub-agent stops | Revoke bypass | Prevent other agents from reusing the exemption |
 
 ### 🟠 Stop — `completion-gate` · `stop-active-cleanup` · `stop-bouncer-compat`
 
-응답 턴을 끝내기 전에 실행.
+Runs at the end of every response turn.
 
-| 검사 항목 | 이유 |
+| Check | Why |
 |---|---|
-| 검증 3회 연속 통과했어? | 덜 된 상태로 작업 종료하는 걸 막기 위해 |
-| 작업 완료 시 잠금 파일 자동 삭제 | 완료 후 다음 작업이 잠겨있으면 안 되니까 |
-| 팀 작업 중엔 미커밋 경고 무시 | 팀 작업은 에이전트가 나눠서 커밋하므로 오탐 방지 |
+| 3 consecutive verification passes? | Prevents closing out before work is fully done |
+| Auto-delete lock file on completion | Next task shouldn't be blocked by a stale lock |
+| Suppress uncommitted-file warning during team tasks | Agents commit in parallel — warning would be a false positive |
 
 ---
 
-## 생명주기 흐름도
+## Lifecycle flow
 
 ```mermaid
 sequenceDiagram
@@ -58,107 +60,36 @@ sequenceDiagram
     participant SUB as 🔵 SubagentStart/Stop
     participant STP as 🟠 Stop
 
-    U->>C: 메시지 전송
+    U->>C: Message
 
     rect rgb(255, 220, 220)
-        note over PRE: Edit/Write: 계획 없음·TC 없음·이전 step 실패 → 차단<br/>Bash: 위 동일 + 테스트 미통과인데 커밋 → 차단
+        note over PRE: Edit/Write: no plan · no TC · prev step failing → block<br/>Bash: same + committing with tests failing → block
         C->>PRE: plan-gate / bash-gate
-        PRE-->>C: ⛔ 차단 or ✅ 통과
+        PRE-->>C: ⛔ Block or ✅ Pass
     end
 
-    C->>T: 도구 실행
-    T-->>C: 완료
+    C->>T: Execute tool
+    T-->>C: Done
 
     rect rgb(255, 255, 200)
-        note over POST: Edit/Write: step 문서 없이 코드 수정 → 차단<br/>Bash: 몰래 파일 바꾸면 → 자동 되돌림 (2중 방어)
+        note over POST: Edit/Write: step doc missing → block<br/>Bash: files changed without passing PreToolUse → auto-revert (2nd layer)
         C->>POST: doc-reminder / bash-audit
-        POST-->>C: ⛔ 차단 or 🔄 자동 복원
+        POST-->>C: ⛔ Block or 🔄 Auto-revert
     end
 
-    opt 서브 에이전트 쓸 때
+    opt When spawning a sub-agent
         rect rgb(210, 230, 255)
-            note over SUB: Main이 이미 통과했으니 서브는 위 검사 생략<br/>종료 시 다른 에이전트가 재사용 못 하게 해제
-            C->>SUB: subagent-track (시작)
-            SUB-->>C: subagent-cleanup (종료)
+            note over SUB: Parent already passed — skip checks for sub-agent<br/>Revoke on stop so other agents can't reuse it
+            C->>SUB: subagent-track (start)
+            SUB-->>C: subagent-cleanup (stop)
         end
     end
 
     rect rgb(255, 230, 200)
-        note over STP: 검증 3회 통과 전 → 응답 종료 차단 (덜 된 상태로 끝내면 안 되니까)<br/>작업 완료 시 잠금 파일 자동 삭제<br/>팀 작업 중엔 미커밋 경고 무시 (에이전트가 나눠서 커밋하므로)
-        C->>STP: completion-gate 등
-        STP-->>C: ⛔ 차단 or ✅ 통과
+        note over STP: 3 consecutive passes? if not → block turn end (can't close out early)<br/>Auto-delete lock file on completion<br/>Suppress uncommitted-file warning during team tasks
+        C->>STP: completion-gate etc.
+        STP-->>C: ⛔ Block or ✅ Pass
     end
 
-    C-->>U: 응답
+    C-->>U: Response
 ```
-
----
-
-## Block 조건 요약
-
-### 🔴 plan-gate / bash-gate (PreToolUse)
-
-| 조건 | phase | 모드 |
-|---|---|---|
-| `workflow_phase` 알 수 없는 값 | any | any |
-| state.json을 `done`/`verification`으로 직접 변경 | planning | any |
-| `plan_approved != true` | development / verification | any |
-| `plan.md` 없음 | development / verification | any |
-| `team_name` 비어있음 | development | normal · team |
-| 팀 config.json 없음 | development | normal · team |
-| 팀 멤버 수 < 1 | development | normal · team |
-| `dev_phases` 비어있음 | development | normal |
-| `current_dev_phase <= 0` or `current_step <= 0` | development | normal |
-| 이전 Phase 미완료 (step에 ✅ 없음) | development | normal |
-| `phase.md` 없음 | development | normal |
-| `phase.md` 필수 섹션 누락 (`## 목표` / `## 범위` / `## Steps`) | development | normal |
-| 이전 step-N.md 없음 | development | normal |
-| 이전 step-N.md에 ✅ 없음 | development | normal |
-| 이전 step-N.md에 실행출력 없음 | development | normal |
-| 현재 step-N.md 없음 | development | normal |
-| 현재 step-N.md에 TC 행 없음 | development | normal |
-| 미완료 Phase 존재 (step에 ✅ 없음) | verification | normal |
-
-**bash-gate 추가 조건 (git commit/push 시):**
-
-| 조건 | commit_strategy |
-|---|---|
-| `commit_strategy=none` | none |
-| `workflow_phase=planning` 중 커밋 | any |
-| verification + 미완료 Phase | any |
-| 현재 step ✅ 없음 | per-step |
-| 마지막 step ✅ 없음 | per-phase |
-
-### 🟡 doc-reminder (PostToolUse)
-
-| 조건 | phase |
-|---|---|
-| step의 `doc_path` 문서 파일이 없음 | development |
-
-### 🟡 bash-audit (PostToolUse)
-
-Block 없음. bash-gate 스냅샷 대비 무단 변경 파일을 **자동 복원**:
-- tracked 파일 → `git checkout` 복원
-- untracked 파일 → `rm` 삭제
-
-### 🟠 completion-gate (Stop)
-
-| 조건 | 모드 |
-|---|---|
-| `plan_approved=true` + phase가 done/cancelled 아님 | simple |
-| `plan_approved=true` + development + 진행 중 Phase 있음 | normal |
-| verification + `round-*.md` < 3개 | normal |
-| verification + 마지막 3 round 연속 통과 < 3 | normal |
-
-> round 통과 조건: `통과` 포함 + `실패` 미포함 + `## 결론` 섹션 존재
-
----
-
-## 색깔 범례
-
-| 색깔 | 의미 |
-|---|---|
-| 🔴 빨강 (Pre) | 아예 실행 못 하게 막음 |
-| 🟡 노랑 (Post) | 실행은 됐지만 결과를 되돌림 |
-| 🔵 파랑 (Sub) | gate 면제권 부여/회수 |
-| 🟠 주황 (Stop) | 턴 자체를 못 끝내게 막음 |

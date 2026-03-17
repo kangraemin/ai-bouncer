@@ -274,22 +274,38 @@ docs/
 
 ## 강제 Hook
 
-8개의 hook이 `settings.json`에 자동 등록됩니다:
+9개의 hook이 `settings.json`에 자동 등록됩니다. 생명주기 이벤트 기준으로 묶으면:
 
-| Hook | 트리거 | 동작 |
-|---|---|---|
-| `plan-gate.sh` | `PreToolUse` (Write/Edit) | 기획 중 또는 TC 정의 전 코드 편집 차단 |
-| `bash-gate.sh` | `PreToolUse` (Bash) | 기획 중 Bash 쓰기 패턴 (`>`, `tee`, `sed -i`, `cp` 등) 차단 |
-| `bash-audit.sh` | `PostToolUse` (Bash) | `git diff`로 미승인 파일 변경 감지 후 자동 되돌림 |
-| `doc-reminder.sh` | `PostToolUse` (Write/Edit) | 코드 변경 후 step 문서 미갱신 시 경고 |
-| `completion-gate.sh` | `Stop` | 검증이 3회 연속 통과에 도달하지 않으면 응답 완료 차단 |
-| `stop-bouncer-compat.sh` | `Stop` | 기존 Stop hook과의 충돌 방지 호환 shim |
-| `subagent-track.sh` | `SubagentStart` | 서브에이전트 세션을 부모 작업에 등록 |
-| `subagent-cleanup.sh` | `SubagentStop` | 종료 시 서브에이전트를 승인 목록에서 제거 |
+**PreToolUse** — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
 
-**2중 Bash 방어**: `bash-gate.sh`가 실행 전 쓰기 패턴을 차단하고, `bash-audit.sh`가 실행 후 `git diff`로 빠져나간 것을 잡아 자동 되돌립니다. Bash 기반 gate 우회가 완전 차단됩니다.
+| 검사 항목 | 이유 |
+|---|---|
+| 계획을 세우고 승인받았어? | 계획도 없이 코드 바꾸면 안 되니까 |
+| TC(테스트 기준)가 작성됐어? | 테스트 기준도 없이 구현하면 안 되니까 |
+| 이전 step 테스트 통과했어? | 망가진 상태에서 다음 단계 가면 안 되니까 |
+| 팀이 구성됐어? _(NORMAL + team 모드만)_ | 에이전트 없이 개발 단계 진입하면 안 되니까 |
+| 테스트 미통과인데 커밋? _(Bash만)_ | 안 되는 코드 커밋하면 안 되니까 |
 
-**서브에이전트 위임**: 서브에이전트가 생성되면 `subagent-track.sh`가 부모 작업의 컨텍스트에 등록합니다. 위임된 에이전트는 부모 세션의 gate 권한을 상속받아, plan-gate나 bash-gate에 차단되지 않고 파일을 작성할 수 있습니다.
+**PostToolUse** — `doc-reminder` (Edit/Write) · `bash-audit` (Bash)
+
+| 검사 항목 | 이유 |
+|---|---|
+| step 문서가 존재해? _(Edit/Write)_ | 문서 없이 코드만 바꾸면 추적이 안 되니까 |
+| 몰래 파일 바꿨어? _(Bash)_ → 자동 되돌림 | PreToolUse를 우회하는 걸 막기 위한 2중 방어 |
+
+**SubagentStart / SubagentStop** — `subagent-track` · `subagent-cleanup`
+
+서브 에이전트는 PreToolUse/PostToolUse 검사를 생략합니다 — Main이 이미 통과했으니 서브가 또 막힐 필요가 없기 때문. 종료 시 다른 에이전트가 재사용하지 못하도록 해제.
+
+**Stop** — `completion-gate` · `stop-active-cleanup` · `stop-bouncer-compat`
+
+| 검사 항목 | 이유 |
+|---|---|
+| 검증 3회 연속 통과했어? | 덜 된 상태로 작업 종료하는 걸 막기 위해 |
+| 작업 완료 시 잠금 파일 자동 삭제 | 완료 후 다음 작업이 잠겨있으면 안 되니까 |
+| 팀 작업 중엔 미커밋 경고 무시 | 에이전트가 나눠서 커밋하므로 오탐 방지 |
+
+→ 전체 생명주기 다이어그램: [docs/hooks-lifecycle.ko.md](docs/hooks-lifecycle.ko.md)
 
 ---
 
