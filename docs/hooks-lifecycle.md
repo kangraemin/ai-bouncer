@@ -35,7 +35,7 @@ sequenceDiagram
     U->>C: 메시지 전송
 
     rect rgb(255, 220, 220)
-        note over PRE: plan-gate — Write/Edit/MultiEdit<br/>bash-gate — Bash 쓰기 패턴
+        note over PRE: plan-gate: 계획 미승인 · TC 미정의 · 이전 step 미통과 · 팀 미구성이면 Write/Edit 차단<br/>bash-gate: 위 조건 동일 + 계획 중 커밋 · step/phase 미완료 커밋이면 Bash 차단
         C->>PRE: 도구 실행 전 검증
         PRE-->>C: ⛔ Block (조건 불충족) or ✅ Pass
     end
@@ -44,7 +44,7 @@ sequenceDiagram
     T-->>C: 완료
 
     rect rgb(255, 255, 200)
-        note over POST: doc-reminder — Write/Edit<br/>bash-audit — Bash (자동 복원)
+        note over POST: doc-reminder: step 문서 없이 코드 수정하면 차단<br/>bash-audit: gate 통과해도 몰래 파일 바꾸면 자동 복원
         C->>POST: 도구 완료 후 검증
         POST-->>C: ⛔ Block or 🔄 무단 변경 자동 복원
     end
@@ -58,7 +58,7 @@ sequenceDiagram
     end
 
     rect rgb(255, 230, 200)
-        note over STP: completion-gate — 검증 완료 확인<br/>stop-active-cleanup — .active 정리<br/>stop-bouncer-compat — 미커밋 체크 스킵
+        note over STP: completion-gate: 검증 3회 연속 통과 안 하면 턴 종료 차단<br/>stop-active-cleanup: done 상태 .active 파일 자동 정리<br/>stop-bouncer-compat: 팀 작업 중이면 미커밋 경고 스킵
         C->>STP: 응답 종료 시도
         STP-->>C: ⛔ Block (검증 미완료) or ✅ Pass
     end
