@@ -35,8 +35,8 @@ sequenceDiagram
     U->>C: 메시지 전송
 
     rect rgb(255, 220, 220)
-        note over PRE: 계획 검사: 계획 없음·TC 없음·이전 step 실패·팀 없음 → 파일 수정 차단<br/>커밋 검사: 위 동일 + 테스트 미통과 상태에서 커밋 시도 → 차단
-        C->>PRE: 조건 검사
+        note over PRE: 파일 수정 전: 계획 없음·TC 없음·이전 step 실패·팀 없음 → 차단<br/>커밋 전: 테스트 미통과 상태에서 커밋 시도 → 차단
+        C->>PRE: 검사
         PRE-->>C: ⛔ 차단 or ✅ 통과
     end
 
@@ -44,21 +44,21 @@ sequenceDiagram
     T-->>C: 완료
 
     rect rgb(255, 255, 200)
-        note over POST: 문서 확인: step 문서 없이 코드 수정 → 차단<br/>변경 감시: 몰래 파일 바꾸면 → 자동 되돌림
-        C->>POST: 결과 검사
+        note over POST: 파일 수정 후: step 문서 없이 코드 수정 → 차단<br/>터미널 명령 후: 몰래 파일 바꾸면 → 자동 되돌림
+        C->>POST: 검사
         POST-->>C: ⛔ 차단 or 🔄 자동 복원
     end
 
     opt 서브 에이전트 쓸 때
         rect rgb(210, 230, 255)
-            note over SUB: 서브 에이전트는 위 조건 검사 없이 통과, 종료되면 원래대로 복귀
+            note over SUB: Main이 이미 통과했으므로 서브는 검사 생략<br/>종료되면 원래대로 복귀
             C->>SUB: 스폰
             SUB-->>C: 종료
         end
     end
 
     rect rgb(255, 230, 200)
-        note over STP: 완료 검사: 검증 3회 통과 전 → 응답 종료 차단<br/>잠금 정리: 작업 완료 시 잠금 파일 자동 삭제<br/>경고 스킵: 팀 작업 중엔 미커밋 경고 무시
+        note over STP: 검증 3회 통과 전 → 응답 종료 차단<br/>작업 완료 시 잠금 파일 자동 삭제<br/>팀 작업 중엔 미커밋 경고 무시
         C->>STP: 종료 시도
         STP-->>C: ⛔ 차단 or ✅ 통과
     end
