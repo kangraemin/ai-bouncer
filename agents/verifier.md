@@ -187,7 +187,7 @@ state.json 업데이트:
 ```bash
 python3 << 'PYEOF'
 import json, os
-task_dir = os.environ.get('TASK_DIR', 'docs/current')
+task_dir = '{TASK_DIR}'
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['verification']['rounds_passed'] += 1
@@ -215,7 +215,7 @@ state.json 업데이트 (완전 리셋):
 ```bash
 python3 << 'PYEOF'
 import json, os
-task_dir = os.environ.get('TASK_DIR', 'docs/current')
+task_dir = '{TASK_DIR}'
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['verification']['rounds_passed'] = 0
