@@ -277,31 +277,47 @@ If a session is interrupted or the context window is compressed:
 Nine hooks registered automatically into `settings.json`, grouped by lifecycle event:
 
 **PreToolUse** — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
+→ any check fails → ⛔ blocks tool execution
 
 | Check | Why |
 |---|---|
 | Plan approved? | No editing without an approved plan |
 | TC defined for this step? | No implementation without test criteria |
 | Previous step tests passing? | No moving forward from a broken state |
-| Team assembled? _(NORMAL + team mode)_ | No dev phase without agents in place |
+| Team assembled? _(NORMAL + team mode only)_ | No dev phase without agents in place |
 | Committing with tests failing? _(Bash only)_ | No committing broken code |
 
-**PostToolUse** — `doc-reminder` (Edit/Write) · `bash-audit` (Bash)
+**PostToolUse** — `doc-reminder` (Edit/Write)
+→ step doc missing → ⛔ blocks
 
 | Check | Why |
 |---|---|
-| Step doc exists? _(Edit/Write)_ | Code changes without docs can't be traced |
-| Files changed without passing PreToolUse? _(Bash)_ → auto-revert | 2nd layer to catch any PreToolUse bypass |
+| Step doc exists? | Code changes without docs can't be traced |
+
+**PostToolUse** — `bash-audit` (Bash)
+→ unauthorized change detected → 🔄 auto-reverts (no block)
+
+| Check | Why |
+|---|---|
+| Files changed without passing PreToolUse? | 2nd layer to catch any PreToolUse bypass |
 
 **SubagentStart / SubagentStop** — `subagent-track` · `subagent-cleanup`
+→ no block — tracks only
 
 Sub-agents inherit PreToolUse/PostToolUse permissions from the parent session — the parent already passed all checks, so re-blocking the sub-agent would be a false positive. Permissions are revoked on termination so they can't be reused by other agents.
 
-**Stop** — `completion-gate` · `stop-active-cleanup` · `stop-bouncer-compat`
+**Stop** — `completion-gate`
+→ verification incomplete → ⛔ blocks response
 
 | Check | Why |
 |---|---|
 | 3 consecutive verification passes? | Prevents closing out before work is fully done |
+
+**Stop** — `stop-active-cleanup` · `stop-bouncer-compat`
+→ no block — cleanup / skip only
+
+| Action | Why |
+|---|---|
 | Auto-delete lock file on completion | Next task shouldn't be blocked by a stale lock |
 | Suppress uncommitted-file warning during team tasks | Agents commit in parallel — warning would be a false positive |
 
