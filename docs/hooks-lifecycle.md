@@ -23,70 +23,47 @@ Claude Code 생명주기에서 각 훅이 언제, 무엇을 하는지 정리한 
 ## 생명주기 흐름도
 
 ```mermaid
-flowchart TD
-    User([👤 User 입력]) --> Claude[🤖 Claude 응답 생성]
-    Claude --> ToolQ{도구 사용?}
-    ToolQ -->|No| StopHooks
+sequenceDiagram
+    actor U as 👤 User
+    participant C as 🤖 Claude
+    participant PRE as 🔴 PreToolUse
+    participant T as 🛠 Tool
+    participant POST as 🟡 PostToolUse
+    participant SUB as 🔵 Sub-agent
+    participant STP as 🟠 Stop
 
-    ToolQ -->|Yes| ToolType{도구 종류}
+    U->>C: 메시지 전송
 
-    subgraph PRE ["🔴 PreToolUse — 도구 실행 전"]
-        direction TB
-        ToolType -->|Write / Edit / MultiEdit| PG["plan-gate\n워크플로우 검증\n(plan승인·TC·step 순서 등)"]
-        ToolType -->|Bash + 쓰기 패턴 감지| BG["bash-gate\n파일쓰기 + 커밋 검증\n(plan-gate 동일 + commit_strategy)"]
-        ToolType -->|그 외| PrePass[✅ 통과]
+    rect rgb(255, 220, 220)
+        note over PRE: plan-gate — Write/Edit/MultiEdit<br/>bash-gate — Bash 쓰기 패턴
+        C->>PRE: 도구 실행 전 검증
+        PRE-->>C: ⛔ Block (조건 불충족) or ✅ Pass
     end
 
-    PG -->|⛔ Block| BackToClaude[에러 반환 → Claude 재시도]
-    BG -->|⛔ Block| BackToClaude
-    BackToClaude --> Claude
+    C->>T: 도구 실행
+    T-->>C: 완료
 
-    PG -->|✅ Pass| ToolRun[🛠 도구 실행]
-    BG -->|✅ Pass| ToolRun
-    PrePass --> ToolRun
-
-    subgraph POST ["🟡 PostToolUse — 도구 실행 후"]
-        direction TB
-        ToolRun --> ToolType2{도구 종류}
-        ToolType2 -->|Write / Edit 완료| DR["doc-reminder\nstep 문서 존재 검증"]
-        ToolType2 -->|Bash 완료| BA["bash-audit\n무단 변경 파일 감지\n→ 자동 복원(checkout/rm)"]
-        ToolType2 -->|그 외| PostPass[✅ 통과]
+    rect rgb(255, 255, 200)
+        note over POST: doc-reminder — Write/Edit<br/>bash-audit — Bash (자동 복원)
+        C->>POST: 도구 완료 후 검증
+        POST-->>C: ⛔ Block or 🔄 무단 변경 자동 복원
     end
 
-    DR -->|⛔ Block| BackToClaude
-    DR -->|✅ Pass| MoreTools{계속 도구 사용?}
-    BA -->|🔄 자동 복원 후 계속| MoreTools
-    PostPass --> MoreTools
-
-    MoreTools -->|Yes| ToolType
-
-    subgraph SUB ["🔵 SubagentStart / SubagentStop — sub-agent 생명주기"]
-        direction LR
-        ST["subagent-track\nsession_id 승인 목록 등록\n(plan·bash gate 스킵 허용)"]
-        --> SA["🤖 Sub-agent 실행"]
-        --> SC["subagent-cleanup\n승인 목록 제거"]
+    opt Sub-agent 스폰 시
+        rect rgb(210, 230, 255)
+            note over SUB: subagent-track → subagent-cleanup
+            C->>SUB: 스폰 (gate 면제권 부여)
+            SUB-->>C: 종료 (면제권 회수)
+        end
     end
 
-    MoreTools -->|No - Sub-agent 스폰| ST
-    SC --> StopHooks
-
-    MoreTools -->|No - 턴 종료| StopHooks
-
-    subgraph STOP ["🟠 Stop — 응답 턴 종료 시"]
-        direction TB
-        CG["completion-gate\n· SIMPLE: Phase S3 완료 여부\n· NORMAL dev: 미완료 phase 차단\n· verification: round 3회 연속 통과"]
-        AC["stop-active-cleanup\ndone 상태 .active 자동 삭제"]
-        BC["stop-bouncer-compat\nNORMAL 팀 작업 중\n미커밋 체크 스킵"]
+    rect rgb(255, 230, 200)
+        note over STP: completion-gate — 검증 완료 확인<br/>stop-active-cleanup — .active 정리<br/>stop-bouncer-compat — 미커밋 체크 스킵
+        C->>STP: 응답 종료 시도
+        STP-->>C: ⛔ Block (검증 미완료) or ✅ Pass
     end
 
-    StopHooks --> CG & AC & BC
-
-    CG -->|⛔ Block| BackToClaude
-    CG -->|✅ Pass| Response
-    AC --> Response
-    BC --> Response
-
-    Response([✅ 사용자에게 응답])
+    C-->>U: 응답
 ```
 
 ---
