@@ -11,7 +11,7 @@ Claude Code 생명주기에서 각 훅이 언제, 무엇을 하는지 정리한 
 | `plan-gate` | 파일 수정 전 | 계획·TC·이전 step 통과 여부 확인 → 안 맞으면 차단 |
 | `bash-gate` | 터미널 명령 전 | 위 동일 + 테스트 미통과 상태에서 커밋 시도 차단 |
 | `doc-reminder` | 파일 수정 후 | step 문서가 없으면 차단 |
-| `bash-audit` | 터미널 명령 후 | 조건 안 맞는데 파일이 바뀌어 있으면 자동으로 되돌림 |
+| `bash-audit` | 터미널 명령 후 | 몰래 파일 바꾸면 자동으로 되돌림 |
 | `subagent-track` | 서브 에이전트 시작 시 | 서브 에이전트에게 조건 검사 면제 부여 |
 | `subagent-cleanup` | 서브 에이전트 종료 시 | 면제 회수 |
 | `completion-gate` | 응답 종료 전 | 검증 3회 통과 안 했으면 응답 종료 차단 |
@@ -44,7 +44,7 @@ sequenceDiagram
     T-->>C: 완료
 
     rect rgb(255, 255, 200)
-        note over POST: 문서 검사: step 문서 없이 코드 수정 → 차단<br/>변경 감시: 조건 안 맞는데 파일 바꾸면 → 자동 되돌림
+        note over POST: 문서 확인: step 문서 없이 코드 수정 → 차단<br/>변경 감시: 몰래 파일 바꾸면 → 자동 되돌림
         C->>POST: 결과 검사
         POST-->>C: ⛔ 차단 or 🔄 자동 복원
     end
