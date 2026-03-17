@@ -1068,6 +1068,35 @@ rm -rf "$SESSION_A_DIR" "$HOME/.claude/teams/msi-test-team"
 
 echo ""
 
+# ─── CHECK 1.6b: current_step overflow 차단 ───────────────
+echo "─── CHECK 1.6b: current_step overflow 차단 ───"
+
+SINGLE_STEP_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+
+# TC-QS1: state.json에 current_step > max_steps 값 쓰기 → CHECK 1.6b 차단
+setup "simple" "planning" "false"
+QS1_CONTENT=$(jq -n --argjson dp "$SINGLE_STEP_PHASES" '{
+  workflow_phase: "planning", mode: "normal", plan_approved: false,
+  team_name: "", current_dev_phase: 1, current_step: 2, dev_phases: $dp
+}')
+QS1_INPUT=$(jq -n --arg fp "$STATE_FILE" --arg content "$QS1_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$QS1_INPUT")
+assert_block "TC-QS1: state.json current_step=2 > max_steps=1 → CHECK 1.6b 차단" "$R"
+
+# TC-QS2: state.json에 current_step = max_steps → CHECK 1.6b 통과
+setup "simple" "planning" "false"
+QS2_CONTENT=$(jq -n --argjson dp "$SINGLE_STEP_PHASES" '{
+  workflow_phase: "planning", mode: "normal", plan_approved: false,
+  team_name: "", current_dev_phase: 1, current_step: 1, dev_phases: $dp
+}')
+QS2_INPUT=$(jq -n --arg fp "$STATE_FILE" --arg content "$QS2_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$QS2_INPUT")
+assert_pass "TC-QS2: state.json current_step=1 = max_steps=1 → CHECK 1.6b 통과" "$R"
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 

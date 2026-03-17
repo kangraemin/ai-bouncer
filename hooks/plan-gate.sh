@@ -65,6 +65,34 @@ except:
         exit 0 ;;
     esac
   fi
+  # CHECK 1.6b: current_step이 해당 Phase의 step 수를 초과하면 차단 (순환 차단 방지)
+  _NEW_CONTENT_16B=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+  _STEP_CHECK=$(echo "$_NEW_CONTENT_16B" | python3 -c "
+import json, sys
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+    phase = str(d.get('current_dev_phase', 0))
+    step = int(d.get('current_step', 0))
+    steps = d.get('dev_phases', {}).get(phase, {}).get('steps', {})
+    max_step = len(steps) if steps else 0
+    if step > 0 and max_step > 0 and step > max_step:
+        print(f'OVERFLOW:{step}:{max_step}:{phase}')
+    else:
+        print('OK')
+except:
+    print('OK')
+" 2>/dev/null)
+  if [[ "$_STEP_CHECK" == OVERFLOW:* ]]; then
+    _S=$(echo "$_STEP_CHECK" | cut -d: -f2)
+    _MAX=$(echo "$_STEP_CHECK" | cut -d: -f3)
+    _PH=$(echo "$_STEP_CHECK" | cut -d: -f4)
+    jq -n --arg s "$_S" --arg max "$_MAX" --arg ph "$_PH" '{
+      decision: "block",
+      reason: ("⛔ state.json current_step=" + $s + "은 Phase " + $ph + "의 최대 step 수(" + $max + ")를 초과합니다. Phase 완료 시 current_dev_phase++, current_step=1로 설정하세요.")
+    }'
+    exit 0
+  fi
 fi
 
 # state.json 값 읽기
