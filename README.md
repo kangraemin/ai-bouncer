@@ -144,7 +144,7 @@ Installs locally to `.claude/` in your current project (no global installation).
 ### Update
 
 ```bash
-bash install.sh --update
+bash update.sh
 ```
 
 ### Uninstall
@@ -321,15 +321,25 @@ Runs when Claude tries to end a turn — blocks the response until 3 consecutive
 |---|---|
 | 3 consecutive verification passes? | Prevents closing out before work is fully done |
 
-**Stop** — `stop-active-cleanup` · `stop-bouncer-compat`
-→ no block — cleanup / skip only
+**Stop** — `stop-active-cleanup`
+→ no block — cleanup only
 
-Runs on every Stop — cleans up lock files and suppresses false-positive warnings. No blocking.
+Runs on every Stop — cleans up lock files. No blocking.
 
 | Action | Why |
 |---|---|
 | Auto-delete lock file on completion | Next task shouldn't be blocked by a stale lock |
-| Suppress uncommitted-file warning during team tasks | Agents commit in parallel — warning would be a false positive |
+
+**SessionStart** — `update-check`
+→ no block — version check only
+
+Runs when Claude Code starts a session — checks for available updates silently.
+
+| Action | Why |
+|---|---|
+| Check for newer version | Prompt user to update without blocking work |
+
+> `stop-bouncer-compat` is injected into existing user-defined Stop hooks to suppress false-positive uncommitted-file warnings during team tasks — it is not a separately registered hook.
 
 
 ---
@@ -372,7 +382,7 @@ hooks/
 
 tests/
   e2e-full.sh          (full lifecycle: install → hook → update → uninstall)
-  e2e-hooks.sh         (hook logic tests — 75 assertions)
+  e2e-hooks.sh         (hook logic tests — 85 assertions)
   e2e-install.sh       (install/uninstall tests)
   e2e-modes.sh         (agent mode combination tests)
   e2e-workflow.sh      (workflow integration tests)

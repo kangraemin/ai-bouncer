@@ -144,7 +144,7 @@ bash install.sh
 ### 업데이트
 
 ```bash
-bash install.sh --update
+bash update.sh
 ```
 
 ### 제거
@@ -321,15 +321,25 @@ Claude가 턴을 끝내려 할 때 동작 — 검증 3회 연속 통과 전까�
 |---|---|
 | 검증 3회 연속 통과했어? | 덜 된 상태로 작업 종료하는 걸 막기 위해 |
 
-**Stop** — `stop-active-cleanup` · `stop-bouncer-compat`
-→ 차단 없음 — 정리/스킵만
+**Stop** — `stop-active-cleanup`
+→ 차단 없음 — 정리만
 
-매 Stop마다 동작 — 잠금 파일 정리 + 불필요한 경고 억제. 차단 없음.
+매 Stop마다 동작 — 잠금 파일 정리. 차단 없음.
 
 | 동작 | 이유 |
 |---|---|
 | 작업 완료 시 잠금 파일 자동 삭제 | 완료 후 다음 작업이 잠겨있으면 안 되니까 |
-| 팀 작업 중엔 미커밋 경고 무시 | 에이전트가 나눠서 커밋하므로 오탐 방지 |
+
+**SessionStart** — `update-check`
+→ 차단 없음 — 버전 확인만
+
+세션 시작 시 동작 — 새 버전이 있으면 조용히 안내.
+
+| 동작 | 이유 |
+|---|---|
+| 최신 버전 확인 | 작업을 막지 않고 업데이트를 안내하기 위해 |
+
+> `stop-bouncer-compat`는 팀 작업 중 미커밋 경고 오탐을 억제하기 위해 사용자의 기존 Stop hook에 inject됩니다 — 별도로 등록되는 hook이 아닙니다.
 
 
 ---
@@ -372,7 +382,7 @@ hooks/
 
 tests/
   e2e-full.sh          (전체 생명주기: 설치 → hook → 업데이트 → 제거)
-  e2e-hooks.sh         (hook 로직 테스트 — 75건)
+  e2e-hooks.sh         (hook 로직 테스트 — 85건)
   e2e-install.sh       (설치/제거 테스트)
   e2e-modes.sh         (에이전트 모드 조합 테스트)
   e2e-workflow.sh      (워크플로우 통합 테스트)
