@@ -274,22 +274,38 @@ If a session is interrupted or the context window is compressed:
 
 ## Enforcement Hooks
 
-Eight hooks are registered automatically into `settings.json`:
+Nine hooks registered automatically into `settings.json`, grouped by lifecycle event:
 
-| Hook | Trigger | Behavior |
-|---|---|---|
-| `plan-gate.sh` | `PreToolUse` (Write/Edit) | Blocks code edits during planning or before TCs are defined |
-| `bash-gate.sh` | `PreToolUse` (Bash) | Blocks Bash write patterns (`>`, `tee`, `sed -i`, `cp`, etc.) during planning |
-| `bash-audit.sh` | `PostToolUse` (Bash) | Detects unauthorized file changes via `git diff` and auto-reverts |
-| `doc-reminder.sh` | `PostToolUse` (Write/Edit) | Warns if a step doc hasn't been updated after a code change |
-| `completion-gate.sh` | `Stop` | Blocks response completion if verification hasn't reached 3 consecutive passes |
-| `stop-bouncer-compat.sh` | `Stop` | Compatibility shim injected into existing Stop hooks to prevent conflicts with ai-bouncer |
-| `subagent-track.sh` | `SubagentStart` | Registers sub-agent session with parent task for delegation context |
-| `subagent-cleanup.sh` | `SubagentStop` | Removes sub-agent from approved list on termination |
+**PreToolUse** — `plan-gate` (Edit/Write) · `bash-gate` (Bash)
 
-**2-layer Bash defense**: `bash-gate.sh` blocks write patterns pre-execution, while `bash-audit.sh` catches anything that slips through by checking `git diff` post-execution and auto-reverting unauthorized changes. Bash-based gate bypass is fully blocked.
+| Check | Why |
+|---|---|
+| Plan approved? | No editing without an approved plan |
+| TC defined for this step? | No implementation without test criteria |
+| Previous step tests passing? | No moving forward from a broken state |
+| Team assembled? _(NORMAL + team mode)_ | No dev phase without agents in place |
+| Committing with tests failing? _(Bash only)_ | No committing broken code |
 
-**Sub-agent delegation**: When a sub-agent is spawned, `subagent-track.sh` registers it with the parent task's context. Delegated agents inherit gate permissions from the parent session, so they can write files without being blocked by plan-gate or bash-gate.
+**PostToolUse** — `doc-reminder` (Edit/Write) · `bash-audit` (Bash)
+
+| Check | Why |
+|---|---|
+| Step doc exists? _(Edit/Write)_ | Code changes without docs can't be traced |
+| Files changed without passing PreToolUse? _(Bash)_ → auto-revert | 2nd layer to catch any PreToolUse bypass |
+
+**SubagentStart / SubagentStop** — `subagent-track` · `subagent-cleanup`
+
+Sub-agents inherit PreToolUse/PostToolUse permissions from the parent session — the parent already passed all checks, so re-blocking the sub-agent would be a false positive. Permissions are revoked on termination so they can't be reused by other agents.
+
+**Stop** — `completion-gate` · `stop-active-cleanup` · `stop-bouncer-compat`
+
+| Check | Why |
+|---|---|
+| 3 consecutive verification passes? | Prevents closing out before work is fully done |
+| Auto-delete lock file on completion | Next task shouldn't be blocked by a stale lock |
+| Suppress uncommitted-file warning during team tasks | Agents commit in parallel — warning would be a false positive |
+
+→ Full lifecycle diagram: [docs/hooks-lifecycle.md](docs/hooks-lifecycle.md)
 
 ---
 
