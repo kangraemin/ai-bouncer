@@ -415,8 +415,8 @@ ${GITIGNORE_END}"
 
   if [ -f "$GITIGNORE_FILE" ]; then
     if grep -qF "$GITIGNORE_START" "$GITIGNORE_FILE"; then
-      # 기존 블록 교체
-      python3 - "$GITIGNORE_FILE" "$GITIGNORE_BLOCK" "$GITIGNORE_START" "$GITIGNORE_END" <<'PYEOF'
+      # 기존 블록 교체 (변경 시에만 카운트)
+      _gi_result=$(python3 - "$GITIGNORE_FILE" "$GITIGNORE_BLOCK" "$GITIGNORE_START" "$GITIGNORE_END" <<'PYEOF'
 import sys
 path = sys.argv[1]
 block = sys.argv[2]
@@ -425,22 +425,37 @@ end = sys.argv[4]
 content = open(path, encoding='utf-8').read()
 s = content.find(start)
 e = content.find(end)
-if s != -1 and e != -1:
+if s == -1 or e == -1:
+    print("unchanged")
+    sys.exit(0)
+old_block = content[s:e + len(end)]
+if old_block == block:
+    print("unchanged")
+else:
     content = content[:s] + block + content[e + len(end):]
-open(path, 'w', encoding='utf-8').write(content)
+    open(path, 'w', encoding='utf-8').write(content)
+    print("changed")
 PYEOF
-      ok ".gitignore managed block 동기화됨"
+)
+      if [ "$_gi_result" = "changed" ]; then
+        ok ".gitignore managed block 동기화됨"
+        UPDATED=$((UPDATED + 1))
+      else
+        skip ".gitignore (변경 없음)"
+        UNCHANGED=$((UNCHANGED + 1))
+      fi
     else
       # 기존 파일 끝에 append
       printf '\n%s\n' "$GITIGNORE_BLOCK" >> "$GITIGNORE_FILE"
       ok ".gitignore managed block 추가됨"
+      UPDATED=$((UPDATED + 1))
     fi
   else
     # 신규 생성
     printf '%s\n' "$GITIGNORE_BLOCK" > "$GITIGNORE_FILE"
     ok ".gitignore 생성 + managed block 주입"
+    UPDATED=$((UPDATED + 1))
   fi
-  UPDATED=$((UPDATED + 1))
 
   # 이미 추적 중인 bouncer 파일 untrack
   if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
@@ -465,7 +480,13 @@ fi
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 mkdir -p "$BOUNCER_DATA_DIR"
 SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-python3 -c "
+INSTALLED_SHA=$(python3 -c "
+import json, sys, os
+m = json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {}
+print(m.get('version', 'unknown'))
+" "$MANIFEST" 2>/dev/null || echo "unknown")
+if [ "$SHA" != "$INSTALLED_SHA" ]; then
+  python3 -c "
 import json, datetime, os, sys
 manifest_path = sys.argv[1]
 sha = sys.argv[2]
@@ -474,8 +495,12 @@ m['version'] = sha
 m['updated_at'] = datetime.datetime.now().isoformat()
 json.dump(m, open(manifest_path,'w'), indent=2)
 " "$MANIFEST" "$SHA"
-ok "매니페스트 ($SHA)"
-UPDATED=$((UPDATED + 1))
+  ok "매니페스트 ($INSTALLED_SHA → $SHA)"
+  UPDATED=$((UPDATED + 1))
+else
+  skip "매니페스트 (최신, $SHA)"
+  UNCHANGED=$((UNCHANGED + 1))
+fi
 
 echo ""
 echo -e "${GREEN}✓${NC}  ${BOLD}업데이트 완료${NC} — ${GREEN}${UPDATED}개 업데이트${NC}, ${DIM}${UNCHANGED}개 변경 없음${NC}"
