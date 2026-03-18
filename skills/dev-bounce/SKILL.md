@@ -104,6 +104,12 @@ print(json.dumps(results, ensure_ascii=False))
        `open(active_file, 'w').close()`
   → 2. 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
 
+  **A-1 특수 케이스: planning 단계인데 plan.md 없음**
+  → compact 중에 세션이 잘려 plan.md가 저장되지 않은 상태.
+  → 사용자에게 묻지 않고 자동 처리:
+    1. `⚠️ 이전 계획 파일(plan.md)이 없습니다. Phase 1부터 다시 시작합니다.` 출력
+    2. Phase 1 (계획 수립)부터 재시작
+
 - **A-2: 사용자 요청이 active 작업과 무관한 새 작업인 경우**
   → **반드시 AskUserQuestion으로 사용자에게 확인.** 임의로 .active 해제/삭제 금지.
   ```
