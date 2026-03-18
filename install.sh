@@ -451,7 +451,10 @@ GITIGNORE_END="# --- ai-bouncer end ---"
 GITIGNORE_BLOCK="${GITIGNORE_START}
 # ai-bouncer runtime artifacts
 .claude/ai-bouncer/.version-checked
-.claude/**/*.backup-*"
+.claude/ai-bouncer/config.json
+.claude/ai-bouncer/manifest.json
+.claude/**/*.backup-*
+.claude/settings.json"
 
 if [ "$DOCS_TRACK_BOOL" = "false" ]; then
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
