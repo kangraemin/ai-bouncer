@@ -211,17 +211,43 @@ fi
 # scripts/ 정리
 rm -rf "$TARGET_DIR/scripts"
 
-# 빈 디렉토리 정리
+# 빈 디렉토리 정리 (skills 서브디렉토리는 동적으로 처리)
 for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" \
-           "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents" \
-           "$TARGET_DIR/skills/dev-bounce" "$TARGET_DIR/skills"; do
+           "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents"; do
   rmdir "$dir" 2>/dev/null || true
 done
+for skill_dir in "$TARGET_DIR/skills"/*/; do
+  [ -d "$skill_dir" ] && rmdir "$skill_dir" 2>/dev/null || true
+done
+rmdir "$TARGET_DIR/skills" 2>/dev/null || true
 
 # 매니페스트/config 삭제
 rm -f "$BOUNCER_DATA_DIR/manifest.json"
 rm -f "$BOUNCER_DATA_DIR/config.json"
 rmdir "$BOUNCER_DATA_DIR" 2>/dev/null || true
+
+# .gitignore managed block 제거
+GITIGNORE_FILE="$REPO_ROOT/.gitignore"
+if [ -f "$GITIGNORE_FILE" ]; then
+  python3 - "$GITIGNORE_FILE" <<'PYEOF'
+import sys
+f = sys.argv[1]
+START = "# --- ai-bouncer start ---"
+END   = "# --- ai-bouncer end ---"
+content = open(f, encoding='utf-8').read()
+s = content.find(START)
+e = content.find(END)
+if s == -1 or e == -1:
+    sys.exit(0)
+before = content[:s].rstrip('\n')
+after  = content[e + len(END):].lstrip('\n')
+new = (before + ('\n\n' if before and after else '') + after)
+if new and not new.endswith('\n'):
+    new += '\n'
+open(f, 'w', encoding='utf-8').write(new)
+print("  .gitignore ai-bouncer 블록 제거됨")
+PYEOF
+fi
 
 # 프로젝트 루트의 update.sh / uninstall.sh 삭제
 if [ -n "$REPO_ROOT" ]; then
