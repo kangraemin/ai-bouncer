@@ -324,7 +324,7 @@ for g in cfg.get('hooks', {}).get('Stop', []):
   while IFS= read -r hook_path; do
     [ -f "$hook_path" ] || continue
     case "$(basename "$hook_path")" in
-      completion-gate.sh|subagent-track.sh|subagent-cleanup.sh) continue ;;
+      completion-gate.sh|stop-active-cleanup.sh|subagent-track.sh|subagent-cleanup.sh) continue ;;
     esac
     inject_stop_compat "$PACKAGE_DIR/hooks/stop-bouncer-compat.sh" "$hook_path"
   done <<< "$stop_hooks"
@@ -379,7 +379,10 @@ if [ -n "$REPO_ROOT" ]; then
   GITIGNORE_BLOCK="${GITIGNORE_START}
 # ai-bouncer runtime artifacts
 .claude/ai-bouncer/.version-checked
-.claude/**/*.backup-*"
+.claude/ai-bouncer/config.json
+.claude/ai-bouncer/manifest.json
+.claude/**/*.backup-*
+.claude/settings.json"
 
   if [ "$DOCS_GIT_TRACK" = "False" ] || [ "$DOCS_GIT_TRACK" = "false" ]; then
     GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
