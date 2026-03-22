@@ -201,7 +201,7 @@ assert_pass "echo > file.txt (development) → 통과" "$R"
 # planning에서 일반 쓰기는 허용 (탐색/Q&A 중 파일 쓰기 허용, 커밋만 차단)
 setup "simple" "planning" "false"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "echo > file.txt (planning) → 통과 (탐색 허용)" "$R"
+assert_block "echo > file.txt (planning) → 차단 (소스 파일 수정 불가)" "$R"
 
 # git 명령어는 항상 통과
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git add test.py\"},\"session_id\":\"$TEST_SID\"}")
@@ -211,9 +211,9 @@ assert_pass "git add → 항상 통과" "$R"
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 -c 'import json; ...' state.json\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "state.json 수정 → 예외 통과" "$R"
 
-# rm state.json: planning 단계 ALLOW 적용 (CHECK 2)
+# rm state.json: planning 단계에서도 state.json 삭제는 차단 (삭제 방지 정책)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"rm state.json\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "rm state.json (planning) → 통과 (planning ALLOW)" "$R"
+assert_block "rm state.json (planning) → 차단 (삭제 방지)" "$R"
 
 # python 오탐 (python_version 같은 변수)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo python_version\"},\"session_id\":\"$TEST_SID\"}")

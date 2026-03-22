@@ -311,10 +311,8 @@ case "$WORKFLOW_PHASE" in
     exit 0 ;;
 esac
 
-# CHECK 2: planning → ALLOW (탐색/Q&A 중 파일 쓰기 허용, 커밋은 위 섹션에서 차단)
-if [ "$WORKFLOW_PHASE" = "planning" ]; then
-  exit 0
-fi
+# CHECK 2: planning 단계 — EXCEPTION 경로(state.json, .active, plan.md 등)는 이미 위에서 허용됨
+# plan_approved 없이 소스 파일 수정 불가 → CHECK 3으로 fall-through
 
 # CHECK 3: plan_approved + plan.md
 if [ "$PLAN_APPROVED" != "true" ]; then
