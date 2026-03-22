@@ -643,6 +643,19 @@ assert_block "PG: 이전 step 실행출력 빈 섹션 → 차단" "$R"
 rm -rf "$TASK_DIR/phase-1-test"
 cleanup_normal
 
+# PG-NEW-9: planning 단계 프로젝트 소스 파일 수정 → 차단
+setup "normal" "planning" "false"
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$INSTALL_REPO/hooks/some-hook.sh\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "PG: planning 단계 프로젝트 소스 파일 → 차단" "$R"
+
+# PG-NEW-10: planning 단계 /tmp/ 파일 → 허용 (탐색)
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "PG: planning 단계 /tmp/ 파일 → 허용 (탐색)" "$R"
+
+# PG-NEW-11: planning 단계 docs/ 파일 → 허용
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TASK_DIR/state.json\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "PG: planning 단계 docs/ 파일 → 허용" "$R"
+
 echo ""
 
 # ─── 11. CHECK 4/5/6 팀 구성 검증 ────────

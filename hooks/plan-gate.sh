@@ -115,7 +115,7 @@ case "$WORKFLOW_PHASE" in
     exit 0 ;;
 esac
 
-# CHECK 2: planning 단계 → 기본 허용, phase-*.md / step-*.md는 차단
+# CHECK 2: planning 단계 → 프로젝트 소스 파일 차단, docs/ + 외부 경로 허용
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   if [[ "$FILE_PATH" == */phase-*.md ]] || [[ "$FILE_PATH" == */step-*.md ]]; then
     jq -n '{
@@ -123,6 +123,21 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
       reason: "⛔ planning 단계에서 phase/step 파일을 작성할 수 없습니다. 계획을 먼저 승인받으세요 (/dev-bounce Phase 1)."
     }'
     exit 0
+  fi
+  # 프로젝트 소스 파일 차단: REPO_ROOT 안이고 docs/ 밖이면 차단
+  # /tmp/ 등 외부 경로와 docs/ 하위 task 파일(state.json, .active 등)은 허용
+  _PG_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -n "$_PG_REPO" ]; then
+    # macOS symlink 정규화 (예: /var/folders → /private/var/folders)
+    _PG_FILE_REAL=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+    if [[ "$_PG_FILE_REAL" == "$_PG_REPO"* ]] && \
+       [[ "$_PG_FILE_REAL" != "$_PG_REPO/docs/"* ]]; then
+      jq -n '{
+        decision: "block",
+        reason: "⛔ planning 단계에서 프로젝트 소스 파일을 수정할 수 없습니다. 계획을 승인받은 후 개발을 시작하세요."
+      }'
+      exit 0
+    fi
   fi
   exit 0
 fi
