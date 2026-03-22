@@ -4,7 +4,10 @@ HANDOFF.md
 # --- ai-bouncer start ---
 # ai-bouncer runtime artifacts
 .claude/ai-bouncer/.version-checked
+.claude/ai-bouncer/config.json
+.claude/ai-bouncer/manifest.json
 .claude/**/*.backup-*
+.claude/settings.json
 docs/
 # ai-bouncer installed files
 .claude/agents/intent.md
