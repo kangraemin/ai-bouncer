@@ -406,6 +406,9 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 **team 모드 (기본):**
 
+> **TeamCreate 전 확인**: 이미 동일 이름 팀이 존재하면 반드시 TeamDelete 후 생성.
+> "Already leading team" 에러 발생 시 → TeamDelete 후 재시도.
+
 TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:

@@ -24,8 +24,9 @@ if [[ "$FILE_PATH" == "$HOME/.claude/plans/"* ]] || [[ "$FILE_PATH" == *"/.claud
   exit 0
 fi
 
-# CHECK 1: 예외 패턴 (*/plan.md, */step-*.md, */phase-*.md) → 즉시 ALLOW
-if [[ "$FILE_PATH" == */plan.md ]] || [[ "$FILE_PATH" == */step-*.md ]] || [[ "$FILE_PATH" == */phase-*.md ]]; then
+# CHECK 1: plan.md는 항상 허용 (계획 작성 중 필요)
+# phase-*.md / step-*.md는 planning 단계에서 차단 (CHECK 2에서 처리)
+if [[ "$FILE_PATH" == */plan.md ]]; then
   exit 0
 fi
 
@@ -114,8 +115,15 @@ case "$WORKFLOW_PHASE" in
     exit 0 ;;
 esac
 
-# CHECK 2: planning 단계 → ALLOW (탐색/Q&A 중 파일 쓰기 허용, 커밋은 bash-gate가 차단)
+# CHECK 2: planning 단계 → 기본 허용, phase-*.md / step-*.md는 차단
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
+  if [[ "$FILE_PATH" == */phase-*.md ]] || [[ "$FILE_PATH" == */step-*.md ]]; then
+    jq -n '{
+      decision: "block",
+      reason: "⛔ planning 단계에서 phase/step 파일을 작성할 수 없습니다. 계획을 먼저 승인받으세요 (/dev-bounce Phase 1)."
+    }'
+    exit 0
+  fi
   exit 0
 fi
 
@@ -133,6 +141,41 @@ if [ ! -f "${TASK_DIR}/plan.md" ]; then
     decision: "block",
     reason: "plan.md 파일이 존재하지 않습니다. 계획 문서가 실제로 작성되어야 합니다."
   }'
+  exit 0
+fi
+
+# CHECK 3-B: plan.md 내용 검증 (3줄짜리 bypass 방지)
+PLAN_LINE_COUNT=$(wc -l < "${TASK_DIR}/plan.md" 2>/dev/null | tr -d ' ' || echo 0)
+if [ "$PLAN_LINE_COUNT" -lt 30 ]; then
+  jq -n --arg lines "$PLAN_LINE_COUNT" '{
+    decision: "block",
+    reason: ("plan.md가 너무 짧습니다 (" + $lines + "줄). Before/After 코드 포함 최소 30줄 필요. /dev-bounce로 계획을 다시 작성하세요.")
+  }'
+  exit 0
+fi
+
+for _plan_section in "## 변경 파일" "## 검증"; do
+  if ! LC_ALL=en_US.UTF-8 grep -q "$_plan_section" "${TASK_DIR}/plan.md" 2>/dev/null; then
+    jq -n --arg s "$_plan_section" '{
+      decision: "block",
+      reason: ("plan.md 필수 섹션 누락: " + $s + ". /dev-bounce로 계획을 다시 작성하세요.")
+    }'
+    exit 0
+  fi
+done
+
+if ! LC_ALL=en_US.UTF-8 grep -q '\*\*Before\*\*' "${TASK_DIR}/plan.md" 2>/dev/null; then
+  jq -n '{decision:"block", reason:"plan.md에 **Before** 코드 스니펫이 없습니다. 변경 전 코드를 반드시 포함하세요."}'
+  exit 0
+fi
+if ! LC_ALL=en_US.UTF-8 grep -q '\*\*After\*\*' "${TASK_DIR}/plan.md" 2>/dev/null; then
+  jq -n '{decision:"block", reason:"plan.md에 **After** 코드 스니펫이 없습니다. 변경 후 코드를 반드시 포함하세요."}'
+  exit 0
+fi
+
+_VERIFY_SECTION=$(awk '/^## 검증/{found=1} found{print}' "${TASK_DIR}/plan.md" 2>/dev/null)
+if ! echo "$_VERIFY_SECTION" | grep -q '`'; then
+  jq -n '{decision:"block", reason:"plan.md ## 검증 섹션에 실행 명령어(backtick)가 없습니다. 검증 명령어를 포함하세요."}'
   exit 0
 fi
 
@@ -322,11 +365,34 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
       exit 0
     fi
 
-    # CHECK 7c-2: 이전 step의 TC 실행출력 검증
+    # CHECK 7c-2: 이전 step의 TC 실행출력 — 섹션 존재 + 실제 내용 확인
     if ! LC_ALL=en_US.UTF-8 grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
         reason: ("Dev Phase " + $phase + " Step " + $step + "의 TC에 실행출력이 없습니다. 테스트 실행 결과를 반드시 기록하세요.")
+      }'
+      exit 0
+    fi
+    # CHECK 7c-3: 실행출력 섹션 이후 실제 내용 확인 (빈 섹션 방지)
+    _EXEC_LINES=$(python3 -c "
+import re, sys
+try:
+    content = open(sys.argv[1], errors='replace').read()
+    m = re.search(r'^## (실행출력|실행 결과)', content, re.MULTILINE)
+    if not m:
+        print(0); sys.exit()
+    rest = content[m.end():]
+    nxt = re.search(r'^##', rest, re.MULTILINE)
+    sec = rest[:nxt.start()] if nxt else rest
+    non_empty = [l for l in sec.split('\n') if l.strip() and not l.strip().startswith('(QA가')]
+    print(len(non_empty))
+except:
+    print(0)
+" "$PREV_STEP_FILE" 2>/dev/null || echo 0)
+    if [ "$_EXEC_LINES" -lt 2 ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + "의 실행출력이 비어있습니다. 실제 명령어 실행 결과를 붙여넣으세요.")
       }'
       exit 0
     fi
@@ -349,6 +415,36 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
       decision: "block",
       reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")
+    }'
+    exit 0
+  fi
+
+  # CHECK 7e-2: TC 내용 충실도 검증 (시나리오/기대결과 5자 미만 방지)
+  _TC_SHALLOW=$(grep -E '^\| *TC-[0-9]+' "$CURRENT_STEP_FILE" 2>/dev/null | python3 -c "
+import sys
+shallow = 0
+for line in sys.stdin:
+    cols = [c.strip() for c in line.strip().strip('|').split('|')]
+    if len(cols) >= 3:
+        scenario = cols[1].strip()
+        expected = cols[2].strip()
+        if len(scenario) < 5 or len(expected) < 5:
+            shallow += 1
+print(shallow)
+" 2>/dev/null || echo 0)
+  if [ "$_TC_SHALLOW" -gt 0 ]; then
+    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg n "$_TC_SHALLOW" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + " Step " + $step + ": TC " + $n + "개의 시나리오/기대결과가 너무 짧습니다 (5자 미만). 구체적으로 작성하세요.")
+    }'
+    exit 0
+  fi
+
+  # CHECK 7e-3: 검증 명령어(backtick) 존재 확인
+  if ! LC_ALL=en_US.UTF-8 grep -q '`' "$CURRENT_STEP_FILE" 2>/dev/null; then
+    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+      decision: "block",
+      reason: ("Dev Phase " + $phase + " Step " + $step + "에 검증 명령어(backtick)가 없습니다. 실행 가능한 명령어를 포함하세요.")
     }'
     exit 0
   fi

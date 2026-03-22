@@ -25,38 +25,13 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
-MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 
-# cancelled 상태 → 즉시 통과 (사용자가 작업 포기 선택)
-[ "$WORKFLOW_PHASE" = "cancelled" ] && exit 0
-
-# SIMPLE 모드: plan 승인 후 done/cancelled 아니면 무조건 차단 (Phase S3 강제)
-if [ "$MODE" = "simple" ]; then
-  if [ "$WORKFLOW_PHASE" = "done" ] || [ "$WORKFLOW_PHASE" = "cancelled" ]; then
-    exit 0
-  fi
-  if [ "$PLAN_APPROVED" = "true" ]; then
-    jq -n --arg task "$TASK_NAME" --arg phase "$WORKFLOW_PHASE" '{
-      decision: "block",
-      reason: ("SIMPLE 모드 Phase S3 미완료: 작업 [" + $task + "] workflow_phase=" + $phase + ". Phase S3를 실행하세요: 1) tests.md 작성 + TC 전부 ✅ 확인 2) state.json workflow_phase=\"done\" 설정 3) .active 삭제. 작업 취소하려면 workflow_phase를 \"cancelled\"로 변경하세요.")
-    }'
-    exit 0
-  fi
-  exit 0
-fi
-
-# NORMAL 모드: development 상태에서 미완료 phase가 있으면 차단
-if [ "$MODE" = "normal" ] && [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "development" ]; then
-  CURRENT_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
-  TOTAL_PHASES=$(jq -r '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
-  if [ "$TOTAL_PHASES" -gt 0 ] && [ "$CURRENT_PHASE" -gt 0 ] && [ "$CURRENT_PHASE" -le "$TOTAL_PHASES" ] 2>/dev/null; then
-    jq -n --arg task "$TASK_NAME" --arg current "$CURRENT_PHASE" --arg total "$TOTAL_PHASES" '{
-      decision: "block",
-      reason: ("NORMAL 모드 개발 미완료: 작업 [" + $task + "] Phase " + $current + "/" + $total + " 진행 중입니다. 남은 Phase를 완료 후 검증 단계로 진행하세요. 작업 취소하려면 workflow_phase를 \"cancelled\"로 변경하세요.")
-    }'
-    exit 0
-  fi
-fi
+# cancelled/done/development 상태 → 통과
+# development: plan-gate가 step 단위 강제, context restore가 재개 담당
+# 어떤 모드/팀 구성이든 development에서는 block하지 않음 (다른 stop hook과 충돌 방지)
+case "$WORKFLOW_PHASE" in
+  cancelled|done|development|planning|pending) exit 0 ;;
+esac
 
 # 검증 단계에서만 체크 (NORMAL 모드)
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
