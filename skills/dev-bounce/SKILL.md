@@ -442,10 +442,11 @@ Lead가 수행:
 
 | Lead 출력 | Main Claude 액션 |
 |---|---|
-| `[TEAM:duo]` | Dev 에이전트 1명 스폰 (QA는 Lead가 겸임) |
+| `[TEAM:duo]` | Dev 에이전트 1명 스폰. QA 역할(TC 작성·검증)은 **Main Claude**가 직접 수행. |
 | `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
 
 > NORMAL 모드는 이미 복잡한 작업으로 판별된 상태. 최소 duo부터 시작한다.
+> duo 모드에서 Lead는 TC를 직접 작성하지 않는다. Main Claude가 QA 역할을 담당한다.
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 

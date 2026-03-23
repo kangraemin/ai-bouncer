@@ -102,24 +102,18 @@ print('dev_phases initialized, team_name:', team_name)
 " "<TASK_DIR>" "<팀이름>"
 ```
 
-5. 각 Phase의 각 Step마다 step.md 뼈대 생성:
+5. 각 Phase의 각 Step마다 step.md 뼈대 생성 (TC 내용은 비워둔다 — TC 작성은 QA 담당):
 
 ```bash
 cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
 # Step M: <제목>
 
-## 완료 기준
-- (구체적이고 검증 가능한 기준)
-
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
+## TC (Test Criteria)
+| TC | 검증 항목 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 |  |  |  |
+| TC-01 | (QA 작성) | (QA 작성) | ⬜ |
 
-## 검증 명령
-- `<실행할 명령어>` (QA가 작성)
-
-## 실행 결과
+## 실행출력
 (QA가 테스트 실행 후 명령어 출력을 그대로 붙여넣기 — 필수)
 
 ## 구현 내용
@@ -127,6 +121,7 @@ cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
 EOF
 ```
 
+> ⚠️ TC 내용(검증 항목·기대 결과)을 Lead가 직접 채우지 않는다. 뼈대(빈 행)만 생성하고 QA에게 위임한다.
 > ⚠️ plan-gate가 이전 step의 "실행 결과" 존재를 검증. 비어있으면 다음 step 코드 수정 차단.
 
 ### Phase 분해 품질 기준
@@ -141,7 +136,8 @@ EOF
 2. **기대 출력**: 명령어 실행 시 예상되는 출력
 3. **구현 내용**: 변경한 파일 + diff 요약 (체크박스만 찍기 금지)
 
-6. `[DEV_PHASES:확정]` 출력 후 개발 루프 시작
+6. `[TEAM:duo|team]` + `[DEV_PHASES:확정]` 출력 후 **Main Claude에게 보고하고 대기**한다.
+   Dev/QA 스폰은 Main Claude가 담당. Lead가 직접 스폰하지 않는다.
 
 ---
 
@@ -200,8 +196,11 @@ verifier가 `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 보고 시:
 - 막히면 사용자에게 확인 요청.
 
 ## 하지 말 것
-- 직접 코드 작성 금지.
-- 직접 테스트 작성 금지.
+- 직접 코드 파일(소스) 작성/수정 금지.
+- step.md TC 내용(검증 항목·기대 결과) 채우기 금지 — 뼈대 생성까지만, TC 작성은 QA 담당.
+- **team 모드에서 Agent tool로 Dev/QA 직접 스폰 금지** — Main Claude가 스폰. Lead는 SendMessage로만 소통.
+- git commit / git push 금지 — Main Claude 담당.
 - 태그 체크포인트 없이 다음 Step 진행 금지.
 - plan_approved 확인 전 개발 시작 금지.
 - state.json 대신 대화 기억에 의존 금지.
+- `[DEV_PHASES:확정]` 출력 전에 개발 루프 시작 금지 — 반드시 Main Claude 확인 후 시작.
