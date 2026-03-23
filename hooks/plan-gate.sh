@@ -408,13 +408,17 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     fi
   fi
 
-  # CHECK 7a: phase.md 존재 검증
+  # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우는 부트스트랩 허용)
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
-    jq -n --arg phase "$DEV_PHASE_KEY" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
-    }'
-    exit 0
+    _PG_FILE_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+    _PHASE_MD_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "${PHASE_DIR}/phase.md" 2>/dev/null || echo "${PHASE_DIR}/phase.md")
+    if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+      }'
+      exit 0
+    fi
   fi
 
   # CHECK 7a-2: phase.md 필수 섹션 검증
@@ -487,17 +491,25 @@ except:
   # 현재 step 검증
   CURRENT_STEP_FILE="${PHASE_DIR}/step-${STEP_KEY}.md"
 
-  # CHECK 7d: 현재 step 파일 미존재 → BLOCK
+  # CHECK 7d: 현재 step 파일 미존재 → BLOCK (step.md 자체를 쓰는 경우 부트스트랩 허용)
   if [ ! -f "$CURRENT_STEP_FILE" ]; then
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
-    }'
-    exit 0
+    _PG_FILE_ABS7d=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+    _STEP_MD_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$CURRENT_STEP_FILE" 2>/dev/null || echo "$CURRENT_STEP_FILE")
+    if [ "$_PG_FILE_ABS7d" != "$_STEP_MD_ABS" ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
+      }'
+      exit 0
+    fi
   fi
 
-  # CHECK 7e: 현재 step에 TC 행 내용 없음 → BLOCK
-  if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
+  # CHECK 7e: 현재 step에 TC 행 내용 없음 → BLOCK (step.md 자체를 쓰는 경우 부트스트랩 허용)
+  _PG_FILE_ABS7e=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+  _STEP_MD_ABS7e=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$CURRENT_STEP_FILE" 2>/dev/null || echo "$CURRENT_STEP_FILE")
+  if [ "$_PG_FILE_ABS7e" = "$_STEP_MD_ABS7e" ]; then
+    : # step.md 자체를 생성 중 — TC 검증 스킵 (부트스트랩)
+  elif ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
     jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
       decision: "block",
       reason: ("Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")
@@ -505,8 +517,10 @@ except:
     exit 0
   fi
 
-  # CHECK 7e-2: TC 내용 충실도 검증 (시나리오/기대결과 5자 미만 방지)
-  _TC_SHALLOW=$(grep -E '^\| *TC-[0-9]+' "$CURRENT_STEP_FILE" 2>/dev/null | python3 -c "
+  # CHECK 7e-2/7e-3: step.md 자체를 생성 중이면 스킵 (부트스트랩)
+  if [ "$_PG_FILE_ABS7e" != "$_STEP_MD_ABS7e" ]; then
+    # CHECK 7e-2: TC 내용 충실도 검증 (시나리오/기대결과 5자 미만 방지)
+    _TC_SHALLOW=$(grep -E '^\| *TC-[0-9]+' "$CURRENT_STEP_FILE" 2>/dev/null | python3 -c "
 import sys
 shallow = 0
 for line in sys.stdin:
@@ -518,21 +532,22 @@ for line in sys.stdin:
             shallow += 1
 print(shallow)
 " 2>/dev/null || echo 0)
-  if [ "$_TC_SHALLOW" -gt 0 ]; then
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg n "$_TC_SHALLOW" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + " Step " + $step + ": TC " + $n + "개의 시나리오/기대결과가 너무 짧습니다 (5자 미만). 구체적으로 작성하세요.")
-    }'
-    exit 0
-  fi
+    if [ "$_TC_SHALLOW" -gt 0 ]; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg n "$_TC_SHALLOW" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + ": TC " + $n + "개의 시나리오/기대결과가 너무 짧습니다 (5자 미만). 구체적으로 작성하세요.")
+      }'
+      exit 0
+    fi
 
-  # CHECK 7e-3: 검증 명령어(backtick) 존재 확인
-  if ! LC_ALL=en_US.UTF-8 grep -q '`' "$CURRENT_STEP_FILE" 2>/dev/null; then
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("Dev Phase " + $phase + " Step " + $step + "에 검증 명령어(backtick)가 없습니다. 실행 가능한 명령어를 포함하세요.")
-    }'
-    exit 0
+    # CHECK 7e-3: 검증 명령어(backtick) 존재 확인
+    if ! LC_ALL=en_US.UTF-8 grep -q '`' "$CURRENT_STEP_FILE" 2>/dev/null; then
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+        decision: "block",
+        reason: ("Dev Phase " + $phase + " Step " + $step + "에 검증 명령어(backtick)가 없습니다. 실행 가능한 명령어를 포함하세요.")
+      }'
+      exit 0
+    fi
   fi
 fi
 

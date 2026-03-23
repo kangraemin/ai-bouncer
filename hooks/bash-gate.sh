@@ -569,14 +569,21 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
-  # CHECK 7a: phase.md 존재 검증
+  # CHECK 7a: phase.md 존재 검증 (bash는 FILE_PATH 없으므로 bash 경유 phase.md 생성은 항상 허용)
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
-    save_snapshot
-    jq -n --arg phase "$DEV_PHASE_KEY" '{
-      decision: "block",
-      reason: ("⛔ [bash-gate] Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
-    }'
-    exit 0
+    _CMD_WRITES_PHASE_MD=false
+    _PHASE_MD_PATH="${PHASE_DIR}/phase.md"
+    if echo "$CMD" | grep -qF "$_PHASE_MD_PATH"; then
+      _CMD_WRITES_PHASE_MD=true
+    fi
+    if [ "$_CMD_WRITES_PHASE_MD" = "false" ]; then
+      save_snapshot
+      jq -n --arg phase "$DEV_PHASE_KEY" '{
+        decision: "block",
+        reason: ("⛔ [bash-gate] Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+      }'
+      exit 0
+    fi
   fi
 
   # CHECK 7a-2: phase.md 필수 섹션 검증
@@ -626,22 +633,28 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
   CURRENT_STEP_FILE="${PHASE_DIR}/step-${STEP_KEY}.md"
 
+  # CHECK 7d: step.md 미존재 (bash 경유 step.md 생성은 부트스트랩 허용)
   if [ ! -f "$CURRENT_STEP_FILE" ]; then
-    save_snapshot
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " step.md 미존재. Bash 파일 쓰기 차단.")
-    }'
-    exit 0
+    if ! echo "$CMD" | grep -qF "$CURRENT_STEP_FILE"; then
+      save_snapshot
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+        decision: "block",
+        reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " step.md 미존재. Bash 파일 쓰기 차단.")
+      }'
+      exit 0
+    fi
   fi
 
-  if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
-    save_snapshot
-    jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
-      decision: "block",
-      reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " TC 미정의. Bash 파일 쓰기 차단.")
-    }'
-    exit 0
+  # CHECK 7e: TC 미정의 (bash 경유 step.md 생성/수정 중이면 스킵)
+  if ! echo "$CMD" | grep -qF "$CURRENT_STEP_FILE"; then
+    if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
+      save_snapshot
+      jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
+        decision: "block",
+        reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " TC 미정의. Bash 파일 쓰기 차단.")
+      }'
+      exit 0
+    fi
   fi
 fi
 
