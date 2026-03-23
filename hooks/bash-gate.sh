@@ -139,18 +139,27 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   fi
 
   if [ "$COMMIT_STRATEGY" = "per-phase" ]; then
-    STEP_COUNT_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | length" "$STATE_FILE" 2>/dev/null)
+    # current_step=1이면 새 Phase 시작 상태 → 이전 Phase(N-1) 기준으로 검증
+    # (Lead가 Phase N 완료 후 N+1로 넘긴 직후 커밋 시 차단되는 레이스컨디션 방지)
+    COMMIT_PHASE_CS=$CS_PHASE
+    COMMIT_FOLDER_CS=$CS_PHASE_FOLDER
+    if [ "${CS_STEP:-1}" -le 1 ] && [ "$CS_PHASE" -gt 1 ]; then
+      COMMIT_PHASE_CS=$((CS_PHASE - 1))
+      COMMIT_FOLDER_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
+      [ -z "$COMMIT_FOLDER_CS" ] && COMMIT_FOLDER_CS="phase-${COMMIT_PHASE_CS}"
+    fi
+    STEP_COUNT_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].steps | length" "$STATE_FILE" 2>/dev/null)
     if [ "${STEP_COUNT_CS:-0}" -le 0 ] 2>/dev/null; then
-      jq -n --arg p "$CS_PHASE" \
+      jq -n --arg p "$COMMIT_PHASE_CS" \
         '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
       exit 0
     fi
-    LAST_STEP_CS=$(jq -r ".dev_phases[\"$CS_PHASE\"].steps | keys | map(tonumber) | max // 0" "$STATE_FILE" 2>/dev/null)
-    LAST_STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${LAST_STEP_CS}.md"
+    LAST_STEP_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].steps | keys | map(tonumber) | max // 0" "$STATE_FILE" 2>/dev/null)
+    LAST_STEP_FILE_CS="${TASK_DIR}/${COMMIT_FOLDER_CS}/step-${LAST_STEP_CS}.md"
     if [ -f "$LAST_STEP_FILE_CS" ] && grep -q '✅' "$LAST_STEP_FILE_CS" 2>/dev/null; then
       exit 0
     fi
-    jq -n --arg p "$CS_PHASE" --arg ls "$LAST_STEP_CS" \
+    jq -n --arg p "$COMMIT_PHASE_CS" --arg ls "$LAST_STEP_CS" \
       '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + " 마지막 Step " + $ls + " 미완료. Phase 완료 후 커밋하세요.")}'
     exit 0
   fi
