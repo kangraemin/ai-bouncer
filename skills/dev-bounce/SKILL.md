@@ -434,9 +434,13 @@ Lead가 수행:
 > plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
 > single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
-#### 3-2. 팀 구성
+#### 3-2. 팀 구성 (Main Claude 담당)
 
-| Lead 출력 | 팀 구성 |
+> **⚠️ Lead가 아닌 Main Claude가 직접 스폰한다.**
+> Lead로부터 `[TEAM:duo|team]` 응답을 받은 후, **Main Claude**가 Dev(+QA)를 스폰한다.
+> Lead가 Agent tool로 Dev를 스폰하는 것은 구조 위반이다.
+
+| Lead 출력 | Main Claude 액션 |
 |---|---|
 | `[TEAM:duo]` | Dev 에이전트 1명 스폰 (QA는 Lead가 겸임) |
 | `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |

@@ -292,6 +292,23 @@ case "$AGENT_MODE" in
         }'
         exit 0
       fi
+
+      # CHECK 6-DEV: Lead만 있고 Dev/QA 없으면 소스 파일 쓰기 차단
+      NON_LEAD_COUNT=$(jq -r '[.members[] | select(.name | ascii_downcase | test("lead") | not)] | length' "$TEAM_CONFIG" 2>/dev/null)
+      NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}; NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
+      if [ "$NON_LEAD_COUNT" -lt 1 ]; then
+        _PG_REPO6=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+        if [ -n "$_PG_REPO6" ]; then
+          _PG_FILE6=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
+          if [[ "$_PG_FILE6" == "$_PG_REPO6"* ]] && [[ "$_PG_FILE6" != "$_PG_REPO6/docs/"* ]]; then
+            jq -n '{
+              decision: "block",
+              reason: "⛔ [team] Dev/QA 에이전트가 없습니다. Lead 응답([TEAM:duo|team]) 수신 후 Main Claude가 Dev/QA를 스폰하세요."
+            }'
+            exit 0
+          fi
+        fi
+      fi
     fi
     ;;
   subagent)

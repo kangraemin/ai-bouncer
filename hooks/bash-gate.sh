@@ -473,6 +473,18 @@ case "$AGENT_MODE" in
         exit 0
       fi
 
+      # CHECK 6-DEV: Lead만 있고 Dev/QA 없으면 차단
+      NON_LEAD_COUNT=$(jq -r '[.members[] | select(.name | ascii_downcase | test("lead") | not)] | length' "$TEAM_CONFIG" 2>/dev/null)
+      NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}; NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
+      if [ "$NON_LEAD_COUNT" -lt 1 ]; then
+        save_snapshot
+        jq -n '{
+          decision: "block",
+          reason: "⛔ [bash-gate][team] Dev/QA 에이전트가 없습니다. Lead 응답([TEAM:duo|team]) 수신 후 Main Claude가 Dev/QA를 스폰하세요."
+        }'
+        exit 0
+      fi
+
       # CHECK 5-7: 서브에이전트 스폰 여부 검증
       # IS_DELEGATED_AGENT=true(승인된 Dev/QA)이면 스킵 — 프리엠프티브 체크가 이미 처리
       # Main Claude(세션 오너): .active session_id와 일치하면 스킵 (어드민 작업 허용)
