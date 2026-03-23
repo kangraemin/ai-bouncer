@@ -423,10 +423,47 @@ case "$AGENT_MODE" in
         }'
         exit 0
       fi
+
+      # CHECK 5-7: 서브에이전트 스폰 여부 검증
+      # Lead가 Dev/QA를 스폰하지 않고 혼자 코드 작성하는 것을 방지
+      APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
+      ABS_TASK_DIR=$(realpath "${REPO_ROOT}/${TASK_DIR}" 2>/dev/null || echo "${REPO_ROOT}/${TASK_DIR}")
+      if [ -f "$APPROVED_FILE" ]; then
+        SPAWNED_COUNT=$(grep -cF "${ABS_TASK_DIR}" "$APPROVED_FILE" 2>/dev/null || echo "0")
+      else
+        SPAWNED_COUNT=0
+      fi
+      SPAWNED_COUNT=${SPAWNED_COUNT//[^0-9]/}; SPAWNED_COUNT=${SPAWNED_COUNT:-0}
+      if [ "${SPAWNED_COUNT}" -lt 1 ]; then
+        save_snapshot
+        jq -n '{
+          decision: "block",
+          reason: "⛔ [bash-gate][team] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요."
+        }'
+        exit 0
+      fi
     fi
     ;;
   subagent)
-    # subagent: team 구성 불필요, 위임 등록 검증은 resolve-task.sh fallback이 처리
+    # CHECK 5-7: 서브에이전트 스폰 여부 검증 (subagent 모드도 동일)
+    if [ "$WORKFLOW_PHASE" = "development" ]; then
+      APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
+      ABS_TASK_DIR=$(realpath "${REPO_ROOT}/${TASK_DIR}" 2>/dev/null || echo "${REPO_ROOT}/${TASK_DIR}")
+      if [ -f "$APPROVED_FILE" ]; then
+        SPAWNED_COUNT=$(grep -cF "${ABS_TASK_DIR}" "$APPROVED_FILE" 2>/dev/null || echo "0")
+      else
+        SPAWNED_COUNT=0
+      fi
+      SPAWNED_COUNT=${SPAWNED_COUNT//[^0-9]/}; SPAWNED_COUNT=${SPAWNED_COUNT:-0}
+      if [ "${SPAWNED_COUNT}" -lt 1 ]; then
+        save_snapshot
+        jq -n '{
+          decision: "block",
+          reason: "⛔ [bash-gate][subagent] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요."
+        }'
+        exit 0
+      fi
+    fi
     ;;
   single)
     # single: Main Claude가 직접 수행, 팀/에이전트 검증 불필요
