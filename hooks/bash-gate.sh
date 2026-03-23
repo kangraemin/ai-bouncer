@@ -305,9 +305,9 @@ if [ "$_PRE_AGENT_MODE" = "team" ] || [ "$_PRE_AGENT_MODE" = "subagent" ]; then
     break
   done
 
-  if [ -n "$_PRE_TASK_DIR" ]; then
+  if [ -n "$_PRE_TASK_DIR" ] && [ -n "$_PRE_ACTIVE_SID" ]; then
     _IS_MAIN_CLAUDE=false
-    [ -n "$_PRE_ACTIVE_SID" ] && [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
+    [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
 
     _IS_APPROVED_AGENT=false
     if [ -n "$SESSION_ID" ] && [ -f "/tmp/.ai-bouncer-approved-agents" ]; then

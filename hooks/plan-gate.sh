@@ -59,9 +59,9 @@ if [ "$_PG_IS_DOC" = "false" ]; then
       _PRE_ACTIVE_SID=$(cat "$_pre_af" 2>/dev/null | tr -d '[:space:]')
       break
     done
-    if [ -n "$_PRE_TASK_DIR" ]; then
+    if [ -n "$_PRE_TASK_DIR" ] && [ -n "$_PRE_ACTIVE_SID" ]; then
       _IS_MAIN_CLAUDE=false
-      [ -n "$_PRE_ACTIVE_SID" ] && [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
+      [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
       _IS_APPROVED_AGENT=false
       if [ -n "$SESSION_ID" ] && [ -f "/tmp/.ai-bouncer-approved-agents" ]; then
         grep -q "^${SESSION_ID}|" "/tmp/.ai-bouncer-approved-agents" 2>/dev/null && _IS_APPROVED_AGENT=true
