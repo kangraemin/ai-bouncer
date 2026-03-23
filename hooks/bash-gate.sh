@@ -110,11 +110,8 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   # verification (simple) → 허용
   [ "$CS_WORKFLOW" = "verification" ] && exit 0
 
-  # planning → block
-  if [ "$CS_WORKFLOW" = "planning" ]; then
-    jq -n '{decision:"block", reason:"⛔ [bash-gate] planning 단계에서는 커밋할 수 없습니다."}'
-    exit 0
-  fi
+  # planning → 커밋 허용 (bash-gate가 코드 수정을 이미 차단. 워크로그 등 커밋 가능)
+  [ "$CS_WORKFLOW" = "planning" ] && exit 0
 
   # simple 모드 → development이면 허용 (step 검증 없음)
   if [ "$CS_MODE" = "simple" ]; then
@@ -277,6 +274,17 @@ fi
 
 # .active 파일 조작 (삭제 포함 — dev-bounce 완료 시 필요)
 if echo "$CMD" | grep -qE '\.active'; then
+  EXCEPTION=true
+fi
+
+# /tmp/ 임시 파일 조작 항상 허용 (worklog 중간 파일, mktemp 등)
+if echo "$CMD_CLEAN" | grep -qE '(>|>>|tee\s+)/tmp/|\brm\b.*/tmp/|\bmktemp\b'; then
+  EXCEPTION=true
+fi
+
+# ~/.claude/ 경로 항상 허용 (설정 읽기, worklog 스크립트 등)
+_CLAUDE_DIR="${HOME}/.claude"
+if [ -n "$_CLAUDE_DIR" ] && echo "$CMD" | grep -qF "$_CLAUDE_DIR"; then
   EXCEPTION=true
 fi
 

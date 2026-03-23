@@ -220,7 +220,14 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 5. 계획을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
 6. ExitPlanMode 호출 → accept/reject UI 표시
    - accept → step 7 진행
-   - reject → 사용자 피드백 반영 → plan mode plan 수정 → 다시 step 5~6
+   - reject → **즉시 task 취소 처리 후** 사용자 피드백 확인:
+     1. Write 도구로 state.json `workflow_phase = "cancelled"` 업데이트
+     2. `rm -f {active_file}` (.active 삭제)
+     3. 사용자 피드백에 따라:
+        - 수정 요청 → Phase 0부터 새로 재시작 제안 (새 TASK_DIR 생성)
+        - 취소/포기 → "작업이 취소되었습니다" 안내
+        - 오해/질문 → 설명 후 "재시도하려면 /dev-bounce를 다시 실행하세요" 안내
+     ⚠️ 거부 후 .active를 남긴 채 설명만 하면 bash-gate가 /finish 등 후속 작업을 모두 차단함.
 7. 승인 후 `{TASK_DIR}/plan.md` 생성 (plan mode plan 기반으로 구조화 + 상세화):
    plan mode plan의 내용을 아래 템플릿으로 확장한다. Before/After는 전체 코드를 포함한다.
    ```markdown
