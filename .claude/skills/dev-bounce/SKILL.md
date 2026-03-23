@@ -406,6 +406,9 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 **team 모드 (기본):**
 
+> **TeamCreate 전 확인**: 이미 동일 이름 팀이 존재하면 반드시 TeamDelete 후 생성.
+> "Already leading team" 에러 발생 시 → TeamDelete 후 재시도.
+
 TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
@@ -431,14 +434,19 @@ Lead가 수행:
 > plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
 > single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
-#### 3-2. 팀 구성
+#### 3-2. 팀 구성 (Main Claude 담당)
 
-| Lead 출력 | 팀 구성 |
+> **⚠️ Lead가 아닌 Main Claude가 직접 스폰한다.**
+> Lead로부터 `[TEAM:duo|team]` 응답을 받은 후, **Main Claude**가 Dev(+QA)를 스폰한다.
+> Lead가 Agent tool로 Dev를 스폰하는 것은 구조 위반이다.
+
+| Lead 출력 | Main Claude 액션 |
 |---|---|
-| `[TEAM:duo]` | Dev 에이전트 1명 스폰 (QA는 Lead가 겸임) |
+| `[TEAM:duo]` | Dev 에이전트 1명 스폰. QA 역할(TC 작성·검증)은 **Main Claude**가 직접 수행. |
 | `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
 
 > NORMAL 모드는 이미 복잡한 작업으로 판별된 상태. 최소 duo부터 시작한다.
+> duo 모드에서 Lead는 TC를 직접 작성하지 않는다. Main Claude가 QA 역할을 담당한다.
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
