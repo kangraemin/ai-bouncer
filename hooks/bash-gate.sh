@@ -290,54 +290,9 @@ fi
 
 [ "$EXCEPTION" = "true" ] && exit 0
 
-# 4.5. PRE-CHECK: Lead 서브에이전트 미스폰 차단
-# resolve-task.sh가 다른 세션의 task를 필터링하므로 Lead는 gate에 도달하지 않는 문제 해결.
-# IS_WRITE 감지 후, resolve-task.sh 호출 전에 전역 스캔으로 Lead 판별 후 차단.
-_PRE_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-_PRE_AGENT_MODE=$(jq -r '.agent_mode // "team"' "$_PRE_REPO/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
-
-if [ "$_PRE_AGENT_MODE" = "team" ] || [ "$_PRE_AGENT_MODE" = "subagent" ]; then
-  _PRE_TASK_DIR=""
-  _PRE_ACTIVE_SID=""
-  for _pre_af in "$_PRE_REPO/docs"/*/*/.active; do
-    [ -f "$_pre_af" ] || continue
-    _pre_td=$(dirname "$_pre_af")
-    _pre_sf="${_pre_td}/state.json"
-    [ -f "$_pre_sf" ] || continue
-    _pre_phase=$(jq -r '.workflow_phase // ""' "$_pre_sf" 2>/dev/null)
-    _pre_mode=$(jq -r '.mode // ""' "$_pre_sf" 2>/dev/null)
-    _pre_plan=$(jq -r '.plan_approved // false' "$_pre_sf" 2>/dev/null)
-    [ "$_pre_phase" = "development" ] && [ "$_pre_mode" = "normal" ] && [ "$_pre_plan" = "true" ] || continue
-    _PRE_TASK_DIR="$_pre_td"
-    _PRE_ACTIVE_SID=$(cat "$_pre_af" 2>/dev/null | tr -d '[:space:]')
-    break
-  done
-
-  if [ -n "$_PRE_TASK_DIR" ] && [ -n "$_PRE_ACTIVE_SID" ]; then
-    _IS_MAIN_CLAUDE=false
-    [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
-
-    _IS_APPROVED_AGENT=false
-    if [ -n "$SESSION_ID" ] && [ -f "/tmp/.ai-bouncer-approved-agents" ]; then
-      grep -q "^${SESSION_ID}|" "/tmp/.ai-bouncer-approved-agents" 2>/dev/null && _IS_APPROVED_AGENT=true
-    fi
-
-    if [ "$_IS_MAIN_CLAUDE" = "false" ] && [ "$_IS_APPROVED_AGENT" = "false" ]; then
-      _PRE_ABS_TASK=$(realpath "$_PRE_TASK_DIR" 2>/dev/null || echo "$_PRE_TASK_DIR")
-      _PRE_SPAWNED=0
-      [ -f "/tmp/.ai-bouncer-approved-agents" ] && \
-        _PRE_SPAWNED=$(grep -cF "$_PRE_ABS_TASK" "/tmp/.ai-bouncer-approved-agents" 2>/dev/null || echo "0")
-      _PRE_SPAWNED=${_PRE_SPAWNED//[^0-9]/}; _PRE_SPAWNED=${_PRE_SPAWNED:-0}
-      if [ "$_PRE_SPAWNED" -lt 1 ]; then
-        jq -n --arg mode "$_PRE_AGENT_MODE" '{
-          decision: "block",
-          reason: ("⛔ [bash-gate][" + $mode + "] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요.")
-        }'
-        exit 0
-      fi
-    fi
-  fi
-fi
+# 4.5. PRE-CHECK 제거됨
+# SPAWNED_COUNT(/tmp/ 파일 기반) 검증이 fragile하여 정상 Dev 에이전트도 차단하는 버그 수정.
+# Lead 차단은 team 모드 CHECK 6-DEV (NON_LEAD_COUNT) 에서 처리.
 
 # 5. Gate 검증 (plan-gate.sh CHECK 2~7 동일)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -493,54 +448,12 @@ case "$AGENT_MODE" in
         exit 0
       fi
 
-      # CHECK 5-7: 서브에이전트 스폰 여부 검증
-      # IS_DELEGATED_AGENT=true(승인된 Dev/QA)이면 스킵 — 프리엠프티브 체크가 이미 처리
-      # Main Claude(세션 오너): .active session_id와 일치하면 스킵 (어드민 작업 허용)
-      _ACTIVE_SID=$(cat "${TASK_DIR}/.active" 2>/dev/null | tr -d '[:space:]')
-      if [ "$IS_DELEGATED_AGENT" != "true" ] && { [ -z "$_ACTIVE_SID" ] || [ "$SESSION_ID" != "$_ACTIVE_SID" ]; }; then
-        APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
-        ABS_TASK_DIR=$(realpath "${REPO_ROOT}/${TASK_DIR}" 2>/dev/null || echo "${REPO_ROOT}/${TASK_DIR}")
-        if [ -f "$APPROVED_FILE" ]; then
-          SPAWNED_COUNT=$(grep -cF "${ABS_TASK_DIR}" "$APPROVED_FILE" 2>/dev/null || echo "0")
-        else
-          SPAWNED_COUNT=0
-        fi
-        SPAWNED_COUNT=${SPAWNED_COUNT//[^0-9]/}; SPAWNED_COUNT=${SPAWNED_COUNT:-0}
-        if [ "${SPAWNED_COUNT}" -lt 1 ]; then
-          save_snapshot
-          jq -n '{
-            decision: "block",
-            reason: "⛔ [bash-gate][team] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요."
-          }'
-          exit 0
-        fi
-      fi
+      # CHECK 5-7: Lead가 아닌 세션이 작성 시, team 멤버에 Dev/QA가 있으면 허용
+      # (SPAWNED_COUNT 체크 제거 — /tmp/ 파일 기반 검증이 fragile하여 정상 Dev 에이전트도 차단됨)
     fi
     ;;
   subagent)
-    # CHECK 5-7: 서브에이전트 스폰 여부 검증 (subagent 모드도 동일)
-    # Main Claude(세션 오너): .active session_id와 일치하면 스킵
-    if [ "$WORKFLOW_PHASE" = "development" ]; then
-      _ACTIVE_SID=$(cat "${TASK_DIR}/.active" 2>/dev/null | tr -d '[:space:]')
-      if [ -z "$_ACTIVE_SID" ] || [ "$SESSION_ID" != "$_ACTIVE_SID" ]; then
-        APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
-        ABS_TASK_DIR=$(realpath "${REPO_ROOT}/${TASK_DIR}" 2>/dev/null || echo "${REPO_ROOT}/${TASK_DIR}")
-        if [ -f "$APPROVED_FILE" ]; then
-          SPAWNED_COUNT=$(grep -cF "${ABS_TASK_DIR}" "$APPROVED_FILE" 2>/dev/null || echo "0")
-        else
-          SPAWNED_COUNT=0
-        fi
-        SPAWNED_COUNT=${SPAWNED_COUNT//[^0-9]/}; SPAWNED_COUNT=${SPAWNED_COUNT:-0}
-        if [ "${SPAWNED_COUNT}" -lt 1 ]; then
-          save_snapshot
-          jq -n '{
-            decision: "block",
-            reason: "⛔ [bash-gate][subagent] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요."
-          }'
-          exit 0
-        fi
-      fi
-    fi
+    # subagent 모드: SPAWNED_COUNT 체크 제거 (team 모드와 동일 이유)
     ;;
   single)
     # single: Main Claude가 직접 수행, 팀/에이전트 검증 불필요
