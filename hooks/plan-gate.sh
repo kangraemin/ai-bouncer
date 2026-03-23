@@ -30,59 +30,9 @@ if [[ "$FILE_PATH" == */plan.md ]]; then
   exit 0
 fi
 
-# 4.5. PRE-CHECK: Lead 서브에이전트 미스폰 차단 (Write/Edit 툴)
-# doc 파일(phase*.md, step-*.md 등)은 Lead가 써야 하므로 스킵
-_PG_IS_DOC=false
-[[ "$FILE_PATH" == */phase*.md ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */step-*.md ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */round-*.md ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */tests.md ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */state.json ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */.active ]] && _PG_IS_DOC=true
-[[ "$FILE_PATH" == */docs/* ]] && _PG_IS_DOC=true
-
-if [ "$_PG_IS_DOC" = "false" ]; then
-  _PRE_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-  _PRE_AGENT_MODE=$(jq -r '.agent_mode // "team"' "$_PRE_REPO/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
-  if [ "$_PRE_AGENT_MODE" = "team" ] || [ "$_PRE_AGENT_MODE" = "subagent" ]; then
-    _PRE_TASK_DIR=""
-    _PRE_ACTIVE_SID=""
-    for _pre_af in "$_PRE_REPO/docs"/*/*/.active; do
-      [ -f "$_pre_af" ] || continue
-      _pre_td=$(dirname "$_pre_af"); _pre_sf="${_pre_td}/state.json"
-      [ -f "$_pre_sf" ] || continue
-      _pre_phase=$(jq -r '.workflow_phase // ""' "$_pre_sf" 2>/dev/null)
-      _pre_mode=$(jq -r '.mode // ""' "$_pre_sf" 2>/dev/null)
-      _pre_plan=$(jq -r '.plan_approved // false' "$_pre_sf" 2>/dev/null)
-      [ "$_pre_phase" = "development" ] && [ "$_pre_mode" = "normal" ] && [ "$_pre_plan" = "true" ] || continue
-      _PRE_TASK_DIR="$_pre_td"
-      _PRE_ACTIVE_SID=$(cat "$_pre_af" 2>/dev/null | tr -d '[:space:]')
-      break
-    done
-    if [ -n "$_PRE_TASK_DIR" ] && [ -n "$_PRE_ACTIVE_SID" ]; then
-      _IS_MAIN_CLAUDE=false
-      [ "$SESSION_ID" = "$_PRE_ACTIVE_SID" ] && _IS_MAIN_CLAUDE=true
-      _IS_APPROVED_AGENT=false
-      if [ -n "$SESSION_ID" ] && [ -f "/tmp/.ai-bouncer-approved-agents" ]; then
-        grep -q "^${SESSION_ID}|" "/tmp/.ai-bouncer-approved-agents" 2>/dev/null && _IS_APPROVED_AGENT=true
-      fi
-      if [ "$_IS_MAIN_CLAUDE" = "false" ] && [ "$_IS_APPROVED_AGENT" = "false" ]; then
-        _PRE_ABS_TASK=$(realpath "$_PRE_TASK_DIR" 2>/dev/null || echo "$_PRE_TASK_DIR")
-        _PRE_SPAWNED=0
-        [ -f "/tmp/.ai-bouncer-approved-agents" ] && \
-          _PRE_SPAWNED=$(grep -cF "$_PRE_ABS_TASK" "/tmp/.ai-bouncer-approved-agents" 2>/dev/null || echo "0")
-        _PRE_SPAWNED=${_PRE_SPAWNED//[^0-9]/}; _PRE_SPAWNED=${_PRE_SPAWNED:-0}
-        if [ "$_PRE_SPAWNED" -lt 1 ]; then
-          jq -n --arg mode "$_PRE_AGENT_MODE" '{
-            decision: "block",
-            reason: ("⛔ [plan-gate][" + $mode + "] 서브에이전트(Dev/QA)가 스폰되지 않았습니다. Lead는 코드를 직접 작성하지 말고 Dev 에이전트를 먼저 스폰하세요.")
-          }'
-          exit 0
-        fi
-      fi
-    fi
-  fi
-fi
+# 4.5. PRE-CHECK 제거됨
+# SPAWNED_COUNT(/tmp/ 파일 기반) 검증이 fragile하여 정상 Dev 에이전트도 차단하는 버그 수정.
+# Lead 제거에 따라 이 검증은 불필요.
 
 # resolve_task_dir: 공유 라이브러리 사용
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -288,7 +238,7 @@ case "$AGENT_MODE" in
       if [ "$MEMBER_COUNT" -lt 1 ]; then
         jq -n '{
           decision: "block",
-          reason: "⛔ [team] 팀 멤버가 없습니다. Lead 에이전트를 먼저 스폰하세요."
+          reason: "⛔ [team] 팀 멤버가 없습니다. Dev/QA를 스폰하세요."
         }'
         exit 0
       fi
@@ -303,7 +253,7 @@ case "$AGENT_MODE" in
           if [[ "$_PG_FILE6" == "$_PG_REPO6"* ]] && [[ "$_PG_FILE6" != "$_PG_REPO6/docs/"* ]]; then
             jq -n '{
               decision: "block",
-              reason: "⛔ [team] Dev/QA 에이전트가 없습니다. Lead 응답([TEAM:duo|team]) 수신 후 Main Claude가 Dev/QA를 스폰하세요."
+              reason: "⛔ [team] Dev/QA 에이전트가 없습니다. Main Claude가 Dev/QA를 스폰하세요."
             }'
             exit 0
           fi
@@ -332,7 +282,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
   DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
   DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT//[^0-9]/}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
   if [ "$DEV_PHASES_COUNT" -le 0 ]; then
-    jq -n '{decision:"block", reason:"⛔ dev_phases가 비어있습니다. Lead가 phase 구조를 먼저 정의해야 합니다."}'
+    jq -n '{decision:"block", reason:"⛔ dev_phases가 비어있습니다. Main Claude가 phase 구조를 먼저 정의해야 합니다."}'
     exit 0
   fi
 fi
@@ -415,7 +365,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ]; then
       jq -n --arg phase "$DEV_PHASE_KEY" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
+        reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Main Claude가 phase.md를 먼저 생성해야 합니다.")
       }'
       exit 0
     fi
@@ -498,7 +448,7 @@ except:
     if [ "$_PG_FILE_ABS7d" != "$_STEP_MD_ABS" ]; then
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
         decision: "block",
-        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Lead가 step.md를 먼저 생성해야 합니다.")
+        reason: ("Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Main Claude가 step.md를 먼저 생성해야 합니다.")
       }'
       exit 0
     fi
