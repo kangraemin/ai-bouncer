@@ -729,6 +729,16 @@ if not is_registered(ss_list, 'update-check.sh'):
 else:
     print(f"  · SessionStart hook 이미 등록됨: update-check.sh")
 
+# permissions.allow에 Read/Glob/Grep 추가 (multi-agent 권한 프롬프트 방지)
+perms = cfg.setdefault('permissions', {})
+allow = perms.setdefault('allow', [])
+for tool in ['Read', 'Glob', 'Grep']:
+    if tool not in allow:
+        allow.append(tool)
+        print(f"  ✓ permissions.allow 추가: {tool}")
+    else:
+        print(f"  · permissions.allow 이미 있음: {tool}")
+
 with open(settings_file, 'w', encoding='utf-8') as f:
     json.dump(cfg, f, indent=2, ensure_ascii=False)
     f.write('\n')
