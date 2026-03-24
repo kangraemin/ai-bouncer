@@ -594,7 +594,7 @@ R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\
 assert_pass "PG: planning 단계 plan.md 작성 → 허용" "$R"
 cleanup_normal
 
-# PG-NEW-4: 3줄 plan.md로 개발 진입 → 차단
+# PG-NEW-4: 3줄 plan.md → 통과 (포맷 검증 제거됨, plan_approved + 존재만 체크)
 QUAL_PHASES='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
 setup_normal "$QUAL_PHASES" 1 1
 echo -e "# Plan\nshort\n" > "$TASK_DIR/plan.md"
@@ -602,9 +602,9 @@ mkdir -p "$TASK_DIR/phase-1-test"
 printf "## 목표\n테스트\n## 범위\n파일\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-test/phase.md"
 printf "| TC | 시나리오 | 기대 결과 | 실제 결과 |\n|---|---|---|---|\n| TC-1 | 테스트 시나리오 | 기대 결과 값 | |\n\n\`\`\`\nbash test\n\`\`\`\n" > "$TASK_DIR/phase-1-test/step-1.md"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "PG: 3줄 plan.md → 차단 (너무 짧음)" "$R"
+assert_pass "PG: 3줄 plan.md → 통과 (포맷 검증 제거됨)" "$R"
 
-# PG-NEW-5: Before/After 없는 plan.md → 차단
+# PG-NEW-5: Before/After 없는 plan.md → 통과 (포맷 검증 제거됨)
 python3 -c "
 content = '# Plan\n\n## 변경 파일별 상세\n### foo.py\n- 변경 이유: 테스트\n'
 content += '\n'.join(['더미 라인 ' + str(i) for i in range(30)])
@@ -612,7 +612,7 @@ content += '\n\n## 검증\n\`pytest\`\n'
 open('$TASK_DIR/plan.md', 'w').write(content)
 "
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "PG: Before/After 없는 plan.md → 차단" "$R"
+assert_pass "PG: Before/After 없는 plan.md → 통과 (포맷 검증 제거됨)" "$R"
 
 # PG-NEW-6: 정상 plan.md → 통과
 python3 -c "

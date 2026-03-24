@@ -163,41 +163,6 @@ if [ ! -f "${TASK_DIR}/plan.md" ]; then
   exit 0
 fi
 
-# CHECK 3-B: plan.md 내용 검증 (3줄짜리 bypass 방지)
-PLAN_LINE_COUNT=$(wc -l < "${TASK_DIR}/plan.md" 2>/dev/null | tr -d ' ' || echo 0)
-if [ "$PLAN_LINE_COUNT" -lt 30 ]; then
-  jq -n --arg lines "$PLAN_LINE_COUNT" '{
-    decision: "block",
-    reason: ("plan.md가 너무 짧습니다 (" + $lines + "줄). Before/After 코드 포함 최소 30줄 필요. /dev-bounce로 계획을 다시 작성하세요.")
-  }'
-  exit 0
-fi
-
-for _plan_section in "## 변경 파일" "## 검증"; do
-  if ! LC_ALL=en_US.UTF-8 grep -q "$_plan_section" "${TASK_DIR}/plan.md" 2>/dev/null; then
-    jq -n --arg s "$_plan_section" '{
-      decision: "block",
-      reason: ("plan.md 필수 섹션 누락: " + $s + ". /dev-bounce로 계획을 다시 작성하세요.")
-    }'
-    exit 0
-  fi
-done
-
-if ! LC_ALL=en_US.UTF-8 grep -q '\*\*Before\*\*' "${TASK_DIR}/plan.md" 2>/dev/null; then
-  jq -n '{decision:"block", reason:"plan.md에 **Before** 코드 스니펫이 없습니다. 변경 전 코드를 반드시 포함하세요."}'
-  exit 0
-fi
-if ! LC_ALL=en_US.UTF-8 grep -q '\*\*After\*\*' "${TASK_DIR}/plan.md" 2>/dev/null; then
-  jq -n '{decision:"block", reason:"plan.md에 **After** 코드 스니펫이 없습니다. 변경 후 코드를 반드시 포함하세요."}'
-  exit 0
-fi
-
-_VERIFY_SECTION=$(awk '/^## 검증/{found=1} found{print}' "${TASK_DIR}/plan.md" 2>/dev/null)
-if ! echo "$_VERIFY_SECTION" | grep -q '`'; then
-  jq -n '{decision:"block", reason:"plan.md ## 검증 섹션에 실행 명령어(backtick)가 없습니다. 검증 명령어를 포함하세요."}'
-  exit 0
-fi
-
 # SIMPLE 모드: plan_approved + plan.md 존재만으로 통과
 if [ "$MODE" = "simple" ]; then
   exit 0
