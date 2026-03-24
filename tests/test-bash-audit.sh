@@ -74,19 +74,19 @@ tc_a2() {
   local dir="$TMPDIR_ROOT/tc_a2"
   make_repo "$dir"
 
-  mkdir -p "$dir/docs/my-task"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task"
 
   # 스냅샷 생성
   (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # 예외 경로에 파일 쓰기
-  echo "# Plan" > "$dir/docs/my-task/plan.md"
+  echo "# Plan" > "$dir/.ai-bouncer-tasks/my-task/plan.md"
 
   # audit 실행
   local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
 
   # 예외 파일은 유지되어야 함
-  if [ -f "$dir/docs/my-task/plan.md" ]; then
+  if [ -f "$dir/.ai-bouncer-tasks/my-task/plan.md" ]; then
     pass "TC-A2: 예외 경로 (plan.md) → 복원 안 함"
   else
     fail "TC-A2: 예외 경로 (plan.md) → 복원 안 함" "plan.md가 삭제됨"
@@ -199,22 +199,22 @@ tc_a7() {
   local dir="$TMPDIR_ROOT/tc_a7"
   make_repo "$dir"
 
-  mkdir -p "$dir/docs/my-task"
-  echo '{"workflow_phase":"development"}' > "$dir/docs/my-task/state.json"
-  git -C "$dir" add docs/my-task/state.json
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task"
+  echo '{"workflow_phase":"development"}' > "$dir/.ai-bouncer-tasks/my-task/state.json"
+  git -C "$dir" add .ai-bouncer-tasks/my-task/state.json
   git -C "$dir" -c user.email=test@test.com -c user.name=Test commit -m "add state" -q
 
   # Snapshot
   (cd "$dir" && { git diff --name-only; git ls-files --others --exclude-standard; } | sort > /tmp/.ai-bouncer-snapshot-default)
 
   # Delete state.json (simulating rm attack)
-  rm -f "$dir/docs/my-task/state.json"
+  rm -f "$dir/.ai-bouncer-tasks/my-task/state.json"
 
   # audit
   local out; out=$(cd "$dir" && make_audit_input | bash "$AUDIT_SCRIPT" 2>/dev/null)
 
   # state.json은 bash-audit.sh 예외 경로 — 복원하지 않음 (bouncer가 직접 관리)
-  if [ ! -f "$dir/docs/my-task/state.json" ]; then
+  if [ ! -f "$dir/.ai-bouncer-tasks/my-task/state.json" ]; then
     pass "TC-A7: rm state.json → audit 예외 (복원 안 함 — bouncer 예외 경로)"
   else
     fail "TC-A7: rm state.json → audit 예외" "state.json이 복원됨 (예외 경로여야 함)"

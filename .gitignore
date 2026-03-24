@@ -8,7 +8,7 @@ HANDOFF.md
 .claude/ai-bouncer/manifest.json
 .claude/**/*.backup-*
 .claude/settings.json
-docs/
+.ai-bouncer-tasks/
 # ai-bouncer installed files
 .claude/agents/intent.md
 .claude/agents/verifier.md

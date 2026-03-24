@@ -148,7 +148,7 @@ echo -e "\n${BOLD}─── 3. 설치된 hooks로 기능 테스트 ───${NC
 HOOKS_DIR="$TARGET/hooks"
 
 # 테스트용 task 디렉토리 생성
-TASK_DIR="$REPO_DIR/docs/2099-01-01/e2e-test"
+TASK_DIR="$REPO_DIR/.ai-bouncer-tasks/2099-01-01/e2e-test"
 mkdir -p "$TASK_DIR"
 TEST_SID="e2e-test-$$"
 
@@ -183,7 +183,7 @@ R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\
 if is_blocked "$R"; then fail "plan-gate: approved → 통과"; else pass "plan-gate: approved → 통과"; fi
 
 setup_state "simple" "planning" "false"
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$REPO_DIR/src/test.py\"},\"session_id\":\"$TEST_SID\"}")
 if is_blocked "$R"; then pass "plan-gate: planning → 차단"; else fail "plan-gate: planning → 차단"; fi
 
 # bash-gate 테스트

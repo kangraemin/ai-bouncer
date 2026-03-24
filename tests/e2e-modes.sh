@@ -258,11 +258,11 @@ persona_c() {
   # subagent + development + team_name 비어있음 + 정상 구조 → ALLOW
   local date_dir="2026-01-01"
   local task="test-task"
-  mkdir -p "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-test"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
-  echo "# Plan" > "$FAKE_REPO/docs/${date_dir}/${task}/plan.md"
-  echo "# Phase 1" > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-test/phase.md"
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-test/step-1.md" << 'STEPEOF'
+  mkdir -p "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
+  echo "# Plan" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/plan.md"
+  echo "# Phase 1" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/phase.md"
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -288,7 +288,7 @@ state = {
     },
     'verification': {'rounds_passed': 0}
 }
-with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
+with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 "
 
@@ -307,7 +307,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   # dev_phases={} → BLOCK (CHECK 6.7 유지)
   python3 -c "
 import json
-f = '$FAKE_REPO/docs/${date_dir}/${task}/state.json'
+f = '$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json'
 with open(f) as fp: s = json.load(fp)
 s['dev_phases'] = {}
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -435,10 +435,10 @@ with open(cfg_path, 'w') as f: json.dump(cfg, f, indent=2)
   # plan-gate: team 기본값 → team_name 비어있으면 차단
   local date_dir="2026-01-01"
   local task="legacy-task"
-  mkdir -p "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-test"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
-  echo "# Plan" > "$FAKE_REPO/docs/${date_dir}/${task}/plan.md"
-  echo "# Phase 1" > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-test/phase.md"
+  mkdir -p "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
+  echo "# Plan" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/plan.md"
+  echo "# Phase 1" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/phase.md"
 
   python3 -c "
 import json
@@ -452,7 +452,7 @@ state = {
     'dev_phases': {'1': {'name': 'test', 'folder': 'phase-1-test', 'steps': {'1': {'title': 'Test'}}}},
     'verification': {'rounds_passed': 0}
 }
-with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
+with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 "
 
@@ -497,13 +497,13 @@ persona_g() {
   # 공통 setup: docs + state.json + step 파일
   local date_dir="2026-01-01"
   local task="cs-task"
-  mkdir -p "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
-  echo "# Plan" > "$FAKE_REPO/docs/${date_dir}/${task}/plan.md"
-  echo "# Phase 1" > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/phase.md"
+  mkdir -p "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
+  echo "# Plan" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/plan.md"
+  echo "# Phase 1" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/phase.md"
 
   # step-1.md (미완료 — ✅ 없음)
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -512,7 +512,7 @@ persona_g() {
 STEPEOF
 
   # step-2.md (미완료)
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
 # Step 2: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -525,7 +525,7 @@ STEPEOF
     python3 -c "
 import json
 state = $1
-with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
+with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 "
   }
@@ -565,7 +565,7 @@ with open('$CONFIG', 'w') as f: json.dump(cfg, f, indent=2)
   fi
 
   # G-2: per-step + step 완료(✅) + git commit → ALLOW
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -589,7 +589,7 @@ STEPEOF
   fi
 
   # G-4: per-phase + 마지막 step 완료 + git commit → ALLOW
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/step-2.md" << 'STEPEOF'
 # Step 2: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -637,7 +637,7 @@ STEPEOF
   fi
 
   # G-8: .active 없음 + git commit → ALLOW (gate 비활성)
-  rm -f "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  rm -f "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   set_commit_strategy "per-step"
   decision=$(run_bash_gate "git commit -m 'test'")
   if [ "$decision" != "block" ]; then
@@ -647,7 +647,7 @@ STEPEOF
   fi
 
   # G-9: simple 모드 + development + git commit → ALLOW
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   set_commit_strategy "per-step"
   write_state '{
     "workflow_phase": "development", "plan_approved": True, "mode": "simple",
@@ -676,10 +676,10 @@ STEPEOF
   fi
 
   # G-11: update 후 bash-gate 동작 유지
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   set_commit_strategy "per-step"
   # step-1.md를 미완료 상태로 복원 (G-2에서 ✅가 들어갔음)
-  cat > "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
+  cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -749,9 +749,9 @@ SETTEOF
   # ── 공통 setup: docs 구조 + dirty state ──
   local date_dir="2026-01-01"
   local task="h-task"
-  mkdir -p "$FAKE_REPO/docs/${date_dir}/${task}/phase-1-impl"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
-  echo "# Plan" > "$FAKE_REPO/docs/${date_dir}/${task}/plan.md"
+  mkdir -p "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-impl"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
+  echo "# Plan" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/plan.md"
   # dirty file 생성 (미커밋 상태 — stop.sh가 block할 조건)
   echo "dirty" > "$FAKE_REPO/src.txt"
   git -C "$FAKE_REPO" add src.txt
@@ -761,7 +761,7 @@ SETTEOF
     echo "$1" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
+with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as f:
     json.dump(data, f, indent=2)
 "
   }
@@ -795,7 +795,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   fi
 
   # ── H-4: .active 없음 + dirty → BLOCK (gate 비활성, 기존 stop.sh 동작) ──
-  rm -f "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  rm -f "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
@@ -805,7 +805,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   fi
 
   # ── H-5: simple + development + dirty → BLOCK (SIMPLE 모드는 예외 아님) ──
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"simple","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
@@ -843,7 +843,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   fi
 
   # ── H-9: update 후 gate 동작 정상 (normal+dev → ALLOW) ──
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   # dirty 복원
   echo "dirty" > "$FAKE_REPO/src.txt"
   git -C "$FAKE_REPO" add src.txt
@@ -889,7 +889,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   fi
 
   # ── H-13: uninstall 후 기존 stop.sh 동작 복원 (dirty → block) ──
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
@@ -912,7 +912,7 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
 
   # ── H-15: config.json 없으면 기존 stop.sh 동작 유지 ──
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json" "$FAKE_REPO/.claude/ai-bouncer/config.json.bak"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" = "block" ]; then
@@ -923,8 +923,8 @@ with open('$FAKE_REPO/docs/${date_dir}/${task}/state.json', 'w') as f:
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json.bak" "$FAKE_REPO/.claude/ai-bouncer/config.json"
 
   # ── H-16: state.json 없으면 기존 stop.sh 동작 유지 ──
-  rm -f "$FAKE_REPO/docs/${date_dir}/${task}/state.json"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  rm -f "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   local hook_input
   hook_input=$(jq -n --arg cwd "$FAKE_REPO" '{cwd: $cwd}')
   local hook_out
@@ -984,7 +984,7 @@ json.dump(cfg, open('$FAKE_HOME/.claude/settings.json','w'), indent=2)
   git -C "$FAKE_REPO" checkout -- . 2>/dev/null || true
   git -C "$FAKE_REPO" reset HEAD -- src.txt 2>/dev/null || true
   rm -f "$FAKE_REPO/src.txt"
-  touch "$FAKE_REPO/docs/${date_dir}/${task}/.active"
+  touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"done","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
   if [ "$decision" != "block" ]; then

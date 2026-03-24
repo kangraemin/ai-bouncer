@@ -88,7 +88,7 @@ _resolve_from_base() {
   return 1
 }
 
-# 날짜별 구조 스캔: docs/YYYY-MM-DD/ 하위 각 디렉토리에서 _resolve_from_base 호출
+# 날짜별 구조 스캔: .ai-bouncer-tasks/YYYY-MM-DD/ 하위 각 디렉토리에서 _resolve_from_base 호출
 _resolve_date_dirs() {
   local root="$1"
   [ -d "$root" ] || return 1
@@ -102,17 +102,17 @@ _resolve_date_dirs() {
 }
 
 # 1. persistent dir (worktree용)
-PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
 _resolve_from_base "$PERSISTENT_BASE"
 
-# 2. local docs/ — 날짜별 구조 (docs/YYYY-MM-DD/task-name/.active)
+# 2. local .ai-bouncer-tasks/ — 날짜별 구조 (.ai-bouncer-tasks/YYYY-MM-DD/task-name/.active)
 if [ -z "$TASK_NAME" ]; then
-  _resolve_date_dirs "docs"
+  _resolve_date_dirs ".ai-bouncer-tasks"
 fi
 
-# 3. fallback: 기존 flat 구조 (docs/task-name/.active — 하위 호환)
+# 3. fallback: 기존 flat 구조 (.ai-bouncer-tasks/task-name/.active — 하위 호환)
 if [ -z "$TASK_NAME" ]; then
-  _resolve_from_base "docs"
+  _resolve_from_base ".ai-bouncer-tasks"
 fi
 
 # 결과 설정
@@ -156,8 +156,8 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
   }
 
   # 날짜별 구조
-  if [ -d "docs" ]; then
-    for dd in docs/*/; do
+  if [ -d ".ai-bouncer-tasks" ]; then
+    for dd in .ai-bouncer-tasks/*/; do
       [ -d "$dd" ] || continue
       _fallback_find_active "$dd" && break
     done
@@ -165,11 +165,11 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
 
   # persistent 경로
   if [ -z "$TASK_NAME" ]; then
-    _fallback_find_active "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+    _fallback_find_active "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
   fi
 
   # flat 구조 (하위 호환)
   if [ -z "$TASK_NAME" ]; then
-    _fallback_find_active "docs"
+    _fallback_find_active ".ai-bouncer-tasks"
   fi
 fi

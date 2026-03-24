@@ -16,11 +16,11 @@ FAIL=0
 pass() { echo -e "  ${GREEN}✅${NC} $*"; PASS=$((PASS + 1)); }
 fail() { echo -e "  ${RED}❌${NC} $*"; FAIL=$((FAIL + 1)); }
 
-# 임시 디렉토리 생성 (docs/ 구조 시뮬레이션)
+# 임시 디렉토리 생성 (.ai-bouncer-tasks/ 구조 시뮬레이션)
 TEST_DIR=$(mktemp -d)
 trap 'rm -rf "$TEST_DIR"' EXIT
 
-# SKILL.md에 있는 복원 스크립트 (docs/ 경로를 TEST_DIR 기준으로 실행)
+# SKILL.md에 있는 복원 스크립트 (.ai-bouncer-tasks/ 경로를 TEST_DIR 기준으로 실행)
 run_restore_script() {
   local workdir="$1"
   (cd "$workdir" && python3 -c "
@@ -29,7 +29,7 @@ import json, os, glob
 results = {'active': None, 'incomplete': []}
 
 # 1) .active 파일 스캔
-for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
     task_dir = os.path.dirname(state_file)
     active_file = os.path.join(task_dir, '.active')
     if os.path.isfile(active_file):
@@ -38,7 +38,7 @@ for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
 
 # 2) .active 없으면 미완료 작업 스캔
 if not results['active']:
-    for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+    for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
         try:
             state = json.load(open(state_file))
         except: continue
@@ -73,7 +73,7 @@ echo -e "${BOLD}  ai-bouncer E2E Session Restore Tests${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════${NC}"
 echo ""
 
-# ─── 1. docs/ 없음 (빈 프로젝트) → active=null, incomplete=[] ───
+# ─── 1. .ai-bouncer-tasks/ 없음 (빈 프로젝트) → active=null, incomplete=[] ───
 echo -e "${BOLD}─── 1. 빈 프로젝트 ───${NC}"
 
 WORK1="$TEST_DIR/case1"
@@ -92,8 +92,8 @@ echo -e "\n${BOLD}─── 2. .active 있음 → Case A ───${NC}"
 
 WORK2="$TEST_DIR/case2"
 mkdir -p "$WORK2"
-write_state "$WORK2/docs/2026-03-12/my-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":2,"dev_phases":{"1":{},"2":{}}}'
-touch "$WORK2/docs/2026-03-12/my-task/.active"
+write_state "$WORK2/.ai-bouncer-tasks/2026-03-12/my-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":2,"dev_phases":{"1":{},"2":{}}}'
+touch "$WORK2/.ai-bouncer-tasks/2026-03-12/my-task/.active"
 
 R=$(run_restore_script "$WORK2")
 ACTIVE=$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['active']['task_dir'] if d['active'] else 'None')")
@@ -116,7 +116,7 @@ echo -e "\n${BOLD}─── 3. .active 없음 + 미완료 1개 → Case B ──
 
 WORK3="$TEST_DIR/case3"
 mkdir -p "$WORK3"
-write_state "$WORK3/docs/2026-03-12/reskin-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":2,"dev_phases":{"1":{},"2":{},"3":{}}}'
+write_state "$WORK3/.ai-bouncer-tasks/2026-03-12/reskin-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":2,"dev_phases":{"1":{},"2":{},"3":{}}}'
 # .active 없음!
 
 R=$(run_restore_script "$WORK3")
@@ -147,8 +147,8 @@ echo -e "\n${BOLD}─── 4. 완료 작업만 → Case C ───${NC}"
 
 WORK4="$TEST_DIR/case4"
 mkdir -p "$WORK4"
-write_state "$WORK4/docs/2026-03-10/done-task" '{"workflow_phase":"done","mode":"simple"}'
-write_state "$WORK4/docs/2026-03-11/done-task2" '{"workflow_phase":"done","mode":"normal","current_dev_phase":3,"dev_phases":{"1":{},"2":{},"3":{}}}'
+write_state "$WORK4/.ai-bouncer-tasks/2026-03-10/done-task" '{"workflow_phase":"done","mode":"simple"}'
+write_state "$WORK4/.ai-bouncer-tasks/2026-03-11/done-task2" '{"workflow_phase":"done","mode":"normal","current_dev_phase":3,"dev_phases":{"1":{},"2":{},"3":{}}}'
 
 R=$(run_restore_script "$WORK4")
 ACTIVE=$(echo "$R" | python3 -c "import json,sys; print(json.load(sys.stdin)['active'])")
@@ -165,10 +165,10 @@ echo -e "\n${BOLD}─── 5. 미완료 여러 개 + 정렬 ───${NC}"
 
 WORK5="$TEST_DIR/case5"
 mkdir -p "$WORK5"
-write_state "$WORK5/docs/2026-03-10/old-task" '{"workflow_phase":"planning","mode":"normal","current_dev_phase":0,"dev_phases":{}}'
-write_state "$WORK5/docs/2026-03-12/new-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":1,"dev_phases":{"1":{}}}'
-write_state "$WORK5/docs/2026-03-11/mid-task" '{"workflow_phase":"verification","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
-write_state "$WORK5/docs/2026-03-11/done-task" '{"workflow_phase":"done","mode":"simple"}'
+write_state "$WORK5/.ai-bouncer-tasks/2026-03-10/old-task" '{"workflow_phase":"planning","mode":"normal","current_dev_phase":0,"dev_phases":{}}'
+write_state "$WORK5/.ai-bouncer-tasks/2026-03-12/new-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":1,"dev_phases":{"1":{}}}'
+write_state "$WORK5/.ai-bouncer-tasks/2026-03-11/mid-task" '{"workflow_phase":"verification","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
+write_state "$WORK5/.ai-bouncer-tasks/2026-03-11/done-task" '{"workflow_phase":"done","mode":"simple"}'
 
 R=$(run_restore_script "$WORK5")
 INCOMPLETE=$(echo "$R" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['incomplete']))")
@@ -200,9 +200,9 @@ echo -e "\n${BOLD}─── 6. .active + 미완료 혼재 → .active 우선 ─
 
 WORK6="$TEST_DIR/case6"
 mkdir -p "$WORK6"
-write_state "$WORK6/docs/2026-03-12/active-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":1,"dev_phases":{"1":{}}}'
-touch "$WORK6/docs/2026-03-12/active-task/.active"
-write_state "$WORK6/docs/2026-03-10/orphan-task" '{"workflow_phase":"development","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
+write_state "$WORK6/.ai-bouncer-tasks/2026-03-12/active-task" '{"workflow_phase":"development","mode":"normal","current_dev_phase":1,"dev_phases":{"1":{}}}'
+touch "$WORK6/.ai-bouncer-tasks/2026-03-12/active-task/.active"
+write_state "$WORK6/.ai-bouncer-tasks/2026-03-10/orphan-task" '{"workflow_phase":"development","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
 
 R=$(run_restore_script "$WORK6")
 ACTIVE=$(echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['active']['task_dir'] if d['active'] else 'None')")
@@ -218,9 +218,9 @@ fi
 echo -e "\n${BOLD}─── 7. 깨진 state.json → 스킵 ───${NC}"
 
 WORK7="$TEST_DIR/case7"
-mkdir -p "$WORK7/docs/2026-03-12/broken-task"
-echo "NOT_JSON{{{" > "$WORK7/docs/2026-03-12/broken-task/state.json"
-write_state "$WORK7/docs/2026-03-12/good-task" '{"workflow_phase":"development","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
+mkdir -p "$WORK7/.ai-bouncer-tasks/2026-03-12/broken-task"
+echo "NOT_JSON{{{" > "$WORK7/.ai-bouncer-tasks/2026-03-12/broken-task/state.json"
+write_state "$WORK7/.ai-bouncer-tasks/2026-03-12/good-task" '{"workflow_phase":"development","mode":"simple","current_dev_phase":0,"dev_phases":{}}'
 
 R=$(run_restore_script "$WORK7")
 INCOMPLETE=$(echo "$R" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['incomplete']))")
@@ -236,8 +236,8 @@ echo -e "\n${BOLD}─── 8. workflow_phase 빈 문자열 → 제외 ───
 
 WORK8="$TEST_DIR/case8"
 mkdir -p "$WORK8"
-write_state "$WORK8/docs/2026-03-12/empty-phase" '{"workflow_phase":"","mode":"simple"}'
-write_state "$WORK8/docs/2026-03-12/good-task" '{"workflow_phase":"planning","mode":"normal","current_dev_phase":0,"dev_phases":{}}'
+write_state "$WORK8/.ai-bouncer-tasks/2026-03-12/empty-phase" '{"workflow_phase":"","mode":"simple"}'
+write_state "$WORK8/.ai-bouncer-tasks/2026-03-12/good-task" '{"workflow_phase":"planning","mode":"normal","current_dev_phase":0,"dev_phases":{}}'
 
 R=$(run_restore_script "$WORK8")
 INCOMPLETE=$(echo "$R" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['incomplete']))")
@@ -253,7 +253,7 @@ echo -e "\n${BOLD}─── 9. workflow_phase 키 없음 → 제외 ───${N
 
 WORK9="$TEST_DIR/case9"
 mkdir -p "$WORK9"
-write_state "$WORK9/docs/2026-03-12/no-phase" '{"mode":"simple"}'
+write_state "$WORK9/.ai-bouncer-tasks/2026-03-12/no-phase" '{"mode":"simple"}'
 
 R=$(run_restore_script "$WORK9")
 INCOMPLETE=$(echo "$R" | python3 -c "import json,sys; print(len(json.load(sys.stdin)['incomplete']))")

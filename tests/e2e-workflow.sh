@@ -243,7 +243,7 @@ simulate_hooks_workflow() {
   fi
 
   # docs 구조 생성
-  local DOCS_DIR="$FAKE_REPO/docs/2026-01-15/wf-test"
+  local DOCS_DIR="$FAKE_REPO/.ai-bouncer-tasks/2026-01-15/wf-test"
   mkdir -p "$DOCS_DIR"
   touch "$DOCS_DIR/.active"
   echo "# Plan" > "$DOCS_DIR/plan.md"

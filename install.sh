@@ -420,14 +420,14 @@ cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
 chmod +x "$REPO_ROOT/uninstall.sh"
 ok "uninstall.sh (프로젝트 루트)"
 
-# ── docs git 추적 설정 ─────────────────────────────────────────
-header "docs/ 설정"
+# ── .ai-bouncer-tasks git 추적 설정 ──────────────────────────────
+header ".ai-bouncer-tasks/ 설정"
 if [ "$CI_MODE" = "true" ]; then
   DOCS_GIT_TRACK="n"
 else
-  echo "  ai-bouncer는 작업별로 docs/<task-name>/ 폴더에 산출물을 저장합니다."
+  echo "  ai-bouncer는 작업별로 .ai-bouncer-tasks/<task-name>/ 폴더에 산출물을 저장합니다."
   echo ""
-  printf "  docs/ 폴더를 git으로 추적할까요? (y/n) [n]: "
+  printf "  .ai-bouncer-tasks/ 폴더를 git으로 추적할까요? (y/n) [n]: "
   read -r DOCS_GIT_TRACK
   DOCS_GIT_TRACK="${DOCS_GIT_TRACK:-n}"
 fi
@@ -435,9 +435,9 @@ fi
 DOCS_TRACK_BOOL="false"
 if [[ "$DOCS_GIT_TRACK" =~ ^[yY] ]]; then
   DOCS_TRACK_BOOL="true"
-  ok "docs/ git 추적 활성화"
+  ok ".ai-bouncer-tasks/ git 추적 활성화"
 else
-  ok "docs/ git 미추적 (기본값)"
+  ok ".ai-bouncer-tasks/ git 미추적 (기본값)"
 fi
 
 # ── .gitignore managed block 주입 ─────────────────────────────
@@ -458,7 +458,7 @@ GITIGNORE_BLOCK="${GITIGNORE_START}
 
 if [ "$DOCS_TRACK_BOOL" = "false" ]; then
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
-docs/"
+.ai-bouncer-tasks/"
 fi
 
 # bouncer installed files (manifest 기반 — 사용자 파일과 정확히 구분)
@@ -869,7 +869,7 @@ echo "  │         bash-audit.sh (PostToolUse: Bash)"
 echo "  │         completion-gate.sh (Stop)"
 echo "  │         subagent-track.sh (SubagentStart)"
 echo "  │         subagent-cleanup.sh (SubagentStop)"
-echo "  ├─ docs git 추적: $DOCS_TRACK_BOOL"
+echo "  ├─ tasks git 추적: $DOCS_TRACK_BOOL"
 echo "  ├─ 실행 모드: $ENFORCEMENT_MODE"
 echo "  ├─ 에이전트 모드: $AGENT_MODE"
 echo "  └─ 매니페스트: $BOUNCER_DATA_DIR/manifest.json"

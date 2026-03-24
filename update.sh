@@ -367,6 +367,24 @@ print('\n')
 PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
 _register_session_start "$TARGET_DIR/settings.json"
 
+# ── docs/ → .ai-bouncer-tasks/ migration ─────────────────────
+if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT/docs" ]; then
+  # docs/ 안에 ai-bouncer 작업 파일(state.json)이 있는지 확인
+  if find "$REPO_ROOT/docs" -name 'state.json' -path '*/docs/*/state.json' 2>/dev/null | grep -q .; then
+    mkdir -p "$REPO_ROOT/.ai-bouncer-tasks"
+    # 날짜별 디렉토리만 이동 (YYYY-MM-DD 패턴)
+    for d in "$REPO_ROOT/docs"/*/; do
+      dirname=$(basename "$d")
+      if [[ "$dirname" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
+        mv "$d" "$REPO_ROOT/.ai-bouncer-tasks/$dirname" 2>/dev/null || true
+      fi
+    done
+    # docs/가 비었으면 삭제
+    rmdir "$REPO_ROOT/docs" 2>/dev/null || true
+    echo "  ✓ docs/ → .ai-bouncer-tasks/ migration 완료"
+  fi
+fi
+
 # ── .gitignore managed block 동기화 ──────────────────────────
 if [ -n "$REPO_ROOT" ]; then
   DOCS_GIT_TRACK=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('docs_git_track', False))" "$CONFIG_FILE" 2>/dev/null || echo "False")
@@ -386,7 +404,7 @@ if [ -n "$REPO_ROOT" ]; then
 
   if [ "$DOCS_GIT_TRACK" = "False" ] || [ "$DOCS_GIT_TRACK" = "false" ]; then
     GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
-docs/"
+.ai-bouncer-tasks/"
   fi
 
   # bouncer installed files (manifest 기반 — 사용자 파일과 정확히 구분)

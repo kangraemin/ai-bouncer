@@ -17,7 +17,7 @@ FAIL=0
 
 # 테스트 환경 설정 — 격리된 INSTALL_REPO 내 태스크 디렉토리 사용
 TODAY=$(date +%Y-%m-%d)
-TASK_DIR="$INSTALL_REPO/docs/$TODAY/e2e-hook-test"
+TASK_DIR="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/e2e-hook-test"
 mkdir -p "$TASK_DIR"
 STATE_FILE="$TASK_DIR/state.json"
 ACTIVE_FILE="$TASK_DIR/.active"
@@ -632,9 +632,9 @@ assert_block "PG: planning 단계 프로젝트 소스 파일 → 차단" "$R"
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "PG: planning 단계 /tmp/ 파일 → 허용 (탐색)" "$R"
 
-# PG-NEW-11: planning 단계 docs/ 파일 → 허용
+# PG-NEW-11: planning 단계 .ai-bouncer-tasks/ 파일 → 허용
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$TASK_DIR/state.json\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "PG: planning 단계 docs/ 파일 → 허용" "$R"
+assert_pass "PG: planning 단계 .ai-bouncer-tasks/ 파일 → 허용" "$R"
 
 echo ""
 
@@ -1108,7 +1108,7 @@ echo "─── 세션 간 격리 (MSI) ───"
 
 SESSION_A_SID="session-a-$(date +%s)"
 SESSION_B_SID="session-b-$(date +%s)"
-SESSION_A_DIR="$INSTALL_REPO/docs/$TODAY/msi-session-a"
+SESSION_A_DIR="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/msi-session-a"
 SESSION_A_STATE="$SESSION_A_DIR/state.json"
 SESSION_A_ACTIVE="$SESSION_A_DIR/.active"
 

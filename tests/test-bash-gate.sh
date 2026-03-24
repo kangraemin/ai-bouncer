@@ -45,8 +45,8 @@ setup_env() {
   local agent_mode="${8:-team}"
 
   local date_dir="2026-01-01"
-  mkdir -p "$dir/docs/${date_dir}/${task_name}"
-  touch "$dir/docs/${date_dir}/${task_name}/.active"
+  mkdir -p "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}"
+  touch "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/.active"
 
   # config.json 생성 (agent_mode 설정)
   mkdir -p "$dir/.claude/ai-bouncer"
@@ -56,7 +56,7 @@ CFGEOF
 
   # plan.md 생성 (plan_approved=true일 때)
   if [ "$plan_approved" = "true" ]; then
-    echo "# Plan" > "$dir/docs/${date_dir}/${task_name}/plan.md"
+    echo "# Plan" > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/plan.md"
   fi
 
   # team config
@@ -66,14 +66,14 @@ CFGEOF
   fi
 
   local phase_folder="phase-1-test"
-  mkdir -p "$dir/docs/${date_dir}/${task_name}/${phase_folder}"
+  mkdir -p "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}"
 
   # phase.md 생성
-  printf "# 개발 Phase 1: test\n\n## 목표\ntest phase\n\n## 범위\ntest\n\n## Steps\n- step 1\n" > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/phase.md"
+  printf "# 개발 Phase 1: test\n\n## 목표\ntest phase\n\n## 범위\ntest\n\n## Steps\n- step 1\n" > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/phase.md"
 
   if [ "$create_step" = "yes" ]; then
     if [ "$fill_tc" = "yes" ]; then
-      cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
+      cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -81,7 +81,7 @@ CFGEOF
 | TC-1 | 로그인 성공 | 토큰 반환 |  |
 STEPEOF
     else
-      cat > "$dir/docs/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
+      cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
@@ -108,13 +108,13 @@ state = {
             'name': 'test',
             'folder': 'phase-1-test',
             'steps': {
-                '1': {'title': 'Test step', 'doc_path': f'docs/{date_dir}/{task}/phase-1-test/step-1.md'}
+                '1': {'title': 'Test step', 'doc_path': f'.ai-bouncer-tasks/{date_dir}/{task}/phase-1-test/step-1.md'}
             }
         }
     },
     'verification': {'rounds_passed': 0}
 }
-with open(f'{d}/docs/{date_dir}/{task}/state.json', 'w') as f:
+with open(f'{d}/.ai-bouncer-tasks/{date_dir}/{task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 PYEOF
 }
@@ -210,7 +210,7 @@ tc_b5() {
 tc_b6() {
   local dir="$TMPDIR_ROOT/tc_b6"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "echo '# Plan' > docs/my-task/plan.md")
+  local input; input=$(make_input "echo '# Plan' > .ai-bouncer-tasks/my-task/plan.md")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-B6: echo > plan.md → ALLOW (예외 경로)" "$out"
 }
@@ -228,7 +228,7 @@ tc_b7() {
 tc_b8() {
   local dir="$TMPDIR_ROOT/tc_b8"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "echo '# Step' > docs/my-task/phase-1/step-1.md")
+  local input; input=$(make_input "echo '# Step' > .ai-bouncer-tasks/my-task/phase-1/step-1.md")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-B8: echo > step-1.md → ALLOW (예외 경로)" "$out"
 }
@@ -312,7 +312,7 @@ tc_b15() {
 tc_b16() {
   local dir="$TMPDIR_ROOT/tc_b16"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input 'echo "" > docs/.active')
+  local input; input=$(make_input 'echo "" > .ai-bouncer-tasks/.active')
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-B16: planning + echo > .active → ALLOW" "$out"
 }
@@ -345,13 +345,13 @@ tc_b18() {
   assert_allow "TC-B18: rm state.json (planning) → ALLOW" "$out"
 }
 
-# TC-B19: rm -rf docs/task/ (planning) → ALLOW
+# TC-B19: rm -rf .ai-bouncer-tasks/task/ (planning) → ALLOW
 tc_b19() {
   local dir="$TMPDIR_ROOT/tc_b19"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "rm -rf docs/2026-01-01/my-task/")
+  local input; input=$(make_input "rm -rf .ai-bouncer-tasks/2026-01-01/my-task/")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B19: rm -rf docs/task/ (planning) → ALLOW" "$out"
+  assert_allow "TC-B19: rm -rf .ai-bouncer-tasks/task/ (planning) → ALLOW" "$out"
 }
 
 # TC-B20: workflow_phase=done + echo > file → ALLOW (완료 상태 — gate 비활성)
@@ -360,12 +360,12 @@ tc_b20() {
   setup_env "$dir" "my-task" "done" "true" ""
   python3 -c "
 import json
-f = '$dir/docs/2026-01-01/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['workflow_phase'] = 'done'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
-  echo "# Plan" > "$dir/docs/2026-01-01/my-task/plan.md"
+  echo "# Plan" > "$dir/.ai-bouncer-tasks/2026-01-01/my-task/plan.md"
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-B20: workflow_phase=done + echo > file → ALLOW (완료 상태 — gate 비활성)" "$out"
@@ -377,7 +377,7 @@ tc_b21() {
   setup_env "$dir" "my-task" "planning" "false" ""
   python3 -c "
 import json
-f = '$dir/docs/2026-01-01/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['workflow_phase'] = 'invalid'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -395,7 +395,7 @@ tc_b22() {
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   python3 -c "
 import json
-f = '$dir/docs/2026-01-01/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_step'] = 0
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -436,7 +436,7 @@ tc_b25() {
 tc_b27() {
   local dir="$TMPDIR_ROOT/tc_b27"
   setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "echo 'hack' > ~/.claude/ai-bouncer/sessions/repo/docs/.active")
+  local input; input=$(make_input "echo 'hack' > ~/.claude/ai-bouncer/sessions/repo/.ai-bouncer-tasks/.active")
   local out; out=$(run_hook "$dir" "$input")
   assert_allow "TC-B27: ~/.claude/ai-bouncer/sessions/ 쓰기 → ALLOW" "$out"
 }
@@ -451,7 +451,7 @@ tc_bs1() {
   setup_env "$dir" "my-task" "development" "true" ""
   python3 -c "
 import json
-f = '$dir/docs/2026-01-01/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 s['team_name'] = ''
@@ -470,7 +470,7 @@ tc_bs2() {
   setup_env "$dir" "my-task" "planning" "false" ""
   python3 -c "
 import json
-f = '$dir/docs/2026-01-01/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -498,7 +498,7 @@ tc_bph1() {
   TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
   setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
   # phase.md 삭제
-  rm -f "$dir/docs/2026-01-01/my-task/phase-1-test/phase.md"
+  rm -f "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1-test/phase.md"
   local input; input=$(make_input "echo 'code' > /src/feature.ts")
   local out; out=$(run_hook "$dir" "$input")
   assert_block "TC-BPH1: development + phase.md 없음 → BLOCK" "$out"

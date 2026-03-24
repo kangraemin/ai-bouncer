@@ -27,7 +27,7 @@ import json, os, glob
 results = {'active': None, 'incomplete': []}
 
 # 1) .active 파일 스캔
-for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
     task_dir = os.path.dirname(state_file)
     active_file = os.path.join(task_dir, '.active')
     if os.path.isfile(active_file):
@@ -48,7 +48,7 @@ for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
 
 # 1-b) state.json 없는 고아 .active 탐지
 if not results['active']:
-    for active_file in sorted(glob.glob('docs/*/*/.active'), reverse=True):
+    for active_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/.active'), reverse=True):
         task_dir = os.path.dirname(active_file)
         if not os.path.isfile(os.path.join(task_dir, 'state.json')):
             results['active'] = {
@@ -62,7 +62,7 @@ if not results['active']:
 
 # 2) .active 없으면 미완료 작업 스캔
 if not results['active']:
-    for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+    for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
         try:
             state = json.load(open(state_file))
         except: continue
@@ -163,7 +163,7 @@ TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** — Phase 
 TASK_DIR 초기화 (Python으로 실행):
 
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
-2. `docs_base`: `docs/YYYY-MM-DD/` (프로젝트 로컬)
+2. `docs_base`: `.ai-bouncer-tasks/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
 4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
 5. `state.json` 생성:
@@ -179,8 +179,8 @@ TASK_DIR 초기화 (Python으로 실행):
   "current_step": 0,
   "dev_phases": {},
   "verification": {"rounds_passed": 0},
-  "task_dir": "docs/YYYY-MM-DD/task-name",
-  "active_file": "docs/YYYY-MM-DD/task-name/.active"
+  "task_dir": ".ai-bouncer-tasks/YYYY-MM-DD/task-name",
+  "active_file": ".ai-bouncer-tasks/YYYY-MM-DD/task-name/.active"
 }
 ```
 
@@ -348,7 +348,7 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 ### docs 디렉토리 구조
 
 ```
-docs/YYYY-MM-DD/task-name/
+.ai-bouncer-tasks/YYYY-MM-DD/task-name/
 ├── .active                    # 세션 잠금
 ├── state.json                 # 워크플로우 상태
 ├── plan.md                    # 승인된 계획
@@ -430,11 +430,11 @@ Lead가 수행:
 각 개발 Phase의 각 Step마다:
 
 ```
-5-1. QA: docs/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
+5-1. QA: .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
      → [STEP:N:테스트정의완료] 출력
 
 5-2. Dev: TC 통과할 최소 코드 구현
-          docs/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
+          .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
      → [STEP:N:개발완료]
        빌드 명령: <명령어>
        결과: ✅ 성공
@@ -566,9 +566,9 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - NORMAL 모드: 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
 - 검증 미완료(NORMAL: round-1.md 통과 필요) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
-- 완료 후 task_dir 삭제 금지 — active_file(`docs/YYYY-MM-DD/<task>/.active`)만 삭제한다
-- 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
-- docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
+- 완료 후 task_dir 삭제 금지 — active_file(`.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`)만 삭제한다
+- 세션 격리: `.active` 파일은 `.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
+- docs 구조: `.ai-bouncer-tasks/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
 - config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
 - `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
 - `agent_mode`에 따라 Phase 3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기. Phase 1(계획 수립)은 항상 Main Claude가 직접 수행.

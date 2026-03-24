@@ -74,7 +74,7 @@ state.json `current_step` 증가:
 ```bash
 python3 << 'PYEOF'
 import json, os
-task_dir = os.environ.get('TASK_DIR', 'docs/current')
+task_dir = os.environ.get('TASK_DIR', '.ai-bouncer-tasks/current')
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['current_step'] = s['current_step'] + 1

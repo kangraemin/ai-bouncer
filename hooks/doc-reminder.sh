@@ -1,6 +1,6 @@
 #!/bin/bash
 # doc-reminder: PostToolUse hook
-# Write/Edit 완료 후 docs/ 문서 업데이트 여부 경고
+# Write/Edit 완료 후 .ai-bouncer-tasks/ 문서 업데이트 여부 경고
 
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
@@ -28,8 +28,8 @@ WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 # 수정된 파일 경로 가져오기
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""')
 
-# docs/ 경로 수정은 건너뜀
-[[ "$FILE_PATH" == docs/* ]] && exit 0
+# .ai-bouncer-tasks/ 경로 수정은 건너뜀
+[[ "$FILE_PATH" == .ai-bouncer-tasks/* ]] && exit 0
 [[ "$FILE_PATH" == *.md ]] && exit 0
 
 # 현재 step 문서 경로 찾기

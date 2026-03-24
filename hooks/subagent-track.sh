@@ -14,8 +14,8 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 FOUND_TASK_DIR=""
 
 # 날짜별 구조 스캔
-if [ -d "$REPO_ROOT/docs" ]; then
-  for date_dir in "$REPO_ROOT/docs"/*/; do
+if [ -d "$REPO_ROOT/.ai-bouncer-tasks" ]; then
+  for date_dir in "$REPO_ROOT/.ai-bouncer-tasks"/*/; do
     [ -d "$date_dir" ] || continue
     for active_file in "${date_dir}"*/.active; do
       [ -f "$active_file" ] || continue
@@ -35,7 +35,7 @@ fi
 # persistent 경로도 확인
 if [ -z "$FOUND_TASK_DIR" ]; then
   REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
-  PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+  PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
   if [ -d "$PERSISTENT_BASE" ]; then
     for active_file in "$PERSISTENT_BASE"/*/.active; do
       [ -f "$active_file" ] || continue

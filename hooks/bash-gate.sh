@@ -238,7 +238,7 @@ fi
 if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brmdir\b|\bunlink\b'; then
   _BG_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
   _BG_STATE=""
-  for _bg_af in "$_BG_REPO"/docs/*/.active "$_BG_REPO"/docs/*/*/.active; do
+  for _bg_af in "$_BG_REPO"/.ai-bouncer-tasks/*/.active "$_BG_REPO"/.ai-bouncer-tasks/*/*/.active; do
     [ -f "$_bg_af" ] || continue
     _bg_sf="$(dirname "$_bg_af")/state.json"
     [ -f "$_bg_sf" ] || continue

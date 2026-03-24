@@ -29,8 +29,8 @@ setup_env() {
   local workflow_phase="${3:-verification}"
   local plan_approved="${4:-true}"
 
-  mkdir -p "$dir/docs/${task_name}"
-  touch "$dir/docs/${task_name}/.active"
+  mkdir -p "$dir/.ai-bouncer-tasks/${task_name}"
+  touch "$dir/.ai-bouncer-tasks/${task_name}/.active"
 
   python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" <<'PYEOF'
 import json, sys
@@ -44,7 +44,7 @@ state = {
     'dev_phases': {},
     'verification': {'rounds_passed': 0}
 }
-with open(f'{d}/docs/{task}/state.json', 'w') as f:
+with open(f'{d}/.ai-bouncer-tasks/{task}/state.json', 'w') as f:
     json.dump(state, f, indent=2)
 PYEOF
 }
@@ -54,8 +54,8 @@ create_round() {
   local task="$2"
   local round_num="$3"
   local content="$4"
-  mkdir -p "$dir/docs/${task}/verifications"
-  echo "$content" > "$dir/docs/${task}/verifications/round-${round_num}.md"
+  mkdir -p "$dir/.ai-bouncer-tasks/${task}/verifications"
+  echo "$content" > "$dir/.ai-bouncer-tasks/${task}/verifications/round-${round_num}.md"
 }
 
 run_hook() {
@@ -150,7 +150,7 @@ tc_c6() {
   setup_env "$dir" "my-task" "development" "true"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_dev_phase'] = 2
 s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}, '2': {'name': 'p2', 'folder': 'phase-2', 'steps': 1}}
@@ -168,7 +168,7 @@ tc_c7() {
   setup_env "$dir" "my-task" "development" "true"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_dev_phase'] = 3
 s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}, '2': {'name': 'p2', 'folder': 'phase-2', 'steps': 1}}
@@ -188,7 +188,7 @@ tc_cs1() {
   setup_env "$dir" "my-task" "verification" "true"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -211,7 +211,7 @@ tc_cs3() {
   setup_env "$dir" "my-task" "development" "false"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -226,7 +226,7 @@ tc_cs4() {
   setup_env "$dir" "my-task" "done" "true"
   python3 -c "
 import json
-f = '$dir/docs/my-task/state.json'
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
 with open(f) as fp: s = json.load(fp)
 s['mode'] = 'simple'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
