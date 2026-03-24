@@ -11,10 +11,10 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 cd "$REPO_ROOT" || exit 0
 
-[ -d "docs" ] || exit 0
+[ -d ".ai-bouncer-tasks" ] || exit 0
 
-# docs/*/*/.active 스캔 (날짜별 구조)
-find docs -mindepth 3 -maxdepth 3 -name ".active" 2>/dev/null | while read -r active_file; do
+# .ai-bouncer-tasks/*/*/.active 스캔 (날짜별 구조)
+find .ai-bouncer-tasks -mindepth 3 -maxdepth 3 -name ".active" 2>/dev/null | while read -r active_file; do
   stored_sid=$(cat "$active_file" 2>/dev/null | tr -d '[:space:]')
   # 현재 세션 것만 처리
   [ "$stored_sid" = "$SESSION_ID" ] || continue
