@@ -370,7 +370,7 @@ _register_session_start "$TARGET_DIR/settings.json"
 # ── docs/ → .ai-bouncer-tasks/ migration ─────────────────────
 if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT/docs" ]; then
   # docs/ 안에 ai-bouncer 작업 파일(state.json)이 있는지 확인
-  if find "$REPO_ROOT/docs" -name 'state.json' -path '*/docs/*/state.json' 2>/dev/null | grep -q .; then
+  if find "$REPO_ROOT/docs" -name 'state.json' 2>/dev/null | grep -q .; then
     mkdir -p "$REPO_ROOT/.ai-bouncer-tasks"
     # 날짜별 디렉토리만 이동 (YYYY-MM-DD 패턴)
     for d in "$REPO_ROOT/docs"/*/; do
