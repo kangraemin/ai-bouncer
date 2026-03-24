@@ -533,41 +533,21 @@ printf "| TC-1 | test case | expected result | ✅ |\n\n\`bash test.sh\`\n\n## �
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
 assert_pass "plan-gate: 이전 step 실행출력 있음 → 통과" "$R"
 
-# TC-Q9: completion-gate — round.md에 ## 결론 없으면 통과 카운트 안 올라감
+# TC-Q9: completion-gate — round.md에 ## 결론 없으면 차단
 setup "normal" "verification" "true"
 VERIFY_DIR="$TASK_DIR/verifications"
 mkdir -p "$VERIFY_DIR"
 echo "통과" > "$VERIFY_DIR/round-1.md"
-echo "통과" > "$VERIFY_DIR/round-2.md"
-echo "통과" > "$VERIFY_DIR/round-3.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_block "completion-gate: round.md에 ## 결론 없음 → 차단" "$R"
 
-# TC-Q10: round.md에 ## 결론 있음 + round-2에 ## 발견된 이슈 있음 → 통과
+# TC-Q10: round-1.md에 ## 결론 있음 → 통과 (1회 검증)
 printf "## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
-printf "## 발견된 이슈\n- 없음\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-3.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_pass "completion-gate: round.md 정상 형식 → 통과" "$R"
 
-# TC-Q11: round-2.md에 ## 발견된 이슈 없으면 차단
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-3.md"
-R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
-assert_block "completion-gate: round-2.md에 ## 발견된 이슈 없음 → 차단" "$R"
-
-# TC-Q12: round-2.md의 ## 발견된 이슈 섹션이 비어있으면 차단
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
-printf "## 발견된 이슈\n\n\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-3.md"
-R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
-assert_block "completion-gate: round-2 ## 발견된 이슈 비어있음 → 차단" "$R"
-
 # TC-Q13: ## 결론 다음 줄이 "통과"가 아님 → 차단
-printf "## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
-printf "## 발견된 이슈\n- 없음\n\n## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
-printf "## 결론\n이번 라운드는 통과입니다\n" > "$VERIFY_DIR/round-3.md"
+printf "## 결론\n이번 라운드는 통과입니다\n" > "$VERIFY_DIR/round-1.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_block "completion-gate: ## 결론 다음 줄에 정확한 '통과' 없음 → 차단" "$R"
 

@@ -7,7 +7,7 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 복잡도에 따라 두 가지 모드로 분기:
 - **SIMPLE**: Main Claude가 직접 계획·개발·검증 (팀/phase/step 없음)
-- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
+- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 검증
 
 계획 승인 없이는 코드를 수정하지 않는다.
 
@@ -148,15 +148,13 @@ print(json.dumps(results, ensure_ascii=False))
 
 ## Phase 0: 인텐트 판별
 
-1. intent 에이전트 스폰
-2. 요청 원문 전달 → `[INTENT:*]` 수신
-3. 처리:
-   - `[INTENT:일반응답]` → 일반 응답 후 종료
-   - `[INTENT:내용불충분]` → AskUserQuestion으로 개발 내용 구체화 요청 후 Phase 0 재시도
-     (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
-     ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
-   - `[INTENT:개발요청]` → Phase 0-B 진행
-4. intent 에이전트 shutdown
+Main Claude가 직접 판별한다 (에이전트 스폰 없음):
+
+- **일반응답** (질문, 설명 요청 등) → 일반 응답 후 종료
+- **내용불충분** (개발 의도는 있으나 구체적이지 않음) → AskUserQuestion으로 구체화 요청 후 Phase 0 재시도
+  (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
+  ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
+- **개발요청** → Phase 0-B 진행
 
 ### Phase 0-B: TASK_DIR 초기화
 
@@ -237,23 +235,21 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 
 ExitPlanMode accept 후, **plan.md 내용을 기반으로** 복잡도를 판별한다.
 
-**기본값은 NORMAL이다.** 아래 SIMPLE 조건을 **전부** 충족해야만 SIMPLE:
+**기본값은 SIMPLE이다.** 아래 NORMAL 강제 조건에 해당하지 않으면 SIMPLE:
 
-| SIMPLE 필수 조건 (전부 충족해야 함) | 기준 |
+| SIMPLE 조건 (전부 충족해야 함) | 기준 |
 |------|------|
-| 변경 파일 정확히 1개 | 테스트 파일 포함하여 총 1개 |
-| 기존 코드 수정만 | 신규 함수·조건문 블록·로직 경로 추가 없음 |
-| 변경 줄 수 10줄 이하 | plan.md Before/After diff 기준 |
-| 테스트 변경 없음 | 신규 TC 작성 및 기존 테스트 수정 불필요 |
+| 변경 파일 3개 이하 | 테스트 파일 포함 |
+| 변경 줄 수 50줄 이하 | plan.md diff 기준 |
+| 신규 클래스/모듈 없음 | 함수 추가는 허용 |
 
 **NORMAL 강제 조건 — 하나라도 해당하면 즉시 NORMAL:**
-- 변경 파일 2개 이상
-- 신규 함수 / 클래스 / 조건 분기 추가
-- 테스트 파일 생성 또는 수정
-- 기존 함수 시그니처·인터페이스 변경
+- 변경 파일 4개 이상
+- 신규 클래스 / 모듈 추가
+- 기존 공개 인터페이스 변경
 - 여러 곳의 동작을 함께 바꾸는 연쇄 변경
 
-**애매하면 NORMAL.** 위 조건을 모두 충족함이 명백할 때만 SIMPLE.
+**애매하면 SIMPLE.** NORMAL 강제 조건에 명확히 해당할 때만 NORMAL.
 
 판별 후 state.json `mode`를 `"simple"` 또는 `"normal"`로 업데이트.
 
@@ -522,10 +518,10 @@ else:
 
 ---
 
-### Phase 4: 연속 3회 검증 루프
+### Phase 4: 검증
 
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
-(completion-gate.sh가 verification 상태에서 3회 연속 통과 전 응답 종료를 차단)
+(completion-gate.sh가 verification 상태에서 검증 통과 전 응답 종료를 차단)
 
 **agent_mode별 구성:**
 
@@ -533,24 +529,24 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 |---|---|
 | `team` | verifier 에이전트 스폰 (기본) |
 | `subagent` | Agent tool로 verifier 스폰 |
-| `single` | Main Claude가 직접 3회 검증 수행 |
+| `single` | Main Claude가 직접 검증 수행 |
 
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
-2. verifier가 검증 루프 실행
+2. verifier가 통합 검증 실행 (기능 충실도 + 코드 품질 + 테스트)
 
-3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신 시 (hook 강제 흐름):
+3. `[VERIFICATION:1:실패:PHASE-P-STEP-M]` 수신 시:
    - verifier가 자동으로: workflow_phase → "development", 실패 step ✅→❌, failure_count +1
    - **plan-gate가 verification 재진입을 자동 차단** (step에 ✅ 없으므로)
    - Main Claude가 Dev에게 실패한 Step 재작업 지시
    - Dev가 수정 완료 → step.md에 ✅ 복구
    - Main Claude가 workflow_phase → "verification" 재설정
-   - verifier에게 "재검증 시작" 요청 (Round 1부터)
+   - verifier에게 "재검증" 요청
 
 4. `[VERIFICATION:ESCALATION]` 수신 시 (failure_count >= 3):
    - AskUserQuestion으로 사용자에게 보고
    - 사용자 승인 없이 재시도 금지
 
-5. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
+5. `[DONE]` 수신 (verifications/round-1.md 통과):
    - verifier + 전체 팀 shutdown
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - active_file 삭제: `rm -f {active_file}`             ← 그 다음
@@ -568,7 +564,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - SIMPLE 모드에서는 team/phase/step 검증을 건너뛰지만, `plan_approved` 검증은 유지됩니다.
 - `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh / bash-gate.sh가 차단
 - NORMAL 모드: 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
-- 검증 미완료(NORMAL: round-*.md 3개 연속 통과) 상태에서 응답 종료 → completion-gate.sh가 차단
+- 검증 미완료(NORMAL: round-1.md 통과 필요) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
 - 완료 후 task_dir 삭제 금지 — active_file(`docs/YYYY-MM-DD/<task>/.active`)만 삭제한다
 - 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.

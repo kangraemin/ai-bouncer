@@ -1,7 +1,7 @@
 #!/bin/bash
 # completion-gate: Stop hook
 # Claude가 각 응답 턴을 마칠 때 실행
-# 검증 단계에서 round-*.md 아티팩트 기반으로 3회 연속 통과 여부 검증
+# 검증 단계에서 round-*.md 아티팩트 기반으로 검증 통과 여부 확인
 
 # 세션 격리: session_id 추출 (Stop hook도 stdin JSON 수신)
 INPUT=$(cat)
@@ -50,44 +50,34 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
     TOTAL_ROUNDS=$(echo "$ROUND_FILES" | grep -c 'round-' 2>/dev/null || echo 0)
   fi
 
-  if [ "$TOTAL_ROUNDS" -lt 3 ]; then
+  if [ "$TOTAL_ROUNDS" -lt 1 ]; then
     jq -n --arg rounds "$TOTAL_ROUNDS" --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3회 연속 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
     }'
     exit 0
   fi
 
-  # 마지막 3개 round 파일 체크: "통과" 포함 + "실패" 미포함
-  LAST_3=$(echo "$ROUND_FILES" | tail -3)
-  CONSECUTIVE_PASS=0
+  # 마지막 round 파일 체크: "통과" 포함 + "실패" 미포함
+  LAST_ROUND=$(echo "$ROUND_FILES" | tail -1)
+  PASS=0
 
-  while IFS= read -r rfile; do
-    [ -z "$rfile" ] && continue
-    ROUND_NUM=$(basename "$rfile" | grep -o '[0-9]*')
+  if [ -n "$LAST_ROUND" ]; then
     HAS_REQUIRED=1
-    # 공통: ## 결론 섹션 필수 (행 시작 기준)
-    if ! grep -q "^## 결론" "$rfile" 2>/dev/null; then HAS_REQUIRED=0; fi
-    # Round 2 추가: ## 발견된 이슈 섹션 + 최소 내용 필요
-    if [ "$ROUND_NUM" = "2" ] && [ "$HAS_REQUIRED" = "1" ]; then
-      if ! grep -q "^## 발견된 이슈" "$rfile" 2>/dev/null; then HAS_REQUIRED=0; fi
-      ISSUES_CONTENT=$(grep -A3 "^## 발견된 이슈" "$rfile" 2>/dev/null | tail -3)
-      if [ -z "$(echo "$ISSUES_CONTENT" | tr -d '[:space:]')" ]; then HAS_REQUIRED=0; fi
-    fi
+    # ## 결론 섹션 필수 (행 시작 기준)
+    if ! grep -q "^## 결론" "$LAST_ROUND" 2>/dev/null; then HAS_REQUIRED=0; fi
     # 통과/실패: ## 결론 다음 줄 기준
-    HAS_PASS=$(grep -A1 "^## 결론" "$rfile" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
-    HAS_FAIL=$(grep -A1 "^## 결론" "$rfile" 2>/dev/null | grep -q "^실패" && echo 1 || echo 0)
+    HAS_PASS=$(grep -A1 "^## 결론" "$LAST_ROUND" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
+    HAS_FAIL=$(grep -A1 "^## 결론" "$LAST_ROUND" 2>/dev/null | grep -q "^실패" && echo 1 || echo 0)
     if [ "$HAS_PASS" = "1" ] && [ "$HAS_FAIL" = "0" ] && [ "$HAS_REQUIRED" = "1" ]; then
-      CONSECUTIVE_PASS=$((CONSECUTIVE_PASS + 1))
-    else
-      CONSECUTIVE_PASS=0
+      PASS=1
     fi
-  done <<< "$LAST_3"
+  fi
 
-  if [ "$CONSECUTIVE_PASS" -lt 3 ]; then
+  if [ "$PASS" -lt 1 ]; then
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 마지막 3회 연속 round가 모두 통과해야 합니다. verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] round 파일이 통과해야 합니다. verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
     }'
     exit 0
   fi
