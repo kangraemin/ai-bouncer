@@ -79,8 +79,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
       ALL_DONE=true
       for pidx in $(seq 1 "$DEV_PHASES_COUNT"); do
-        PFOLDER=$(jq -r ".dev_phases[\"$pidx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-        [ -z "$PFOLDER" ] && PFOLDER="phase-${pidx}"
+        PFOLDER=$(_get_phase_folder "$STATE_FILE" "$pidx")
         PDIR="${TASK_DIR}/${PFOLDER}"
         HAS_STEPS=false
         for sf in "$PDIR"/step-*.md; do
@@ -121,9 +120,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   # --- NORMAL 모드 + development ---
   CS_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
   CS_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
-  CS_PHASE_FOLDER=$(jq -r ".dev_phases[\"$CS_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-
-  [ -z "$CS_PHASE_FOLDER" ] && exit 0
+  CS_PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$CS_PHASE")
 
   if [ "$COMMIT_STRATEGY" = "per-step" ]; then
     STEP_FILE_CS="${TASK_DIR}/${CS_PHASE_FOLDER}/step-${CS_STEP}.md"
@@ -368,8 +365,7 @@ if [ "$WORKFLOW_PHASE" = "verification" ]; then
   if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
     ALL_PHASES_DONE=true
     for pidx in $(seq 1 "$DEV_PHASES_COUNT"); do
-      PFOLDER=$(jq -r ".dev_phases[\"$pidx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-      [ -z "$PFOLDER" ] && PFOLDER="phase-${pidx}"
+      PFOLDER=$(_get_phase_folder "$STATE_FILE" "$pidx")
       PDIR="${TASK_DIR}/${PFOLDER}"
       HAS_STEPS=false
       for sf in "$PDIR"/step-*.md; do
@@ -484,9 +480,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   DEV_PHASE_KEY="$CURRENT_DEV_PHASE"
   STEP_KEY="$CURRENT_STEP"
 
-  PHASE_FOLDER=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-  # folder 없으면 기본값 fallback (CHECK 7 스킵 방지)
-  [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${DEV_PHASE_KEY}"
+  PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$DEV_PHASE_KEY")
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 

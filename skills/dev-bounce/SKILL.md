@@ -228,6 +228,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 7. 승인 후 plan mode plan 내용을 그대로 `{TASK_DIR}/plan.md`에 저장한다.
    별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+   ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
 
 ---
 

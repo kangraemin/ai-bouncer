@@ -259,8 +259,7 @@ if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
   if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
     ALL_PHASES_DONE=true
     for phase_idx in $(seq 1 "$DEV_PHASES_COUNT"); do
-      PHASE_FOLDER=$(jq -r ".dev_phases[\"$phase_idx\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-      [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${phase_idx}"
+      PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$phase_idx")
       PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
       # phase 디렉토리에 step-*.md가 있고, 모두 ✅를 포함해야 함
       HAS_STEPS=false
@@ -293,17 +292,14 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   STEP_KEY="$CURRENT_STEP"
 
   # phase_folder 조회
-  PHASE_FOLDER=$(jq -r ".dev_phases[\"$DEV_PHASE_KEY\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-  # folder 없으면 기본값 fallback (CHECK 7 스킵 방지)
-  [ -z "$PHASE_FOLDER" ] && PHASE_FOLDER="phase-${DEV_PHASE_KEY}"
+  PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$DEV_PHASE_KEY")
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
   # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
   PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
   if [ "$PREV_DEV_PHASE" -gt 0 ]; then
-    PREV_PHASE_FOLDER=$(jq -r ".dev_phases[\"$PREV_DEV_PHASE\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-    [ -z "$PREV_PHASE_FOLDER" ] && PREV_PHASE_FOLDER="phase-${PREV_DEV_PHASE}"
+    PREV_PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$PREV_DEV_PHASE")
     PREV_PHASE_DIR="${TASK_DIR}/${PREV_PHASE_FOLDER}"
     # 이전 Phase의 모든 step.md에 ✅가 있어야 함
     PREV_PHASE_INCOMPLETE=false

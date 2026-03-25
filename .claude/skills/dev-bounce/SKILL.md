@@ -7,7 +7,7 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 복잡도에 따라 두 가지 모드로 분기:
 - **SIMPLE**: Main Claude가 직접 계획·개발·검증 (팀/phase/step 없음)
-- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 3회 연속 검증
+- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 검증
 
 계획 승인 없이는 코드를 수정하지 않는다.
 
@@ -27,7 +27,7 @@ import json, os, glob
 results = {'active': None, 'incomplete': []}
 
 # 1) .active 파일 스캔
-for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
     task_dir = os.path.dirname(state_file)
     active_file = os.path.join(task_dir, '.active')
     if os.path.isfile(active_file):
@@ -48,7 +48,7 @@ for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
 
 # 1-b) state.json 없는 고아 .active 탐지
 if not results['active']:
-    for active_file in sorted(glob.glob('docs/*/*/.active'), reverse=True):
+    for active_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/.active'), reverse=True):
         task_dir = os.path.dirname(active_file)
         if not os.path.isfile(os.path.join(task_dir, 'state.json')):
             results['active'] = {
@@ -62,7 +62,7 @@ if not results['active']:
 
 # 2) .active 없으면 미완료 작업 스캔
 if not results['active']:
-    for state_file in sorted(glob.glob('docs/*/*/state.json'), reverse=True):
+    for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=True):
         try:
             state = json.load(open(state_file))
         except: continue
@@ -148,15 +148,13 @@ print(json.dumps(results, ensure_ascii=False))
 
 ## Phase 0: 인텐트 판별
 
-1. intent 에이전트 스폰
-2. 요청 원문 전달 → `[INTENT:*]` 수신
-3. 처리:
-   - `[INTENT:일반응답]` → 일반 응답 후 종료
-   - `[INTENT:내용불충분]` → AskUserQuestion으로 개발 내용 구체화 요청 후 Phase 0 재시도
-     (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
-     ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
-   - `[INTENT:개발요청]` → Phase 0-B 진행
-4. intent 에이전트 shutdown
+Main Claude가 직접 판별한다 (에이전트 스폰 없음):
+
+- **일반응답** (질문, 설명 요청 등) → 일반 응답 후 종료
+- **내용불충분** (개발 의도는 있으나 구체적이지 않음) → AskUserQuestion으로 구체화 요청 후 Phase 0 재시도
+  (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
+  ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
+- **개발요청** → Phase 0-B 진행
 
 ### Phase 0-B: TASK_DIR 초기화
 
@@ -165,7 +163,7 @@ TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** — Phase 
 TASK_DIR 초기화 (Python으로 실행):
 
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
-2. `docs_base`: `docs/YYYY-MM-DD/` (프로젝트 로컬)
+2. `docs_base`: `.ai-bouncer-tasks/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
 4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
 5. `state.json` 생성:
@@ -181,8 +179,8 @@ TASK_DIR 초기화 (Python으로 실행):
   "current_step": 0,
   "dev_phases": {},
   "verification": {"rounds_passed": 0},
-  "task_dir": "docs/YYYY-MM-DD/task-name",
-  "active_file": "docs/YYYY-MM-DD/task-name/.active"
+  "task_dir": ".ai-bouncer-tasks/YYYY-MM-DD/task-name",
+  "active_file": ".ai-bouncer-tasks/YYYY-MM-DD/task-name/.active"
 }
 ```
 
@@ -209,14 +207,13 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 1. EnterPlanMode 호출
 2. 관련 코드 탐색 (Read/Grep/Glob)
 3. 필요시 사용자에게 AskUserQuestion 1~2회
-4. plan mode plan 파일에 상세 계획 작성 — **이것이 사용자에게 보이는 원본이다. 대충 쓸 수 없다.**
+4. plan mode plan 파일에 계획 작성 — **이것이 사용자에게 보이는 원본이자 최종 plan.md가 된다.**
    plan mode plan 파일 경로는 EnterPlanMode 호출 시 시스템이 알려준다.
-   필수 포함 내용:
-   - 각 변경 파일별 Before/After 코드 (변경 포인트가 명확히 보여야 함)
+   포함 권장 내용:
+   - 변경 파일별 Before/After 코드 (권장 — 변경 포인트가 명확해짐)
    - 신규 파일이 있으면 용도와 핵심 로직
    - 검증 방법 (명령어 + 기대 결과)
-   ⚠️ "파일명: 한 줄 설명"만 나열하는 것은 부실 계획이다. 이 plan만 읽고도 변경 내용을 이해할 수 있어야 한다.
-   ⚠️ "파일: 변경 내용" 한 줄로 떼우기 금지. 반드시 Before/After 코드 스니펫을 포함해야 한다.
+   ⚠️ "파일명: 한 줄 설명"만 나열하지 말고, plan만 읽고도 변경 내용을 이해할 수 있도록 작성한다.
 5. 계획을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
 6. ExitPlanMode 호출 → accept/reject UI 표시
    - accept → step 7 진행
@@ -228,34 +225,10 @@ Main Claude가 직접 수행 (팀 스폰 없음):
         - 취소/포기 → "작업이 취소되었습니다" 안내
         - 오해/질문 → 설명 후 "재시도하려면 /dev-bounce를 다시 실행하세요" 안내
      ⚠️ 거부 후 .active를 남긴 채 설명만 하면 bash-gate가 /finish 등 후속 작업을 모두 차단함.
-7. 승인 후 `{TASK_DIR}/plan.md` 생성 (plan mode plan 기반으로 구조화 + 상세화):
-   plan mode plan의 내용을 아래 템플릿으로 확장한다. Before/After는 전체 코드를 포함한다.
-   ```markdown
-   # <작업 제목>
-
-   ## 변경 파일별 상세
-   ### `파일경로/파일명`
-   - **변경 이유**: ...
-   - **Before** (현재 코드):
-   ```
-   현재 코드 전체
-   ```
-   - **After** (변경 후):
-   ```
-   변경 코드 전체
-   ```
-   - **영향 범위**: 이 변경이 영향을 주는 다른 파일/함수
-
-   ## 신규 파일 (있는 경우)
-   ### `새파일경로`
-   - **용도**: ...
-   - **핵심 코드**: ...
-
-   ## 검증
-   - 검증 명령어: `실행할 명령어`
-   - 기대 결과: 구체적 출력
-   ```
+7. 승인 후 plan mode plan 내용을 그대로 `{TASK_DIR}/plan.md`에 저장한다.
+   별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+   ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
 
 ---
 
@@ -263,23 +236,21 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 
 ExitPlanMode accept 후, **plan.md 내용을 기반으로** 복잡도를 판별한다.
 
-**기본값은 NORMAL이다.** 아래 SIMPLE 조건을 **전부** 충족해야만 SIMPLE:
+**기본값은 SIMPLE이다.** 아래 NORMAL 강제 조건에 해당하지 않으면 SIMPLE:
 
-| SIMPLE 필수 조건 (전부 충족해야 함) | 기준 |
+| SIMPLE 조건 (전부 충족해야 함) | 기준 |
 |------|------|
-| 변경 파일 정확히 1개 | 테스트 파일 포함하여 총 1개 |
-| 기존 코드 수정만 | 신규 함수·조건문 블록·로직 경로 추가 없음 |
-| 변경 줄 수 10줄 이하 | plan.md Before/After diff 기준 |
-| 테스트 변경 없음 | 신규 TC 작성 및 기존 테스트 수정 불필요 |
+| 변경 파일 3개 이하 | 테스트 파일 포함 |
+| 변경 줄 수 50줄 이하 | plan.md diff 기준 |
+| 신규 클래스/모듈 없음 | 함수 추가는 허용 |
 
 **NORMAL 강제 조건 — 하나라도 해당하면 즉시 NORMAL:**
-- 변경 파일 2개 이상
-- 신규 함수 / 클래스 / 조건 분기 추가
-- 테스트 파일 생성 또는 수정
-- 기존 함수 시그니처·인터페이스 변경
+- 변경 파일 4개 이상
+- 신규 클래스 / 모듈 추가
+- 기존 공개 인터페이스 변경
 - 여러 곳의 동작을 함께 바꾸는 연쇄 변경
 
-**애매하면 NORMAL.** 위 조건을 모두 충족함이 명백할 때만 SIMPLE.
+**애매하면 SIMPLE.** NORMAL 강제 조건에 명확히 해당할 때만 NORMAL.
 
 판별 후 state.json `mode`를 `"simple"` 또는 `"normal"`로 업데이트.
 
@@ -378,7 +349,7 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 ### docs 디렉토리 구조
 
 ```
-docs/YYYY-MM-DD/task-name/
+.ai-bouncer-tasks/YYYY-MM-DD/task-name/
 ├── .active                    # 세션 잠금
 ├── state.json                 # 워크플로우 상태
 ├── plan.md                    # 승인된 계획
@@ -460,11 +431,11 @@ Lead가 수행:
 각 개발 Phase의 각 Step마다:
 
 ```
-5-1. QA: docs/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
+5-1. QA: .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
      → [STEP:N:테스트정의완료] 출력
 
 5-2. Dev: TC 통과할 최소 코드 구현
-          docs/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
+          .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
      → [STEP:N:개발완료]
        빌드 명령: <명령어>
        결과: ✅ 성공
@@ -548,10 +519,10 @@ else:
 
 ---
 
-### Phase 4: 연속 3회 검증 루프
+### Phase 4: 검증
 
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
-(completion-gate.sh가 verification 상태에서 3회 연속 통과 전 응답 종료를 차단)
+(completion-gate.sh가 verification 상태에서 검증 통과 전 응답 종료를 차단)
 
 **agent_mode별 구성:**
 
@@ -559,24 +530,24 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 |---|---|
 | `team` | verifier 에이전트 스폰 (기본) |
 | `subagent` | Agent tool로 verifier 스폰 |
-| `single` | Main Claude가 직접 3회 검증 수행 |
+| `single` | Main Claude가 직접 검증 수행 |
 
 1. verifier 에이전트 스폰 (TASK_DIR 전달)
-2. verifier가 검증 루프 실행
+2. verifier가 통합 검증 실행 (기능 충실도 + 코드 품질 + 테스트)
 
-3. `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 수신 시 (hook 강제 흐름):
+3. `[VERIFICATION:1:실패:PHASE-P-STEP-M]` 수신 시:
    - verifier가 자동으로: workflow_phase → "development", 실패 step ✅→❌, failure_count +1
    - **plan-gate가 verification 재진입을 자동 차단** (step에 ✅ 없으므로)
    - Main Claude가 Dev에게 실패한 Step 재작업 지시
    - Dev가 수정 완료 → step.md에 ✅ 복구
    - Main Claude가 workflow_phase → "verification" 재설정
-   - verifier에게 "재검증 시작" 요청 (Round 1부터)
+   - verifier에게 "재검증" 요청
 
 4. `[VERIFICATION:ESCALATION]` 수신 시 (failure_count >= 3):
    - AskUserQuestion으로 사용자에게 보고
    - 사용자 승인 없이 재시도 금지
 
-5. `[DONE]` 수신 (verifications/round-*.md 3개 연속 통과):
+5. `[DONE]` 수신 (verifications/round-1.md 통과):
    - verifier + 전체 팀 shutdown
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - active_file 삭제: `rm -f {active_file}`             ← 그 다음
@@ -594,11 +565,11 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - SIMPLE 모드에서는 team/phase/step 검증을 건너뛰지만, `plan_approved` 검증은 유지됩니다.
 - `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh / bash-gate.sh가 차단
 - NORMAL 모드: 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
-- 검증 미완료(NORMAL: round-*.md 3개 연속 통과) 상태에서 응답 종료 → completion-gate.sh가 차단
+- 검증 미완료(NORMAL: round-1.md 통과 필요) 상태에서 응답 종료 → completion-gate.sh가 차단
 - 커밋: 로컬 `.claude/rules/git-rules.md` 우선, 없으면 `~/.claude/rules/git-rules.md`
-- 완료 후 task_dir 삭제 금지 — active_file(`docs/YYYY-MM-DD/<task>/.active`)만 삭제한다
-- 세션 격리: `.active` 파일은 `docs/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
-- docs 구조: `docs/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
+- 완료 후 task_dir 삭제 금지 — active_file(`.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`)만 삭제한다
+- 세션 격리: `.active` 파일은 `.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
+- docs 구조: `.ai-bouncer-tasks/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
 - config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
 - `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
 - `agent_mode`에 따라 Phase 3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기. Phase 1(계획 수립)은 항상 Main Claude가 직접 수행.

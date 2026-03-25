@@ -173,3 +173,23 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
     _fallback_find_active ".ai-bouncer-tasks"
   fi
 fi
+
+# Helper: dev_phases에서 phase 폴더명 추출
+# object 포맷 {"folder": "..."} 과 legacy string 포맷 "name" 모두 처리
+_get_phase_folder() {
+  local state_file="$1" phase_idx="$2"
+  local val
+  val=$(jq -r ".dev_phases[\"$phase_idx\"]" "$state_file" 2>/dev/null)
+  if echo "$val" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    local folder
+    folder=$(echo "$val" | jq -r '.folder // ""')
+    echo "${folder:-phase-$phase_idx}"
+  else
+    # val은 jq -r로 추출된 raw string — 이미 언-쿼트된 상태
+    if [ -n "$val" ] && [ "$val" != "null" ]; then
+      echo "phase-${phase_idx}-${val}"
+    else
+      echo "phase-${phase_idx}"
+    fi
+  fi
+}
