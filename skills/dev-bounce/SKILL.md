@@ -100,8 +100,8 @@ print(json.dumps(results, ensure_ascii=False))
 **A-1/A-2: stale 아님** (`workflow_phase != "done"`) — 사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
 
 - **A-1: 사용자 요청이 active 작업의 연장/이어하기인 경우**
-  → 1. `.active` 파일을 빈 파일로 초기화 (hook이 다음 tool call 시 새 session_id 자동 기록):
-       `open(active_file, 'w').close()`
+  → 1. `.active` 파일을 PENDING으로 초기화 (hook이 다음 tool call 시 새 session_id 자동 기록):
+       `open(active_file, 'w').write('PENDING')`
   → 2. 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
 
   **A-1 특수 케이스: planning 단계인데 plan.md 없음**
@@ -137,7 +137,7 @@ print(json.dumps(results, ensure_ascii=False))
 ```
 
 사용자가 선택하면:
-- **번호 선택**: 선택한 task_dir에 `.active` 파일 재생성 + `state.json`의 `workflow_phase`부터 재개.
+- **번호 선택**: 선택한 task_dir에 `.active` 파일을 `PENDING` 마커로 재생성 + `state.json`의 `workflow_phase`부터 재개.
   나머지 incomplete 태스크는 모두 `workflow_phase = "cancelled"` 처리 (재등장 방지).
 - **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "cancelled"` 처리 → Case C 진행.
 
@@ -165,7 +165,7 @@ TASK_DIR 초기화 (Python으로 실행):
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
 2. `docs_base`: `.ai-bouncer-tasks/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
-4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
+4. `.active` 파일 생성 (`PENDING` 마커 작성 — hook이 session_id를 자동 claim, 빈 파일로 만들면 다른 세션이 stealing하므로 반드시 `PENDING` 사용)
 5. `state.json` 생성:
 
 ```json

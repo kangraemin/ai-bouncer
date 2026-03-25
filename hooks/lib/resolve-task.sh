@@ -70,8 +70,9 @@ _resolve_from_base() {
       continue
     fi
 
-    # 미클레임 태스크 (빈 .active) 기록
-    if [ -z "$stored_sid" ] && [ -z "$found_unclaimed_task" ]; then
+    # 미클레임 태스크 (PENDING 마커) 기록
+    # 빈 .active는 레거시/stale로 간주하여 claim 안 함 — 다른 세션이 stealing하는 버그 방지
+    if [ "$stored_sid" = "PENDING" ] && [ -z "$found_unclaimed_task" ]; then
       found_unclaimed_task="$task_folder"
       found_unclaimed_base="$base"
     fi
