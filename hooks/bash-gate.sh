@@ -139,8 +139,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     COMMIT_FOLDER_CS=$CS_PHASE_FOLDER
     if [ "${CS_STEP:-1}" -le 1 ] && [ "$CS_PHASE" -gt 1 ]; then
       COMMIT_PHASE_CS=$((CS_PHASE - 1))
-      COMMIT_FOLDER_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].folder // \"\"" "$STATE_FILE" 2>/dev/null)
-      [ -z "$COMMIT_FOLDER_CS" ] && COMMIT_FOLDER_CS="phase-${COMMIT_PHASE_CS}"
+      COMMIT_FOLDER_CS=$(_get_phase_folder "$STATE_FILE" "$COMMIT_PHASE_CS")
     fi
     STEP_COUNT_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].steps | length" "$STATE_FILE" 2>/dev/null)
     if [ "${STEP_COUNT_CS:-0}" -le 0 ] 2>/dev/null; then
@@ -240,7 +239,7 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
     _bg_sf="$(dirname "$_bg_af")/state.json"
     [ -f "$_bg_sf" ] || continue
     _bg_sid=$(cat "$_bg_af" 2>/dev/null | tr -d '[:space:]')
-    if [ -z "$SESSION_ID" ] || [ -z "$_bg_sid" ] || [ "$_bg_sid" = "$SESSION_ID" ]; then
+    if [ -z "$SESSION_ID" ] || [ "$_bg_sid" = "$SESSION_ID" ] || [ "$_bg_sid" = "PENDING" ]; then
       _BG_STATE="$_bg_sf"; break
     fi
   done

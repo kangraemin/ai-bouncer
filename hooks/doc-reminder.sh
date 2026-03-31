@@ -29,7 +29,7 @@ WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""')
 
 # .ai-bouncer-tasks/ 경로 수정은 건너뜀
-[[ "$FILE_PATH" == .ai-bouncer-tasks/* ]] && exit 0
+[[ "$FILE_PATH" == .ai-bouncer-tasks/* || "$FILE_PATH" == */.ai-bouncer-tasks/* ]] && exit 0
 [[ "$FILE_PATH" == *.md ]] && exit 0
 
 # 현재 step 문서 경로 찾기
