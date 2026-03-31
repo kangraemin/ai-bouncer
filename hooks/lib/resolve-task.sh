@@ -66,7 +66,7 @@ _resolve_from_base() {
     # 다른 세션의 태스크: session_id 불일치 시 skip (삭제 금지)
     # /clear 후 session_id가 바뀌어도 .active를 임의로 삭제하지 않는다.
     # 태스크 생애주기는 Context Restore + 사용자 상호작용이 담당.
-    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
+    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ] && [ "$stored_sid" != "PENDING" ]; then
       continue
     fi
 
@@ -137,7 +137,7 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
       # 다른 세션이 claim한 태스크는 fallback 대상에서 제외
       # (다른 사용자 세션의 gate 규칙이 현재 세션에 영향을 주지 않도록)
       stored_sid=$(cat "$af" 2>/dev/null | tr -d '[:space:]')
-      if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
+      if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ] && [ "$stored_sid" != "PENDING" ]; then
         continue
       fi
       phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)
