@@ -498,6 +498,38 @@ assert_block "plan-gate: folder 없음 → fallback → phase.md 없어서 차�
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
 assert_block "bash-gate: folder 없음 → fallback → phase.md 없어서 차단" "$R"
 
+# TC-KR1: 한글 name + folder 키 없음 → 실제 영문 디렉토리를 fallback 탐색하여 통과
+KOREAN_DEV_PHASES='{"1":{"name":"백엔드 코드 변경","steps":{"1":{"title":"Step 1"}}}}'
+setup_normal "$KOREAN_DEV_PHASES" 1 1
+# bash-gate team 체크 통과용 dev 에이전트 추가
+echo '{"members":[{"name":"lead-agent"},{"name":"dev-agent"}]}' > "$HOME/.claude/teams/e2e-test-team/config.json"
+mkdir -p "$TASK_DIR/phase-1-backend-code"
+printf "# Phase 1\n\n## 목표\n- test\n\n## 범위\n- test\n\n## Steps\n- Step 1\n" > "$TASK_DIR/phase-1-backend-code/phase.md"
+make_step "$TASK_DIR/phase-1-backend-code/step-1.md" ""
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "plan-gate: 한글 name + folder 없음 → fallback 탐색 → 통과" "$R"
+
+# TC-KR2: bash-gate도 동일
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "bash-gate: 한글 name + folder 없음 → fallback 탐색 → 통과" "$R"
+rm -rf "$TASK_DIR/phase-1-backend-code"
+
+# TC-DL1: phase.md 없을 때 state.json 수정 → deadlock 없이 통과 (plan-gate)
+NOFOLDER_DEV_PHASES2='{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"Step 1"}}}}'
+setup_normal "$NOFOLDER_DEV_PHASES2" 1 1
+echo '{"members":[{"name":"lead-agent"},{"name":"dev-agent"}]}' > "$HOME/.claude/teams/e2e-test-team/config.json"
+# phase.md 의도적으로 안 만듦 — state.json 수정은 허용되어야 함
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$STATE_FILE\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "plan-gate: phase.md 없어도 state.json 수정 → 통과 (deadlock 방지)" "$R"
+
+# TC-DL2: bash-gate도 state.json 수정 명령 허용
+R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"python3 -c \\\"import json; json.dump({}, open('$STATE_FILE','w'))\\\"\"},\"session_id\":\"$TEST_SID\"}")
+assert_pass "bash-gate: phase.md 없어도 state.json 명령 → 통과 (deadlock 방지)" "$R"
+
+# TC-DL3: phase.md 없을 때 일반 파일 수정 → 여전히 차단 (보안 유지)
+R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$TEST_SID\"}")
+assert_block "plan-gate: phase.md 없고 일반 파일 수정 → 차단 유지" "$R"
+
 # TC-Q3: phase.md 존재하지만 필수 섹션 누락 → 차단 (plan-gate)
 setup_normal "$QUALITY_DEV_PHASES" 1 1
 mkdir -p "$TASK_DIR/phase-1-test"

@@ -296,6 +296,11 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
+  # state.json 수정은 phase/step 아티팩트 검증 전체를 스킵 (deadlock 방지)
+  if [[ "$FILE_PATH" == */state.json ]]; then
+    : # CHECK 7a~7e 스킵, 아래 fi에서 블록 탈출
+  else
+
   # CHECK 7-PHASE: 이전 Phase 완료 검증 (current_dev_phase > 1일 때)
   PREV_DEV_PHASE=$((CURRENT_DEV_PHASE - 1))
   if [ "$PREV_DEV_PHASE" -gt 0 ]; then
@@ -319,13 +324,11 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     fi
   fi
 
-  # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우 + state.json 수정은 부트스트랩 허용)
+  # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우는 부트스트랩 허용)
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
     _PG_FILE_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
     _PHASE_MD_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "${PHASE_DIR}/phase.md" 2>/dev/null || echo "${PHASE_DIR}/phase.md")
-    _IS_STATE_JSON=false
-    [[ "$FILE_PATH" == */state.json ]] && _IS_STATE_JSON=true
-    if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ] && [ "$_IS_STATE_JSON" = "false" ]; then
+    if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ]; then
       jq -n --arg phase "$DEV_PHASE_KEY" '{
         decision: "block",
         reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Main Claude가 phase.md를 먼저 생성해야 합니다.")
@@ -462,6 +465,7 @@ print(shallow)
       exit 0
     fi
   fi
+  fi # state.json 스킵 블록 끝
 fi
 
 # --- ai-bouncer end ---

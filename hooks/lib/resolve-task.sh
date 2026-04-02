@@ -184,7 +184,17 @@ _get_phase_folder() {
   if echo "$val" | jq -e 'type == "object"' >/dev/null 2>&1; then
     local folder
     folder=$(echo "$val" | jq -r '.folder // ""')
-    echo "${folder:-phase-$phase_idx}"
+    local candidate="${folder:-phase-$phase_idx}"
+    # folder 키 없거나 디렉토리 불일치 시 fallback 탐색
+    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
+      local found
+      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
+      if [ -n "$found" ]; then
+        echo "$(basename "$found")"
+        return
+      fi
+    fi
+    echo "$candidate"
   else
     # val은 jq -r로 추출된 raw string — 이미 언-쿼트된 상태
     local candidate="phase-${phase_idx}"
