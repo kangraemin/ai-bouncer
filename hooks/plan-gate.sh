@@ -319,11 +319,13 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     fi
   fi
 
-  # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우는 부트스트랩 허용)
+  # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우 + state.json 수정은 부트스트랩 허용)
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
     _PG_FILE_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
     _PHASE_MD_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "${PHASE_DIR}/phase.md" 2>/dev/null || echo "${PHASE_DIR}/phase.md")
-    if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ]; then
+    _IS_STATE_JSON=false
+    [[ "$FILE_PATH" == */state.json ]] && _IS_STATE_JSON=true
+    if [ "$_PG_FILE_ABS" != "$_PHASE_MD_ABS" ] && [ "$_IS_STATE_JSON" = "false" ]; then
       jq -n --arg phase "$DEV_PHASE_KEY" '{
         decision: "block",
         reason: ("Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Main Claude가 phase.md를 먼저 생성해야 합니다.")

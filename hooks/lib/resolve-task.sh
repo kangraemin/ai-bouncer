@@ -187,10 +187,19 @@ _get_phase_folder() {
     echo "${folder:-phase-$phase_idx}"
   else
     # val은 jq -r로 추출된 raw string — 이미 언-쿼트된 상태
+    local candidate="phase-${phase_idx}"
     if [ -n "$val" ] && [ "$val" != "null" ]; then
-      echo "phase-${phase_idx}-${val}"
-    else
-      echo "phase-${phase_idx}"
+      candidate="phase-${phase_idx}-${val}"
     fi
+    # 후보 디렉토리가 없으면 phase-N-* 패턴으로 실제 디렉토리 탐색 (한글 name 불일치 대응)
+    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
+      local found
+      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
+      if [ -n "$found" ]; then
+        echo "$(basename "$found")"
+        return
+      fi
+    fi
+    echo "$candidate"
   fi
 }

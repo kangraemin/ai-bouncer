@@ -503,14 +503,19 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
   PHASE_DIR="${TASK_DIR}/${PHASE_FOLDER}"
 
-  # CHECK 7a: phase.md 존재 검증 (bash는 FILE_PATH 없으므로 bash 경유 phase.md 생성은 항상 허용)
+  # CHECK 7a: phase.md 존재 검증 (phase.md 생성 명령 + state.json 수정 명령은 허용)
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
-    _CMD_WRITES_PHASE_MD=false
+    _CMD_EXEMPT=false
     _PHASE_MD_PATH="${PHASE_DIR}/phase.md"
+    # phase.md 생성 명령 허용
     if echo "$CMD" | grep -qF "$_PHASE_MD_PATH"; then
-      _CMD_WRITES_PHASE_MD=true
+      _CMD_EXEMPT=true
     fi
-    if [ "$_CMD_WRITES_PHASE_MD" = "false" ]; then
+    # state.json 수정 명령 허용 (deadlock 방지)
+    if echo "$CMD" | grep -qF "state.json"; then
+      _CMD_EXEMPT=true
+    fi
+    if [ "$_CMD_EXEMPT" = "false" ]; then
       save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" '{
         decision: "block",
