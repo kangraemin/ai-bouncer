@@ -50,10 +50,10 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
     TOTAL_ROUNDS=$(echo "$ROUND_FILES" | grep -c 'round-' 2>/dev/null || echo 0)
   fi
 
-  if [ "$TOTAL_ROUNDS" -lt 1 ]; then
+  if [ "$TOTAL_ROUNDS" -lt 3 ]; then
     jq -n --arg rounds "$TOTAL_ROUNDS" --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] 3라운드 검증 통과 필요 (현재 round 파일: " + $rounds + "개). verifier 에이전트를 통해 검증을 완료하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
     }'
     exit 0
   fi

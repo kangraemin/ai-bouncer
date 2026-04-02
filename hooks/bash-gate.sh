@@ -255,8 +255,28 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
       if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]done['\"]"; then _WP_BLOCKED=true; fi
       if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]verification['\"]"; then _WP_BLOCKED=true; fi
       if [ "$_WP_BLOCKED" = "true" ]; then
-        jq -n '{decision:"block", reason:"⛔ [bash-gate] planning 단계에서 state.json을 done/verification으로 변경할 수 없습니다."}'
-        exit 0
+        # cancelled 전환은 항상 허용
+        if echo "$CMD" | grep -qE "cancelled"; then
+          :  # pass through
+        else
+          # done 전환: 모드별 조건 검증
+          _MODE=$(jq -r '.mode // "pending"' "$_BG_STATE" 2>/dev/null)
+          _ALLOW=false
+          if [ "$_MODE" = "simple" ]; then
+            _TASK_DIR=$(dirname "$_BG_STATE")
+            _TESTS="$_TASK_DIR/tests.md"
+            if [ -f "$_TESTS" ] && grep -q "✅" "$_TESTS" && ! grep -q "❌" "$_TESTS"; then
+              _ALLOW=true
+            fi
+          elif [ "$_MODE" = "normal" ]; then
+            _RP=$(jq -r '.verification.rounds_passed // 0' "$_BG_STATE" 2>/dev/null)
+            [ "$_RP" -ge 3 ] 2>/dev/null && _ALLOW=true
+          fi
+          if [ "$_ALLOW" = "false" ]; then
+            jq -n '{decision:"block", reason:"⛔ [bash-gate] done 조건 미충족. SIMPLE: tests.md ✅ 필요. NORMAL: verification 3라운드 통과 필요."}'
+            exit 0
+          fi
+        fi
       fi
     fi
   fi

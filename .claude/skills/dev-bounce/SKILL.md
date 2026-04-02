@@ -545,7 +545,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
    - AskUserQuestion으로 사용자에게 보고
    - 사용자 승인 없이 재시도 금지
 
-5. `[DONE]` 수신 (verifications/round-1.md 통과):
+5. `[DONE]` 수신 (3라운드 연속 통과, verifications/round-1~3.md):
    - verifier + 전체 팀 shutdown
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - active_file 삭제: `rm -f {active_file}`             ← 그 다음
