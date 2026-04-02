@@ -541,13 +541,23 @@ echo "통과" > "$VERIFY_DIR/round-1.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_block "completion-gate: round.md에 ## 결론 없음 → 차단" "$R"
 
-# TC-Q10: round-1.md에 ## 결론 있음 → 통과 (1회 검증)
+# TC-Q10: round-1.md만 있음 → 차단 (3라운드 필요)
 printf "## 결론\n통과\n" > "$VERIFY_DIR/round-1.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
-assert_pass "completion-gate: round.md 정상 형식 → 통과" "$R"
+assert_block "completion-gate: round 1개만 → 차단 (3라운드 필요)" "$R"
+
+# TC-Q10b: round-1~2만 있음 → 차단 (3라운드 필요)
+printf "## 결론\n통과\n" > "$VERIFY_DIR/round-2.md"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_block "completion-gate: round 2개만 → 차단 (3라운드 필요)" "$R"
+
+# TC-Q10c: round-1~3 있고 마지막이 통과 → 통과
+printf "## 결론\n통과\n" > "$VERIFY_DIR/round-3.md"
+R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
+assert_pass "completion-gate: round 3개 + 통과 → 통과" "$R"
 
 # TC-Q13: ## 결론 다음 줄이 "통과"가 아님 → 차단
-printf "## 결론\n이번 라운드는 통과입니다\n" > "$VERIFY_DIR/round-1.md"
+printf "## 결론\n이번 라운드는 통과입니다\n" > "$VERIFY_DIR/round-3.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_block "completion-gate: ## 결론 다음 줄에 정확한 '통과' 없음 → 차단" "$R"
 
