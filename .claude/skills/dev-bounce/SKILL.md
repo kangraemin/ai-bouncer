@@ -100,8 +100,8 @@ print(json.dumps(results, ensure_ascii=False))
 **A-1/A-2: stale 아님** (`workflow_phase != "done"`) — 사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
 
 - **A-1: 사용자 요청이 active 작업의 연장/이어하기인 경우**
-  → 1. `.active` 파일을 빈 파일로 초기화 (hook이 다음 tool call 시 새 session_id 자동 기록):
-       `open(active_file, 'w').close()`
+  → 1. `.active` 파일을 PENDING으로 초기화 (hook이 다음 tool call 시 새 session_id 자동 기록):
+       `open(active_file, 'w').write('PENDING')`
   → 2. 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
 
   **A-1 특수 케이스: planning 단계인데 plan.md 없음**
@@ -137,7 +137,7 @@ print(json.dumps(results, ensure_ascii=False))
 ```
 
 사용자가 선택하면:
-- **번호 선택**: 선택한 task_dir에 `.active` 파일 재생성 + `state.json`의 `workflow_phase`부터 재개.
+- **번호 선택**: 선택한 task_dir에 `.active` 파일을 `PENDING` 마커로 재생성 + `state.json`의 `workflow_phase`부터 재개.
   나머지 incomplete 태스크는 모두 `workflow_phase = "cancelled"` 처리 (재등장 방지).
 - **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "cancelled"` 처리 → Case C 진행.
 
@@ -165,7 +165,7 @@ TASK_DIR 초기화 (Python으로 실행):
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
 2. `docs_base`: `.ai-bouncer-tasks/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
-4. `.active` 파일 생성 (빈 파일 — hook이 session_id를 자동 claim하여 세션 간 충돌 방지)
+4. `.active` 파일 생성 (`PENDING` 마커 작성 — hook이 session_id를 자동 claim, 빈 파일로 만들면 다른 세션이 stealing하므로 반드시 `PENDING` 사용)
 5. `state.json` 생성:
 
 ```json
@@ -298,9 +298,9 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 > SIMPLE 모드에서는 `dev_phases`, `current_dev_phase`, `current_step`을 사용하지 않는다 (빈 객체/0 유지가 정상).
 > hook은 SIMPLE 모드에서 이 필드를 검증하지 않는다.
 
-#### S2 커밋
+#### S2 커밋 + 완료
 
-개발 완료 + TC 전부 ✅ 후, Phase S3 진입 전에 커밋한다.
+개발 완료 + TC 전부 ✅ 후 커밋하고, **커밋 성공 즉시 같은 흐름에서 완료 처리**한다. 별도 Phase로 분리하지 않는다.
 
 `.claude/ai-bouncer/config.json`에서 커밋 전략 확인:
 
@@ -320,27 +320,25 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 | `per-phase` | TC 전부 ✅ 직후 (동일) | `false` | `git add` + `git commit` + `git push` |
 | `none` | — | — | 커밋 스킵 (수동 관리) |
 
-커밋 실패 시 Phase S3 진행 금지 — 원인 해결 후 재시도.
+커밋 실패 시 다음 진행 금지 — 원인 해결 후 재시도.
 
-### Phase S3: 검증 + 완료
+커밋 성공 후 **반드시 이어서** (별도 Phase 아님):
 
-개발 완료 후:
-
-1. 테스트 실행 (pytest, lint 등) — 1회 통과면 OK
-2. 경량 검증: plan.md 대비 실제 변경 확인
+1. 경량 검증: plan.md 대비 실제 변경 확인
    - `{TASK_DIR}/plan.md` 읽어 변경 예정 파일 파악
    - `git diff HEAD~1 --name-only`로 실제 변경 파일 확인
    - 계획됐으나 미변경 파일이 있으면 사용자에게 경고 표시 (차단은 안 함)
    - 간단한 체크리스트 출력:
      ```
      [경량 검증]
-     ✅ 테스트 통과
      ✅/⚠️ plan.md 대비 변경 확인: N/M 파일 일치
      (⚠️ 미변경: 파일명 — 의도된 것인지 확인 필요)
      ```
-3. state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
-4. active_file 삭제: `rm -f {active_file}`            ← 그 다음
-5. 사용자에게 완료 보고
+2. state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
+3. active_file 삭제: `rm -f {active_file}`            ← 그 다음
+4. 사용자에게 완료 보고
+
+⚠️ 커밋과 완료 처리를 분리하면 done이 누락될 수 있다. 반드시 같은 응답 내에서 처리할 것.
 
 ---
 

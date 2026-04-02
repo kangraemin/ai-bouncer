@@ -298,9 +298,9 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 > SIMPLE 모드에서는 `dev_phases`, `current_dev_phase`, `current_step`을 사용하지 않는다 (빈 객체/0 유지가 정상).
 > hook은 SIMPLE 모드에서 이 필드를 검증하지 않는다.
 
-#### S2 커밋
+#### S2 커밋 + 완료
 
-개발 완료 + TC 전부 ✅ 후, Phase S3 진입 전에 커밋한다.
+개발 완료 + TC 전부 ✅ 후 커밋하고, **커밋 성공 즉시 같은 흐름에서 완료 처리**한다. 별도 Phase로 분리하지 않는다.
 
 `.claude/ai-bouncer/config.json`에서 커밋 전략 확인:
 
@@ -320,27 +320,25 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 | `per-phase` | TC 전부 ✅ 직후 (동일) | `false` | `git add` + `git commit` + `git push` |
 | `none` | — | — | 커밋 스킵 (수동 관리) |
 
-커밋 실패 시 Phase S3 진행 금지 — 원인 해결 후 재시도.
+커밋 실패 시 다음 진행 금지 — 원인 해결 후 재시도.
 
-### Phase S3: 검증 + 완료
+커밋 성공 후 **반드시 이어서** (별도 Phase 아님):
 
-개발 완료 후:
-
-1. 테스트 실행 (pytest, lint 등) — 1회 통과면 OK
-2. 경량 검증: plan.md 대비 실제 변경 확인
+1. 경량 검증: plan.md 대비 실제 변경 확인
    - `{TASK_DIR}/plan.md` 읽어 변경 예정 파일 파악
    - `git diff HEAD~1 --name-only`로 실제 변경 파일 확인
    - 계획됐으나 미변경 파일이 있으면 사용자에게 경고 표시 (차단은 안 함)
    - 간단한 체크리스트 출력:
      ```
      [경량 검증]
-     ✅ 테스트 통과
      ✅/⚠️ plan.md 대비 변경 확인: N/M 파일 일치
      (⚠️ 미변경: 파일명 — 의도된 것인지 확인 필요)
      ```
-3. state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
-4. active_file 삭제: `rm -f {active_file}`            ← 그 다음
-5. 사용자에게 완료 보고
+2. state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
+3. active_file 삭제: `rm -f {active_file}`            ← 그 다음
+4. 사용자에게 완료 보고
+
+⚠️ 커밋과 완료 처리를 분리하면 done이 누락될 수 있다. 반드시 같은 응답 내에서 처리할 것.
 
 ---
 
