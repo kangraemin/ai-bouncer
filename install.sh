@@ -161,7 +161,7 @@ def remove_bouncer_hooks():
 
 def add_hook(hook_type, matcher, cmd):
     hook_list = hooks.setdefault(hook_type, [])
-    cmd_path = os.path.join(target_dir, 'hooks', cmd)
+    cmd_path = os.path.join(target_dir, 'ai-bouncer', 'hooks', cmd)
     already = any(cmd in h.get('command', '') for g in hook_list for h in g.get('hooks', []))
     if not already:
         entry = {'hooks': [{'type': 'command', 'command': cmd_path}]}
@@ -175,7 +175,7 @@ if old_enforcement != enforcement_mode:
         print("  ✓ settings.json: hook 전부 제거됨")
     else:
         # hooks.json 매니페스트 기반 등록
-        hooks_manifest_path = os.path.join(target_dir, 'hooks', 'hooks.json')
+        hooks_manifest_path = os.path.join(target_dir, 'ai-bouncer', 'hooks', 'hooks.json')
         if os.path.exists(hooks_manifest_path):
             manifest = json.load(open(hooks_manifest_path))
             for hook_type, hook_entries in manifest.items():
@@ -203,7 +203,7 @@ else:
     print(f"  ✓ env: AGENT_TEAMS 제거 (agent_mode={agent_mode})")
 
 # SessionStart: auto-update hook 등록 (enforcement_mode 무관, 항상)
-update_check_cmd = os.path.join(target_dir, 'scripts', 'update-check.sh')
+update_check_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'update-check.sh')
 ss = hooks.setdefault('SessionStart', [])
 already_ss = any('update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
 if not already_ss:
@@ -391,17 +391,86 @@ for skill_src in "$PACKAGE_DIR/skills"/*/; do
   install_skill "$skill_src" "$skill_name"
 done
 
+# ── 마이그레이션: 구 경로 → BOUNCER_DATA_DIR ──────────────────
+if [ "$IS_UPDATE" = true ] && [ -f "$PACKAGE_DIR/hooks/hooks.json" ]; then
+  OLD_HOOKS_DIR="$TARGET_DIR/hooks"
+  OLD_SCRIPTS_DIR="$TARGET_DIR/scripts"
+
+  # 구 경로에 bouncer hook이 하나라도 있는지 확인
+  _need_migrate=false
+  while read -r _mfile; do
+    if [ -f "$OLD_HOOKS_DIR/$_mfile" ]; then
+      _need_migrate=true
+      break
+    fi
+  done < <(python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hooks in manifest.values():
+    for h in hooks:
+        print(h['file'])
+" "$PACKAGE_DIR/hooks/hooks.json")
+
+  if [ "$_need_migrate" = true ]; then
+    header "마이그레이션: hooks/scripts → ai-bouncer/"
+    mkdir -p "$BOUNCER_DATA_DIR/hooks" "$BOUNCER_DATA_DIR/hooks/lib" "$BOUNCER_DATA_DIR/scripts"
+
+    # 1) bouncer hook 파일 이동
+    while read -r _mfile; do
+      if [ -f "$OLD_HOOKS_DIR/$_mfile" ] && [ ! -f "$BOUNCER_DATA_DIR/hooks/$_mfile" ]; then
+        mv "$OLD_HOOKS_DIR/$_mfile" "$BOUNCER_DATA_DIR/hooks/$_mfile"
+        echo "  ✓ 이동: hooks/$_mfile → ai-bouncer/hooks/$_mfile"
+      fi
+    done < <(python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hooks in manifest.values():
+    for h in hooks:
+        print(h['file'])
+" "$PACKAGE_DIR/hooks/hooks.json")
+
+    # 2) hooks.json 이동
+    if [ -f "$OLD_HOOKS_DIR/hooks.json" ] && [ ! -f "$BOUNCER_DATA_DIR/hooks/hooks.json" ]; then
+      mv "$OLD_HOOKS_DIR/hooks.json" "$BOUNCER_DATA_DIR/hooks/hooks.json"
+      echo "  ✓ 이동: hooks/hooks.json → ai-bouncer/hooks/hooks.json"
+    fi
+
+    # 3) hooks/lib/ bouncer lib 이동
+    if [ -d "$OLD_HOOKS_DIR/lib" ]; then
+      for _lib in "$OLD_HOOKS_DIR/lib/"*.sh; do
+        [ -f "$_lib" ] || continue
+        _libname=$(basename "$_lib")
+        if [ ! -f "$BOUNCER_DATA_DIR/hooks/lib/$_libname" ]; then
+          mv "$_lib" "$BOUNCER_DATA_DIR/hooks/lib/$_libname"
+          echo "  ✓ 이동: hooks/lib/$_libname → ai-bouncer/hooks/lib/$_libname"
+        fi
+      done
+    fi
+
+    # 4) scripts/update-check.sh 이동
+    if [ -f "$OLD_SCRIPTS_DIR/update-check.sh" ] && [ ! -f "$BOUNCER_DATA_DIR/scripts/update-check.sh" ]; then
+      mv "$OLD_SCRIPTS_DIR/update-check.sh" "$BOUNCER_DATA_DIR/scripts/update-check.sh"
+      echo "  ✓ 이동: scripts/update-check.sh → ai-bouncer/scripts/update-check.sh"
+    fi
+
+    # 5) 빈 디렉토리 정리 (non-bouncer 파일 있으면 유지)
+    [ -d "$OLD_HOOKS_DIR/lib" ] && rmdir "$OLD_HOOKS_DIR/lib" 2>/dev/null || true
+    [ -d "$OLD_HOOKS_DIR" ] && rmdir "$OLD_HOOKS_DIR" 2>/dev/null || true
+    [ -d "$OLD_SCRIPTS_DIR" ] && rmdir "$OLD_SCRIPTS_DIR" 2>/dev/null || true
+  fi
+fi
+
 # hooks.json 매니페스트 기반 동적 설치
 HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"
 if [ -f "$HOOKS_MANIFEST" ]; then
   # hooks.json 자체도 복사
-  mkdir -p "$TARGET_DIR/hooks"
-  copy_file "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json"
+  mkdir -p "$BOUNCER_DATA_DIR/hooks"
+  copy_file "$HOOKS_MANIFEST" "$BOUNCER_DATA_DIR/hooks/hooks.json"
 
   # process substitution으로 subshell 회피 (INSTALLED_FILES 전파)
   while read -r htype hfile; do
     src="$PACKAGE_DIR/hooks/$hfile"
-    dst="$TARGET_DIR/hooks/$hfile"
+    dst="$BOUNCER_DATA_DIR/hooks/$hfile"
     [ -f "$src" ] || continue
     if [ "$htype" = "managed" ]; then
       install_hook "$src" "$dst"
@@ -420,21 +489,21 @@ fi
 
 # hooks/lib/ 동적 복사
 if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
-  mkdir -p "$TARGET_DIR/hooks/lib"
+  mkdir -p "$BOUNCER_DATA_DIR/hooks/lib"
   for lib in "$PACKAGE_DIR/hooks/lib/"*.sh; do
     [ -f "$lib" ] || continue
-    copy_file "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")"
-    chmod +x "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    copy_file "$lib" "$BOUNCER_DATA_DIR/hooks/lib/$(basename "$lib")"
+    chmod +x "$BOUNCER_DATA_DIR/hooks/lib/$(basename "$lib")"
   done
 fi
 
 # scripts/ 동적 복사
 if [ -d "$PACKAGE_DIR/scripts" ]; then
-  mkdir -p "$TARGET_DIR/scripts"
+  mkdir -p "$BOUNCER_DATA_DIR/scripts"
   for script in "$PACKAGE_DIR/scripts/"*.sh; do
     [ -f "$script" ] || continue
-    copy_file "$script" "$TARGET_DIR/scripts/$(basename "$script")"
-    chmod +x "$TARGET_DIR/scripts/$(basename "$script")"
+    copy_file "$script" "$BOUNCER_DATA_DIR/scripts/$(basename "$script")"
+    chmod +x "$BOUNCER_DATA_DIR/scripts/$(basename "$script")"
   done
 fi
 
@@ -740,7 +809,7 @@ def is_registered(hook_list, cmd_fragment):
 
 def add_hook(hook_type, matcher, cmd):
     hook_list = hooks.setdefault(hook_type, [])
-    cmd_path = os.path.join(target_dir, 'hooks', cmd)
+    cmd_path = os.path.join(target_dir, 'ai-bouncer', 'hooks', cmd)
     if not is_registered(hook_list, cmd):
         entry = {'hooks': [{'type': 'command', 'command': cmd_path}]}
         if matcher:
@@ -761,7 +830,7 @@ else:
     print('  · hook 등록 스킵 (enforcement_mode=prompt-only)')
 
 # SessionStart hook: update-check.sh (enforcement_mode 무관)
-update_cmd = os.path.join(target_dir, 'scripts', 'update-check.sh')
+update_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'update-check.sh')
 ss_list = hooks.setdefault('SessionStart', [])
 if not is_registered(ss_list, 'update-check.sh'):
     ss_list.append({'hooks': [{'type': 'command', 'command': update_cmd, 'timeout': 30}]})
