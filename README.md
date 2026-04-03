@@ -123,23 +123,11 @@ The `verifier` agent runs an unlimited loop until 3 *consecutive* clean passes, 
 
 ## Installation
 
-### Quick Install
-
 Run from your project root:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
 ```
-
-### Manual Install
-
-```bash
-git clone https://github.com/kangraemin/ai-bouncer.git
-cd ai-bouncer
-bash install.sh
-```
-
-Installs locally to `.claude/` in your current project (no global installation).
 
 ### Update
 

@@ -123,23 +123,11 @@ ai-bouncer는 문서 기반 워크플로우를 강제하여 이를 해결합니�
 
 ## 설치
 
-### 한줄 설치
-
 프로젝트 루트에서 실행:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
 ```
-
-### 수동 설치
-
-```bash
-git clone https://github.com/kangraemin/ai-bouncer.git
-cd ai-bouncer
-bash install.sh
-```
-
-현재 프로젝트의 `.claude/`에 로컬 설치됩니다 (전역 설치 없음).
 
 ### 업데이트
 

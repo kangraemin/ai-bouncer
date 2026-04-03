@@ -33,7 +33,12 @@ fi
 
 MODE="${1:-install}"
 CI_MODE="${CI:-false}"  # CI=true 또는 --ci 로 비대화형 모드
+SCOPE_OVERRIDE=""
 [ "$MODE" = "--ci" ] && { CI_MODE=true; MODE=install; }
+[ "$MODE" = "--global" ] && { SCOPE_OVERRIDE=global; MODE=install; }
+# 두 번째 인자도 체크
+[ "${2:-}" = "--global" ] && SCOPE_OVERRIDE=global
+[ "${2:-}" = "--ci" ] && CI_MODE=true
 
 # ── 언인스톨 ──────────────────────────────────────────────────
 if [ "$MODE" = "--uninstall" ]; then
@@ -215,32 +220,47 @@ fi
 
 # ── 설치 범위 ──────────────────────────────────────────────────
 header "설치 범위"
-# NOTE: 전역 설치 임시 비활성화 — 로컬 전용
-# echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
-# echo "  2) 로컬 (.claude/)  — 현재 프로젝트에만 적용"
-# echo ""
-# printf "선택 [1]: "
-# read -r SCOPE_CHOICE
-# SCOPE_CHOICE="${SCOPE_CHOICE:-1}"
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-if [ -z "$REPO_ROOT" ]; then
-  warn "git 레포가 아닙니다. git init을 실행합니다."
-  git init -q .
+# --global 플래그 또는 CI 환경변수로 전역 설치
+SCOPE_CHOICE=""
+if [ "${SCOPE_OVERRIDE:-}" = "global" ]; then
+  SCOPE_CHOICE="1"
+elif [ "$CI_MODE" = "true" ]; then
+  SCOPE_CHOICE="${SCOPE_DEFAULT:-2}"  # CI 기본: 로컬
+elif [ "$MODE" = "install" ]; then
+  echo "  1) 전역 (~/.claude/) — 모든 프로젝트에 적용"
+  echo "  2) 로컬 (.claude/)  — 현재 프로젝트에만 적용"
+  echo ""
+  printf "선택 [2]: "
+  read -r SCOPE_CHOICE
+  SCOPE_CHOICE="${SCOPE_CHOICE:-2}"
+fi
+
+REPO_ROOT=""
+IS_SOURCE_REPO=false
+
+if [ "$SCOPE_CHOICE" = "1" ]; then
+  SCOPE="global"
+  TARGET_DIR="$HOME/.claude"
+  ok "전역 설치: $TARGET_DIR"
+else
+  SCOPE="local"
   REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
   if [ -z "$REPO_ROOT" ]; then
-    err "에러: git init에 실패했습니다."
-    exit 1
+    warn "git 레포가 아닙니다. git init을 실행합니다."
+    git init -q .
+    REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+    if [ -z "$REPO_ROOT" ]; then
+      err "에러: git init에 실패했습니다."
+      exit 1
+    fi
+    ok "git init 완료: $REPO_ROOT"
   fi
-  ok "git init 완료: $REPO_ROOT"
-fi
-TARGET_DIR="$REPO_ROOT/.claude"
-SCOPE="local"
-
-# 소스 레포 감지: 소스 레포에서는 update.sh/uninstall.sh를 설치 아티팩트로 취급하지 않음
-IS_SOURCE_REPO=false
-if [ -f "$REPO_ROOT/install.sh" ] && [ -f "$REPO_ROOT/agents/intent.md" ]; then
-  IS_SOURCE_REPO=true
+  TARGET_DIR="$REPO_ROOT/.claude"
+  # 소스 레포 감지: 소스 레포에서는 update.sh/uninstall.sh를 설치 아티팩트로 취급하지 않음
+  if [ -f "$REPO_ROOT/install.sh" ] && [ -f "$REPO_ROOT/agents/intent.md" ]; then
+    IS_SOURCE_REPO=true
+  fi
 fi
 
 info "설치 대상: $TARGET_DIR"
@@ -418,35 +438,48 @@ if [ -d "$PACKAGE_DIR/scripts" ]; then
   done
 fi
 
-# update.sh / uninstall.sh → 프로젝트 루트
-cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
-chmod +x "$REPO_ROOT/update.sh"
-ok "update.sh (프로젝트 루트)"
-cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
-chmod +x "$REPO_ROOT/uninstall.sh"
-ok "uninstall.sh (프로젝트 루트)"
+# update.sh / uninstall.sh
+if [ "$SCOPE" = "global" ]; then
+  cp "$PACKAGE_DIR/update.sh" "$TARGET_DIR/update.sh"
+  chmod +x "$TARGET_DIR/update.sh"
+  ok "update.sh ($TARGET_DIR)"
+  cp "$PACKAGE_DIR/uninstall.sh" "$TARGET_DIR/uninstall.sh"
+  chmod +x "$TARGET_DIR/uninstall.sh"
+  ok "uninstall.sh ($TARGET_DIR)"
+else
+  cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
+  chmod +x "$REPO_ROOT/update.sh"
+  ok "update.sh (프로젝트 루트)"
+  cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
+  chmod +x "$REPO_ROOT/uninstall.sh"
+  ok "uninstall.sh (프로젝트 루트)"
+fi
 
 # ── .ai-bouncer-tasks git 추적 설정 ──────────────────────────────
-header ".ai-bouncer-tasks/ 설정"
-if [ "$CI_MODE" = "true" ]; then
+DOCS_TRACK_BOOL="false"
+if [ "$SCOPE" = "global" ]; then
   DOCS_GIT_TRACK="n"
+  ok ".ai-bouncer-tasks/ git 추적 — 전역 모드에서는 해당 없음"
+elif [ "$CI_MODE" = "true" ]; then
+  DOCS_GIT_TRACK="n"
+  ok ".ai-bouncer-tasks/ git 미추적 (CI 기본값)"
 else
+  header ".ai-bouncer-tasks/ 설정"
   echo "  ai-bouncer는 작업별로 .ai-bouncer-tasks/<task-name>/ 폴더에 산출물을 저장합니다."
   echo ""
   printf "  .ai-bouncer-tasks/ 폴더를 git으로 추적할까요? (y/n) [n]: "
   read -r DOCS_GIT_TRACK
   DOCS_GIT_TRACK="${DOCS_GIT_TRACK:-n}"
+  if [[ "$DOCS_GIT_TRACK" =~ ^[yY] ]]; then
+    DOCS_TRACK_BOOL="true"
+    ok ".ai-bouncer-tasks/ git 추적 활성화"
+  else
+    ok ".ai-bouncer-tasks/ git 미추적 (기본값)"
+  fi
 fi
 
-DOCS_TRACK_BOOL="false"
-if [[ "$DOCS_GIT_TRACK" =~ ^[yY] ]]; then
-  DOCS_TRACK_BOOL="true"
-  ok ".ai-bouncer-tasks/ git 추적 활성화"
-else
-  ok ".ai-bouncer-tasks/ git 미추적 (기본값)"
-fi
-
-# ── .gitignore managed block 주입 ─────────────────────────────
+# ── .gitignore managed block 주입 (로컬 전용) ─────────────────
+if [ "$SCOPE" = "local" ]; then
 header ".gitignore 설정"
 
 GITIGNORE_FILE="$REPO_ROOT/.gitignore"
@@ -524,6 +557,7 @@ if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
     git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
   fi
 fi
+fi # SCOPE=local .gitignore 블록 끝
 
 # 커밋 전략 선택
 header "커밋 전략"
