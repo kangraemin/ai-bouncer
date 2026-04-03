@@ -225,8 +225,14 @@ header "설치 범위"
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 if [ -z "$REPO_ROOT" ]; then
-  err "에러: git 레포 안에서 실행해주세요."
-  exit 1
+  warn "git 레포가 아닙니다. git init을 실행합니다."
+  git init -q .
+  REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+  if [ -z "$REPO_ROOT" ]; then
+    err "에러: git init에 실패했습니다."
+    exit 1
+  fi
+  ok "git init 완료: $REPO_ROOT"
 fi
 TARGET_DIR="$REPO_ROOT/.claude"
 SCOPE="local"
