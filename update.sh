@@ -206,12 +206,12 @@ ENFORCEMENT_MODE=$(jq -r '.enforcement_mode // "hooks"' "$CONFIG_FILE" 2>/dev/nu
 HOOKS_MANIFEST="$PACKAGE_DIR/hooks/hooks.json"
 if [ -f "$HOOKS_MANIFEST" ] && [ "$ENFORCEMENT_MODE" = "hooks" ]; then
   # hooks.json 자체도 복사
-  mkdir -p "$TARGET_DIR/hooks"
-  copy_if_changed "$HOOKS_MANIFEST" "$TARGET_DIR/hooks/hooks.json" "hooks.json (manifest)"
+  mkdir -p "$BOUNCER_DATA_DIR/hooks"
+  copy_if_changed "$HOOKS_MANIFEST" "$BOUNCER_DATA_DIR/hooks/hooks.json" "hooks.json (manifest)"
 
   while read -r htype hfile; do
     src="$PACKAGE_DIR/hooks/$hfile"
-    dst="$TARGET_DIR/hooks/$hfile"
+    dst="$BOUNCER_DATA_DIR/hooks/$hfile"
     [ -f "$src" ] || continue
     if [ "$htype" = "managed" ]; then
       install_hook "$src" "$dst"
@@ -232,21 +232,21 @@ fi
 
 # hooks/lib/ 동적 복사
 if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
-  mkdir -p "$TARGET_DIR/hooks/lib"
+  mkdir -p "$BOUNCER_DATA_DIR/hooks/lib"
   for lib in "$PACKAGE_DIR/hooks/lib/"*.sh; do
     [ -f "$lib" ] || continue
-    copy_if_changed "$lib" "$TARGET_DIR/hooks/lib/$(basename "$lib")" "$(basename "$lib") (lib)"
-    chmod +x "$TARGET_DIR/hooks/lib/$(basename "$lib")"
+    copy_if_changed "$lib" "$BOUNCER_DATA_DIR/hooks/lib/$(basename "$lib")" "$(basename "$lib") (lib)"
+    chmod +x "$BOUNCER_DATA_DIR/hooks/lib/$(basename "$lib")"
   done
 fi
 
 # scripts/ 동적 복사
 if [ -d "$PACKAGE_DIR/scripts" ]; then
-  mkdir -p "$TARGET_DIR/scripts"
+  mkdir -p "$BOUNCER_DATA_DIR/scripts"
   for script in "$PACKAGE_DIR/scripts/"*.sh; do
     [ -f "$script" ] || continue
-    copy_if_changed "$script" "$TARGET_DIR/scripts/$(basename "$script")" "$(basename "$script") (script)"
-    chmod +x "$TARGET_DIR/scripts/$(basename "$script")"
+    copy_if_changed "$script" "$BOUNCER_DATA_DIR/scripts/$(basename "$script")" "$(basename "$script") (script)"
+    chmod +x "$BOUNCER_DATA_DIR/scripts/$(basename "$script")"
   done
 fi
 
@@ -350,7 +350,7 @@ fi
 _register_session_start() {
   local sf="$1"
   [ -f "$sf" ] || return 0
-  local cmd="$TARGET_DIR/scripts/update-check.sh"
+  local cmd="$TARGET_DIR/ai-bouncer/scripts/update-check.sh"
   grep -q "update-check.sh" "$sf" 2>/dev/null && return 0
   $PYTHON -c "
 import json, sys
