@@ -117,7 +117,7 @@ with open(settings_file) as f:
 import os as _os
 
 # hooks.json에서 동적으로 읽기, fallback으로 하드코딩
-_hooks_json = _os.path.join(_os.path.dirname(settings_file), 'hooks', 'hooks.json')
+_hooks_json = _os.path.join(_os.path.dirname(settings_file), 'ai-bouncer', 'hooks', 'hooks.json')
 if _os.path.exists(_hooks_json):
     _manifest = json.load(open(_hooks_json))
     BOUNCER_HOOKS = set()
@@ -208,23 +208,17 @@ print("  CLAUDE.md ai-bouncer 규칙 블록 제거됨")
 PYEOF
 fi
 
-# scripts/ 정리
-rm -rf "$TARGET_DIR/scripts"
+# ai-bouncer 디렉토리 통째 삭제 (hooks, scripts, config, manifest 포함)
+rm -rf "$BOUNCER_DATA_DIR"
 
-# 빈 디렉토리 정리 (skills 서브디렉토리는 동적으로 처리)
-for dir in "$TARGET_DIR/hooks/lib" "$TARGET_DIR/hooks" \
-           "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents"; do
+# 빈 디렉토리 정리 (agents/skills는 manifest 기반 개별 삭제 후 빈 디렉토리만 정리)
+for dir in "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents"; do
   rmdir "$dir" 2>/dev/null || true
 done
 for skill_dir in "$TARGET_DIR/skills"/*/; do
   [ -d "$skill_dir" ] && rmdir "$skill_dir" 2>/dev/null || true
 done
 rmdir "$TARGET_DIR/skills" 2>/dev/null || true
-
-# 매니페스트/config 삭제
-rm -f "$BOUNCER_DATA_DIR/manifest.json"
-rm -f "$BOUNCER_DATA_DIR/config.json"
-rmdir "$BOUNCER_DATA_DIR" 2>/dev/null || true
 
 # .gitignore managed block 제거
 GITIGNORE_FILE="$REPO_ROOT/.gitignore"
