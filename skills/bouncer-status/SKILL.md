@@ -46,11 +46,24 @@ config.json이 없으면:
 
 "건강 진단 중..." 출력한 뒤 아래 항목을 확인한다.
 
-#### 2-1. 버전
+#### 2-1. 업데이트 확인
+
+update-check.sh를 사용해서 업데이트 필요 여부를 확인한다.
 
 ```bash
-jq -r '.version' "$BOUNCER_DIR/manifest.json"
+# 로컬 또는 전역에서 update-check.sh 찾기
+UPDATE_CHECK="$TARGET_DIR/scripts/update-check.sh"
+[ -f "$UPDATE_CHECK" ] || UPDATE_CHECK="$HOME/.claude/scripts/update-check.sh"
+
+bash "$UPDATE_CHECK" --check-only 2>/dev/null
 ```
+
+결과에 따라:
+- `up-to-date` → `✅ 최신 버전`
+- `update-available` → `⚠️ 업데이트 있음 (현재: xxx → 최신: yyy)`
+- 실패 → `❓ 확인 불가`
+
+**업데이트가 있으면** 진단 결과 출력 후 "업데이트할까요?" 라고 물어본다. 사용자가 동의하면 `/update-bouncer` 스킬을 실행한다.
 
 #### 2-2. Hook 등록 상태
 
@@ -94,7 +107,7 @@ find .ai-bouncer-tasks -name ".active" 2>/dev/null
 ```
 건강 진단 결과
 
-  버전: 579071b
+  업데이트: ✅ 최신 버전
   Hook: ✅ 8/8 정상
   CLAUDE.md: ✅ 규칙 주입됨
   파일 무결성: ✅ 20/20
@@ -106,7 +119,7 @@ find .ai-bouncer-tasks -name ".active" 2>/dev/null
 ```
 건강 진단 결과
 
-  버전: 579071b
+  업데이트: ⚠️ 업데이트 있음 (현재: abc1234 → 최신: def5678)
   Hook: ⚠️ 6/8
     ❌ subagent-track.sh — 미등록
     ⚠️ bash-gate.sh — 등록됨, 파일 없음
@@ -116,6 +129,8 @@ find .ai-bouncer-tasks -name ".active" 2>/dev/null
   활성 태스크: my-task (development/normal)
 
   수정 방법: bash install.sh --config 또는 재설치
+
+업데이트할까요?
 ```
 
 ## 규칙
