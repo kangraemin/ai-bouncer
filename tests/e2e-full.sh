@@ -313,7 +313,7 @@ assert_file "재설치 후 settings.json 존재"    "$TARGET/settings.json"
 assert_file "재설치 후 CLAUDE.md 존재"        "$TARGET/CLAUDE.md"
 assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "plan-gate.sh"
 assert_contains "재설치 후 bouncer 규칙 주입" "$TARGET/CLAUDE.md" "ai-bouncer-rule"
-assert_file "재설치 후 update-check.sh 존재"  "$TARGET/scripts/update-check.sh"
+assert_file "재설치 후 update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/update-check.sh"
 assert_contains "재설치 후 SessionStart hook 등록됨"  "$TARGET/settings.json" "update-check.sh"
 
 # ═══════════════════════════════════════════════════════════════
