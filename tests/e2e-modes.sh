@@ -168,16 +168,16 @@ persona_a() {
 
   # guides 설치 검증
   check "install: tc-guide.md 설치" test -f "$TARGET/agents/guides/tc-guide.md"
-  check "install: hooks.json 설치" test -f "$TARGET/hooks/hooks.json"
+  check "install: hooks.json 설치" test -f "$TARGET/ai-bouncer/hooks/hooks.json"
 
   # update — 파일 내용까지 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks still present" has_hook "$SETTINGS" "plan-gate"
-  check "update: plan-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/hooks/plan-gate.sh"
+  check "update: plan-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/ai-bouncer/hooks/plan-gate.sh"
   check "update: agent dev.md 갱신" grep -q "commit_strategy" "$TARGET/agents/dev.md"
   check "update: skill SKILL.md 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
   check "update: tc-guide.md 갱신" test -f "$TARGET/agents/guides/tc-guide.md"
-  check "update: hooks.json 갱신" test -f "$TARGET/hooks/hooks.json"
+  check "update: hooks.json 갱신" test -f "$TARGET/ai-bouncer/hooks/hooks.json"
 
   # update (프로젝트 루트 update.sh — 소스 없으므로 자동 clone)
   (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && bash "$FAKE_REPO/update.sh" 2>&1) || true
@@ -188,7 +188,7 @@ persona_a() {
   # uninstall — 전체 정리 검증
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: config gone" test ! -f "$CONFIG"
-  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/ai-bouncer/hooks/plan-gate.sh"
   check "uninstall: agents cleaned" test ! -f "$TARGET/agents/dev.md"
   check "uninstall: guides cleaned" test ! -f "$TARGET/agents/guides/tc-guide.md"
   check "uninstall: CLAUDE.md rule removed" bash -c '! grep -q "ai-bouncer-rule" "$0" 2>/dev/null || ! test -f "$0"' "$TARGET/CLAUDE.md"
@@ -295,7 +295,7 @@ with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as
   local hook_input
   hook_input=$(jq -n '{tool_name: "Write", tool_input: {file_path: "/src/feature.ts"}}')
   local hook_out
-  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/hooks/plan-gate.sh" 2>/dev/null || true)
+  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/ai-bouncer/hooks/plan-gate.sh" 2>/dev/null || true)
   local decision
   decision=$(echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow")
   if [ "$decision" != "block" ]; then
@@ -312,7 +312,7 @@ with open(f) as fp: s = json.load(fp)
 s['dev_phases'] = {}
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
-  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/hooks/plan-gate.sh" 2>/dev/null || true)
+  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/ai-bouncer/hooks/plan-gate.sh" 2>/dev/null || true)
   decision=$(echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow")
   if [ "$decision" = "block" ]; then
     pass "plan-gate: subagent + dev_phases={} → BLOCK"
@@ -322,13 +322,13 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 
   # update — 파일 내용 검증
   run_update "$FAKE_HOME" "$FAKE_REPO"
-  check "update: hooks copied" test -f "$TARGET/hooks/plan-gate.sh"
-  check "update: bash-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/hooks/bash-gate.sh"
+  check "update: hooks copied" test -f "$TARGET/ai-bouncer/hooks/plan-gate.sh"
+  check "update: bash-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/ai-bouncer/hooks/bash-gate.sh"
 
   # uninstall — 전체 정리
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: clean" test ! -f "$CONFIG"
-  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/ai-bouncer/hooks/plan-gate.sh"
   check "uninstall: agents cleaned" test ! -f "$TARGET/agents/lead.md"
 
   rm -rf "$tmpdir"
@@ -459,7 +459,7 @@ with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as
   local hook_input
   hook_input=$(jq -n '{tool_name: "Write", tool_input: {file_path: "/src/feature.ts"}}')
   local hook_out
-  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/hooks/plan-gate.sh" 2>/dev/null || true)
+  hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/ai-bouncer/hooks/plan-gate.sh" 2>/dev/null || true)
   local decision
   decision=$(echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow")
   if [ "$decision" = "block" ]; then
@@ -470,13 +470,13 @@ with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as
 
   # update: hook 복사됨 (기본값 hooks 폴백)
   run_update "$FAKE_HOME" "$FAKE_REPO"
-  check "update: hooks copied (default fallback)" test -f "$TARGET/hooks/plan-gate.sh"
+  check "update: hooks copied (default fallback)" test -f "$TARGET/ai-bouncer/hooks/plan-gate.sh"
   check "update: agent 파일 갱신" test -f "$TARGET/agents/dev.md"
 
   # uninstall
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "uninstall: config gone" test ! -f "$TARGET/ai-bouncer/config.json"
-  check "uninstall: hooks cleaned" test ! -f "$TARGET/hooks/plan-gate.sh"
+  check "uninstall: hooks cleaned" test ! -f "$TARGET/ai-bouncer/hooks/plan-gate.sh"
 
   rm -rf "$tmpdir"
 }
@@ -544,7 +544,7 @@ with open('$CONFIG', 'w') as f: json.dump(cfg, f, indent=2)
     local hook_input
     hook_input=$(jq -n --arg cmd "$cmd" '{tool_name: "Bash", tool_input: {command: $cmd}}')
     local hook_out
-    hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/hooks/bash-gate.sh" 2>/dev/null || true)
+    hook_out=$(cd "$FAKE_REPO" && echo "$hook_input" | bash "$TARGET/ai-bouncer/hooks/bash-gate.sh" 2>/dev/null || true)
     echo "$hook_out" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow"
   }
 
@@ -703,7 +703,7 @@ STEPEOF
   # G-12: uninstall 후 bash-gate 사라짐
   run_uninstall "$FAKE_HOME" "$FAKE_REPO"
   check "G-12: uninstall config gone" test ! -f "$CONFIG"
-  check "G-12: uninstall bash-gate gone" test ! -f "$TARGET/hooks/bash-gate.sh"
+  check "G-12: uninstall bash-gate gone" test ! -f "$TARGET/ai-bouncer/hooks/bash-gate.sh"
 
   rm -rf "$tmpdir"
 }

@@ -93,14 +93,14 @@ echo -e "\n${BOLD}─── 1. 설치 (--ci) ───${NC}"
 echo -e "\n${BOLD}─── 2. 설치 파일 검증 ───${NC}"
 
 # hooks
-assert_file "plan-gate.sh 설치됨"         "$TARGET/hooks/plan-gate.sh"
-assert_file "bash-gate.sh 설치됨"         "$TARGET/hooks/bash-gate.sh"
-assert_file "bash-audit.sh 설치됨"        "$TARGET/hooks/bash-audit.sh"
-assert_file "doc-reminder.sh 설치됨"      "$TARGET/hooks/doc-reminder.sh"
-assert_file "completion-gate.sh 설치됨"   "$TARGET/hooks/completion-gate.sh"
-assert_file "subagent-track.sh 설치됨"    "$TARGET/hooks/subagent-track.sh"
-assert_file "subagent-cleanup.sh 설치됨"  "$TARGET/hooks/subagent-cleanup.sh"
-assert_file "resolve-task.sh 설치됨"      "$TARGET/hooks/lib/resolve-task.sh"
+assert_file "plan-gate.sh 설치됨"         "$TARGET/ai-bouncer/hooks/plan-gate.sh"
+assert_file "bash-gate.sh 설치됨"         "$TARGET/ai-bouncer/hooks/bash-gate.sh"
+assert_file "bash-audit.sh 설치됨"        "$TARGET/ai-bouncer/hooks/bash-audit.sh"
+assert_file "doc-reminder.sh 설치됨"      "$TARGET/ai-bouncer/hooks/doc-reminder.sh"
+assert_file "completion-gate.sh 설치됨"   "$TARGET/ai-bouncer/hooks/completion-gate.sh"
+assert_file "subagent-track.sh 설치됨"    "$TARGET/ai-bouncer/hooks/subagent-track.sh"
+assert_file "subagent-cleanup.sh 설치됨"  "$TARGET/ai-bouncer/hooks/subagent-cleanup.sh"
+assert_file "resolve-task.sh 설치됨"      "$TARGET/ai-bouncer/hooks/lib/resolve-task.sh"
 
 # agents
 assert_file "intent.md 설치됨"       "$TARGET/agents/intent.md"
@@ -116,11 +116,11 @@ assert_file "dev-bounce SKILL.md 설치됨"  "$TARGET/skills/dev-bounce/SKILL.md
 assert_file "tc-guide.md 설치됨"  "$TARGET/agents/guides/tc-guide.md"
 
 # scripts
-assert_file "update-check.sh 설치됨"  "$TARGET/scripts/update-check.sh"
-assert_ok "update-check.sh 실행 가능"  test -x "$TARGET/scripts/update-check.sh"
+assert_file "update-check.sh 설치됨"  "$TARGET/ai-bouncer/scripts/update-check.sh"
+assert_ok "update-check.sh 실행 가능"  test -x "$TARGET/ai-bouncer/scripts/update-check.sh"
 
 # hooks.json
-assert_file "hooks.json 설치됨"  "$TARGET/hooks/hooks.json"
+assert_file "hooks.json 설치됨"  "$TARGET/ai-bouncer/hooks/hooks.json"
 
 # settings.json
 assert_file "settings.json 생성됨"  "$TARGET/settings.json"
@@ -138,14 +138,14 @@ assert_file "CLAUDE.md 생성됨"  "$TARGET/CLAUDE.md"
 assert_contains "bouncer 규칙 주입됨"  "$TARGET/CLAUDE.md" "ai-bouncer-rule"
 
 # executable
-assert_ok "plan-gate.sh 실행 가능"    test -x "$TARGET/hooks/plan-gate.sh"
-assert_ok "bash-gate.sh 실행 가능"    test -x "$TARGET/hooks/bash-gate.sh"
-assert_ok "subagent-track.sh 실행 가능" test -x "$TARGET/hooks/subagent-track.sh"
+assert_ok "plan-gate.sh 실행 가능"    test -x "$TARGET/ai-bouncer/hooks/plan-gate.sh"
+assert_ok "bash-gate.sh 실행 가능"    test -x "$TARGET/ai-bouncer/hooks/bash-gate.sh"
+assert_ok "subagent-track.sh 실행 가능" test -x "$TARGET/ai-bouncer/hooks/subagent-track.sh"
 
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 3. 설치된 hooks로 기능 테스트 ───${NC}"
 
-HOOKS_DIR="$TARGET/hooks"
+HOOKS_DIR="$TARGET/ai-bouncer/hooks"
 
 # 테스트용 task 디렉토리 생성
 TASK_DIR="$REPO_DIR/.ai-bouncer-tasks/2099-01-01/e2e-test"
@@ -232,14 +232,14 @@ echo -e "\n${BOLD}─── 4. Update (--update) ───${NC}"
 (cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -3
 
 # 업데이트 후에도 파일이 존재하는지 확인
-assert_file "update 후 plan-gate.sh 존재"   "$TARGET/hooks/plan-gate.sh"
+assert_file "update 후 plan-gate.sh 존재"   "$TARGET/ai-bouncer/hooks/plan-gate.sh"
 assert_file "update 후 intent.md 존재"      "$TARGET/agents/intent.md"
 assert_file "update 후 SKILL.md 존재"       "$TARGET/skills/dev-bounce/SKILL.md"
 assert_file "update 후 settings.json 존재"  "$TARGET/settings.json"
 assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-gate.sh"
 assert_file "update 후 tc-guide.md 존재"    "$TARGET/agents/guides/tc-guide.md"
-assert_file "update 후 hooks.json 존재"     "$TARGET/hooks/hooks.json"
-assert_file "update 후 update-check.sh 존재"  "$TARGET/scripts/update-check.sh"
+assert_file "update 후 hooks.json 존재"     "$TARGET/ai-bouncer/hooks/hooks.json"
+assert_file "update 후 update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/update-check.sh"
 
 # 커스텀 agent 보호 테스트
 echo "custom agent" > "$TARGET/agents/my-custom-agent.md"
@@ -266,15 +266,15 @@ echo -e "\n${BOLD}─── 5. Uninstall ───${NC}"
 (cd "$REPO_DIR" && bash "$SRC_DIR/uninstall.sh") 2>&1 | tail -5
 
 # 파일이 삭제되었는지 확인
-assert_no_file "uninstall 후 plan-gate.sh 없음"    "$TARGET/hooks/plan-gate.sh"
-assert_no_file "uninstall 후 bash-gate.sh 없음"    "$TARGET/hooks/bash-gate.sh"
-assert_no_file "uninstall 후 bash-audit.sh 없음"   "$TARGET/hooks/bash-audit.sh"
+assert_no_file "uninstall 후 plan-gate.sh 없음"    "$TARGET/ai-bouncer/hooks/plan-gate.sh"
+assert_no_file "uninstall 후 bash-gate.sh 없음"    "$TARGET/ai-bouncer/hooks/bash-gate.sh"
+assert_no_file "uninstall 후 bash-audit.sh 없음"   "$TARGET/ai-bouncer/hooks/bash-audit.sh"
 assert_no_file "uninstall 후 intent.md 없음"       "$TARGET/agents/intent.md"
 assert_no_file "uninstall 후 SKILL.md 없음"        "$TARGET/skills/dev-bounce/SKILL.md"
 assert_no_file "uninstall 후 tc-guide.md 없음"     "$TARGET/agents/guides/tc-guide.md"
 assert_no_file "uninstall 후 manifest.json 없음"   "$TARGET/ai-bouncer/manifest.json"
 assert_no_file "uninstall 후 config.json 없음"     "$TARGET/ai-bouncer/config.json"
-assert_no_file "uninstall 후 update-check.sh 없음"  "$TARGET/scripts/update-check.sh"
+assert_no_file "uninstall 후 update-check.sh 없음"  "$TARGET/ai-bouncer/scripts/update-check.sh"
 
 # settings.json에서 bouncer hook이 제거되었는지 확인
 if [ -f "$TARGET/settings.json" ]; then
@@ -308,7 +308,7 @@ echo -e "\n${BOLD}─── 6. Re-install (uninstall 후 재설치) ───${N
 
 (cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -3
 
-assert_file "재설치 후 plan-gate.sh 존재"     "$TARGET/hooks/plan-gate.sh"
+assert_file "재설치 후 plan-gate.sh 존재"     "$TARGET/ai-bouncer/hooks/plan-gate.sh"
 assert_file "재설치 후 settings.json 존재"    "$TARGET/settings.json"
 assert_file "재설치 후 CLAUDE.md 존재"        "$TARGET/CLAUDE.md"
 assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "plan-gate.sh"

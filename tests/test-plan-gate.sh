@@ -17,7 +17,7 @@ INSTALL_REPO=$(mktemp -d)
 git init "$INSTALL_REPO" -q
 git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
 (cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
-HOOK_SCRIPT="$INSTALL_REPO/.claude/hooks/plan-gate.sh"
+HOOK_SCRIPT="$INSTALL_REPO/.claude/ai-bouncer/hooks/plan-gate.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
 FAKE_HOME="$TMPDIR_ROOT/_fake_home"

@@ -39,12 +39,12 @@ verify_install() {
 
   # hooks 5개 + 실행 권한
   for hook in plan-gate.sh bash-gate.sh bash-audit.sh doc-reminder.sh completion-gate.sh; do
-    check "hook exists: $hook" test -f "$TARGET_DIR/hooks/$hook"
-    check "hook executable: $hook" test -x "$TARGET_DIR/hooks/$hook"
+    check "hook exists: $hook" test -f "$TARGET_DIR/ai-bouncer/hooks/$hook"
+    check "hook executable: $hook" test -x "$TARGET_DIR/ai-bouncer/hooks/$hook"
   done
 
   # hooks/lib/resolve-task.sh
-  check "hooks/lib/resolve-task.sh" test -f "$TARGET_DIR/hooks/lib/resolve-task.sh"
+  check "hooks/lib/resolve-task.sh" test -f "$TARGET_DIR/ai-bouncer/hooks/lib/resolve-task.sh"
 
   # settings.json hook 등록
   local SETTINGS="$TARGET_DIR/settings.json"
@@ -232,7 +232,7 @@ tc4_uninstall() {
   # hooks 삭제 확인
   all_gone=true
   for hook in plan-gate.sh bash-gate.sh bash-audit.sh doc-reminder.sh completion-gate.sh; do
-    if [ -f "$TARGET_DIR/hooks/$hook" ]; then
+    if [ -f "$TARGET_DIR/ai-bouncer/hooks/$hook" ]; then
       fail "hook still exists: $hook"
       all_gone=false
     fi

@@ -10,7 +10,7 @@ INSTALL_REPO=$(mktemp -d)
 git init "$INSTALL_REPO" -q
 git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
 (cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
-HOOKS_DIR="$INSTALL_REPO/.claude/hooks"
+HOOKS_DIR="$INSTALL_REPO/.claude/ai-bouncer/hooks"
 
 PASS=0
 FAIL=0

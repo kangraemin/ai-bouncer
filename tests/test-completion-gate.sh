@@ -17,7 +17,7 @@ INSTALL_REPO=$(mktemp -d)
 git init "$INSTALL_REPO" -q
 git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
 (cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
-HOOK_SCRIPT="$INSTALL_REPO/.claude/hooks/completion-gate.sh"
+HOOK_SCRIPT="$INSTALL_REPO/.claude/ai-bouncer/hooks/completion-gate.sh"
 
 TMPDIR_ROOT=$(mktemp -d)
 cleanup() { rm -rf "$TMPDIR_ROOT" "$INSTALL_REPO"; }
