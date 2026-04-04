@@ -853,6 +853,44 @@ with open(settings_file, 'w', encoding='utf-8') as f:
     f.write('\n')
 PYEOF
 
+# ── settings.json hook 경로 마이그레이션 (구 hooks/ → ai-bouncer/hooks/) ──
+for _sf in "$HOME/.claude/settings.json" "$TARGET_DIR/settings.json"; do
+  [ -f "$_sf" ] || continue
+  [ -f "$BOUNCER_DATA_DIR/hooks/hooks.json" ] || continue
+  python3 - "$_sf" "$BOUNCER_DATA_DIR/hooks" <<'MIGRATE_PY'
+import json, sys, os
+
+settings_file = sys.argv[1]
+new_hooks_dir = sys.argv[2]
+
+bouncer_files = set()
+for entries in json.load(open(os.path.join(new_hooks_dir, 'hooks.json'))).values():
+    for e in entries:
+        bouncer_files.add(e.get('file', ''))
+
+cfg = json.load(open(settings_file))
+hooks = cfg.get('hooks', {})
+changed = 0
+
+for ht, gs in hooks.items():
+    for g in gs:
+        for h in g.get('hooks', []):
+            cmd = h.get('command', '')
+            basename = os.path.basename(cmd)
+            if basename in bouncer_files and '/ai-bouncer/' not in cmd:
+                new_cmd = os.path.join(new_hooks_dir, basename)
+                if os.path.exists(new_cmd):
+                    h['command'] = new_cmd
+                    changed += 1
+
+if changed:
+    with open(settings_file, 'w') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+    print(f"  settings.json: {changed}개 hook 경로 마이그레이션")
+MIGRATE_PY
+done
+
 # ── Stop hook 호환성 패치 ──────────────────────────────────────
 header "Stop hook 호환성"
 

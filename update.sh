@@ -333,6 +333,49 @@ for g in cfg.get('hooks', {}).get('Stop', []):
 patch_stop_hooks "$HOME/.claude/settings.json"
 patch_stop_hooks "$TARGET_DIR/settings.json"
 
+# ── settings.json hook 경로 마이그레이션 (구 hooks/ → ai-bouncer/hooks/) ──
+migrate_hook_paths() {
+  local sf="$1"
+  [ -f "$sf" ] || return 0
+  local hooks_json="$BOUNCER_DATA_DIR/hooks/hooks.json"
+  [ -f "$hooks_json" ] || return 0
+
+  python3 - "$sf" "$BOUNCER_DATA_DIR/hooks" "$hooks_json" <<'MIGRATE_PY'
+import json, sys, os
+
+settings_file, new_hooks_dir, hooks_json_path = sys.argv[1], sys.argv[2], sys.argv[3]
+
+bouncer_files = set()
+for entries in json.load(open(hooks_json_path)).values():
+    for e in entries:
+        bouncer_files.add(e.get('file', ''))
+
+cfg = json.load(open(settings_file))
+hooks = cfg.get('hooks', {})
+changed = 0
+
+for ht, gs in hooks.items():
+    for g in gs:
+        for h in g.get('hooks', []):
+            cmd = h.get('command', '')
+            basename = os.path.basename(cmd)
+            if basename in bouncer_files and '/ai-bouncer/' not in cmd:
+                new_cmd = os.path.join(new_hooks_dir, basename)
+                if os.path.exists(new_cmd):
+                    h['command'] = new_cmd
+                    changed += 1
+
+if changed:
+    with open(settings_file, 'w') as f:
+        json.dump(cfg, f, indent=2)
+        f.write('\n')
+    print(f"  \033[0;32m✓\033[0m settings.json: {changed}개 hook 경로 마이그레이션")
+MIGRATE_PY
+}
+
+migrate_hook_paths "$HOME/.claude/settings.json"
+migrate_hook_paths "$TARGET_DIR/settings.json"
+
 # update.sh / uninstall.sh → 프로젝트 루트
 if [ -n "$REPO_ROOT" ]; then
   # 동일 파일이면 복사 스킵 (로컬 실행 시 자기 자신 복사 방지)

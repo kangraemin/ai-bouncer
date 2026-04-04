@@ -297,6 +297,51 @@ tc5_reinstall() {
   rm -rf "$tmpdir"
 }
 
+# ── TC-5b: 구 경로 → 신 경로 마이그레이션 ──────────────────────
+
+tc5b_path_migration() {
+  echo -e "\n${BOLD}TC-5b: hook 경로 마이그레이션${NC}"
+  local tmpdir
+  tmpdir=$(setup_fake_env)
+  local FAKE_HOME="$tmpdir/home"
+  local FAKE_REPO="$tmpdir/repo"
+
+  # 1차 설치 (로컬)
+  run_install "$FAKE_HOME" "$FAKE_REPO" "2" "1" "n"
+
+  # settings.json에서 hook 경로를 구 경로로 수동 변경 (마이그레이션 테스트용)
+  local SETTINGS="$FAKE_REPO/.claude/settings.json"
+  python3 -c "
+import json
+cfg = json.load(open('$SETTINGS'))
+for gs in cfg.get('hooks', {}).values():
+    for g in gs:
+        for h in g.get('hooks', []):
+            cmd = h.get('command', '')
+            if '/ai-bouncer/hooks/' in cmd:
+                h['command'] = cmd.replace('/ai-bouncer/hooks/', '/hooks/')
+json.dump(cfg, open('$SETTINGS', 'w'), indent=2)
+"
+
+  # 2차 설치 (업데이트) — 마이그레이션 발동
+  run_install "$FAKE_HOME" "$FAKE_REPO" "2" "1" "n" > /dev/null
+
+  # 검증: settings.json의 bouncer hook 경로가 ai-bouncer/hooks/를 포함하는지
+  check "hook 경로 마이그레이션" python3 -c "
+import json, os
+cfg = json.load(open('$SETTINGS'))
+for gs in cfg.get('hooks', {}).values():
+    for g in gs:
+        for h in g.get('hooks', []):
+            cmd = h.get('command', '')
+            bn = os.path.basename(cmd)
+            if bn in ('plan-gate.sh', 'bash-gate.sh', 'completion-gate.sh'):
+                assert '/ai-bouncer/hooks/' in cmd, f'{bn}: {cmd}'
+"
+
+  rm -rf "$tmpdir"
+}
+
 # ── TC-6: --config ──────────────────────────────────────────────
 
 tc6_config() {
@@ -340,6 +385,7 @@ tc2_global_install
 tc3_curl_simulation
 tc4_uninstall
 tc5_reinstall
+tc5b_path_migration
 tc6_config
 
 echo -e "\n${BOLD}=== 결과: ${PASS}/${TOTAL} PASS, ${FAIL} FAIL ===${NC}"
