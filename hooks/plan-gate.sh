@@ -49,7 +49,8 @@ fi
 # CHECK 1.6: planning 단계 state.json forward-skip 차단
 if [[ "$FILE_PATH" == */state.json ]]; then
   _CURRENT_PHASE=$(jq -r '.workflow_phase // ""' "$STATE_FILE" 2>/dev/null)
-  if [ "$_CURRENT_PHASE" = "planning" ]; then
+  _PLAN_APPROVED_16=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
+  if [ "$_CURRENT_PHASE" = "planning" ] || [ "$_PLAN_APPROVED_16" != "true" ]; then
     _NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
     _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
 import json, sys, re
@@ -62,10 +63,10 @@ except:
     print(m.group(1) if m else '')
 " 2>/dev/null)
     case "$_NEW_PHASE" in
-      done|verification)
+      development|done|verification)
         jq -n --arg nxt "$_NEW_PHASE" '{
           decision: "block",
-          reason: ("⛔ planning 단계에서 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
+          reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
         }'
         exit 0 ;;
     esac

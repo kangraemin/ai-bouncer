@@ -1288,6 +1288,38 @@ PGTASK6_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg sid "$TEST_SID" \
 R=$(run_hook plan-gate.sh "$PGTASK6_INPUT")
 assert_pass "PG-TASK-6: planning + Write state.json in .ai-bouncer-tasks → ��과" "$R"
 
+# PG-TASK-7: plan_approved=false + Write state.json with workflow_phase=done → BLOCK
+setup simple development false
+PGTASK7_CONTENT='{"workflow_phase":"done","plan_approved":false,"mode":"simple"}'
+PGTASK7_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg content "$PGTASK7_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK7_INPUT")
+assert_block "PG-TASK-7: plan_approved=false + Write state.json(done) → 차단" "$R"
+
+# PG-TASK-8: plan_approved=true + Write state.json with workflow_phase=done → ALLOW
+setup simple development true
+PGTASK8_CONTENT='{"workflow_phase":"done","plan_approved":true,"mode":"simple"}'
+PGTASK8_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg content "$PGTASK8_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK8_INPUT")
+assert_pass "PG-TASK-8: plan_approved=true + Write state.json(done) → 통과" "$R"
+
+# PG-TASK-9: plan_approved=false + Write state.json with workflow_phase=cancelled → ALLOW (취소는 항상 허용)
+setup simple development false
+PGTASK9_CONTENT='{"workflow_phase":"cancelled","plan_approved":false,"mode":"simple"}'
+PGTASK9_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg content "$PGTASK9_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK9_INPUT")
+assert_pass "PG-TASK-9: plan_approved=false + Write state.json(cancelled) → 통과" "$R"
+
+# PG-TASK-10: plan_approved=false + Write state.json with workflow_phase=development → BLOCK
+setup simple planning false
+PGTASK10_CONTENT='{"workflow_phase":"development","plan_approved":false,"mode":"simple"}'
+PGTASK10_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg content "$PGTASK10_CONTENT" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: $content}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK10_INPUT")
+assert_block "PG-TASK-10: plan_approved=false + Write state.json(development) → 차단" "$R"
+
 # 정리
 rm -rf "$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01" "$INSTALL_REPO/src"
 
