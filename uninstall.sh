@@ -129,6 +129,7 @@ else:
         'plan-gate.sh', 'bash-gate.sh', 'bash-audit.sh',
         'doc-reminder.sh', 'completion-gate.sh',
         'subagent-track.sh', 'subagent-cleanup.sh',
+        'stop-active-cleanup.sh',
     }
 
 def is_bouncer_hook(group):
