@@ -88,8 +88,8 @@ assert any('completion-gate' in h.get('command','') for g in hooks for h in g.ge
     check "CLAUDE.md: ai-bouncer-rule block" grep -q "ai-bouncer-rule start" "$TARGET_DIR/CLAUDE.md"
   fi
 
-  # manifest.json
-  local MANIFEST="$FAKE_HOME/.claude/ai-bouncer/manifest.json"
+  # manifest.json (TARGET_DIR/ai-bouncer/ 에 저장됨)
+  local MANIFEST="$TARGET_DIR/ai-bouncer/manifest.json"
   check "manifest.json exists" test -f "$MANIFEST"
   if [ -f "$MANIFEST" ]; then
     check "manifest.json: files not empty" python3 -c "
@@ -99,8 +99,8 @@ assert len(m.get('files', [])) > 0
 "
   fi
 
-  # config.json
-  local CONFIG="$FAKE_HOME/.claude/ai-bouncer/config.json"
+  # config.json (TARGET_DIR/ai-bouncer/ 에 저장됨)
+  local CONFIG="$TARGET_DIR/ai-bouncer/config.json"
   check "config.json exists" test -f "$CONFIG"
   if [ -f "$CONFIG" ]; then
     check "config.json: commit_strategy" python3 -c "
@@ -115,8 +115,8 @@ assert 'target_dir' in c
 "
   fi
 
-  # skills/dev-bounce/SKILL.md (항상 글로벌)
-  check "skills/dev-bounce/SKILL.md" test -f "$FAKE_HOME/.claude/skills/dev-bounce/SKILL.md"
+  # skills/dev-bounce/SKILL.md (TARGET_DIR/skills/ 에 설치됨)
+  check "skills/dev-bounce/SKILL.md" test -f "$TARGET_DIR/skills/dev-bounce/SKILL.md"
 }
 
 # ── 테스트 환경 셋업 ──────────────────────────────────────────────
@@ -143,11 +143,13 @@ setup_fake_env() {
 run_install() {
   local FAKE_HOME="$1"
   local FAKE_REPO="$2"
-  local scope="$3"       # 1=global, 2=local
-  local commit="$4"      # 1=per-step, 2=per-phase, 3=none
-  local docs_track="$5"  # y/n
+  local scope="$3"            # 1=global, 2=local
+  local commit="$4"           # 1=per-step, 2=per-phase, 3=none
+  local docs_track="$5"       # y/n
+  local enforcement="${6:-1}" # 1=hooks, 2=prompt-only
+  local agent="${7:-1}"       # 1=team, 2=subagent, 3=single
 
-  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "$scope" "$docs_track" "$commit" | bash "$REPO_DIR/install.sh" 2>&1) || true
+  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "$scope" "$docs_track" "$commit" "$enforcement" "$agent" | bash "$REPO_DIR/install.sh" 2>&1) || true
 }
 
 # ── TC-1: 로컬 설치 ──────────────────────────────────────────────
@@ -193,7 +195,7 @@ tc3_curl_simulation() {
 
   # bash <(cat ...) 로 BASH_SOURCE[0]를 /dev/fd/XX로 깨뜨려서 curl 실행 시뮬레이션
   # AI_BOUNCER_REPO로 로컬 레포 지정 (네트워크 불필요)
-  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && export AI_BOUNCER_REPO="$REPO_DIR" && printf '%s\n' "1" "n" "1" | bash <(cat "$REPO_DIR/install.sh") 2>&1) || true
+  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && export AI_BOUNCER_REPO="$REPO_DIR" && printf '%s\n' "1" "n" "1" "1" "1" | bash <(cat "$REPO_DIR/install.sh") 2>&1) || true
 
   verify_install "$FAKE_HOME/.claude" "$FAKE_HOME" "TC-3"
 
@@ -304,21 +306,21 @@ tc6_config() {
   local FAKE_HOME="$tmpdir/home"
   local FAKE_REPO="$tmpdir/repo"
 
-  # 먼저 설치
-  run_install "$FAKE_HOME" "$FAKE_REPO" "1" "1" "n"
+  # 먼저 로컬 설치 (--config는 REPO_ROOT/.claude/ 기준)
+  run_install "$FAKE_HOME" "$FAKE_REPO" "2" "1" "n"
 
-  # --config로 per-phase로 변경
-  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "2" | bash "$REPO_DIR/install.sh" --config 2>&1) || true
+  # --config로 per-phase로 변경 (commit=2, enforcement=1, agent=1)
+  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "2" "1" "1" | bash "$REPO_DIR/install.sh" --config 2>&1) || true
 
-  local CONFIG="$FAKE_HOME/.claude/ai-bouncer/config.json"
+  local CONFIG="$FAKE_REPO/.claude/ai-bouncer/config.json"
   check "config.json: commit_strategy = per-phase" python3 -c "
 import json
 c = json.load(open('$CONFIG'))
 assert c['commit_strategy'] == 'per-phase', f'got {c[\"commit_strategy\"]}'
 "
 
-  # --config로 none으로 변경
-  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "3" | bash "$REPO_DIR/install.sh" --config 2>&1) || true
+  # --config로 none으로 변경 (commit=3, enforcement=1, agent=1)
+  (cd "$FAKE_REPO" && export HOME="$FAKE_HOME" && printf '%s\n' "3" "1" "1" | bash "$REPO_DIR/install.sh" --config 2>&1) || true
 
   check "config.json: commit_strategy = none" python3 -c "
 import json

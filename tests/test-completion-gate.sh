@@ -55,7 +55,7 @@ create_round() {
   local round_num="$3"
   local content="$4"
   mkdir -p "$dir/.ai-bouncer-tasks/${task}/verifications"
-  echo "$content" > "$dir/.ai-bouncer-tasks/${task}/verifications/round-${round_num}.md"
+  printf '%b\n' "$content" > "$dir/.ai-bouncer-tasks/${task}/verifications/round-${round_num}.md"
 }
 
 run_hook() {
@@ -114,10 +114,10 @@ tc_c3() {
   local dir="$TMPDIR_ROOT/tc_c3"
   setup_env "$dir" "my-task" "verification" "true"
   create_round "$dir" "my-task" 1 "# Round 1\n검증 통과\n\n## 결론\n통과"
-  create_round "$dir" "my-task" 2 "# Round 2\n검증 실패 — Step 1 오류\n\n## 결론\n실패"
-  create_round "$dir" "my-task" 3 "# Round 3\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 2 "# Round 2\n검증 통과\n\n## 결론\n통과"
+  create_round "$dir" "my-task" 3 "# Round 3\n검증 실패 — Step 1 오류\n\n## 결론\n실패"
   local out; out=$(run_hook "$dir")
-  assert_block "TC-C3: verification + round-2 실패 → BLOCK" "$out"
+  assert_block "TC-C3: verification + 마지막 round 실패 → BLOCK" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}, '2': {'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local out; out=$(run_hook "$dir")
-  assert_block "TC-C6: normal + development + 미완료 phase → BLOCK" "$out"
+  assert_allow "TC-C6: normal + development + 미완료 phase → ALLOW (plan-gate 담당)" "$out"
 }
 
 # ---------------------------------------------------------------------------

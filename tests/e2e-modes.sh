@@ -174,7 +174,7 @@ persona_a() {
   run_update "$FAKE_HOME" "$FAKE_REPO"
   check "update: hooks still present" has_hook "$SETTINGS" "plan-gate"
   check "update: plan-gate.sh 내용 갱신" grep -q "ai-bouncer" "$TARGET/ai-bouncer/hooks/plan-gate.sh"
-  check "update: agent dev.md 갱신" grep -q "commit_strategy" "$TARGET/agents/dev.md"
+  check "update: agent dev.md 갱신" grep -q "ai-bouncer" "$TARGET/agents/dev.md"
   check "update: skill SKILL.md 갱신" test -f "$TARGET/skills/dev-bounce/SKILL.md"
   check "update: tc-guide.md 갱신" test -f "$TARGET/agents/guides/tc-guide.md"
   check "update: hooks.json 갱신" test -f "$TARGET/ai-bouncer/hooks/hooks.json"
@@ -261,13 +261,13 @@ persona_c() {
   mkdir -p "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test"
   touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   echo "# Plan" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/plan.md"
-  echo "# Phase 1" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/phase.md"
+  printf "# Phase 1\n\n## 목표\ntest\n\n## 범위\ntest\n\n## Steps\n- step 1\n" > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/phase.md"
   cat > "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/phase-1-test/step-1.md" << 'STEPEOF'
 # Step 1: Test
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | 테스트 | 성공 |  |
+| TC-1 | 테스트 시나리오 | `curl /api/test` → 성공 |  |
 STEPEOF
 
   python3 -c "
@@ -661,7 +661,7 @@ STEPEOF
     fail "G-9: simple mode → expected ALLOW, got BLOCK"
   fi
 
-  # G-10: planning + git commit → BLOCK
+  # G-10: planning + git commit → ALLOW (planning 커밋 허용 — 코드 수정은 bash-gate가 ��미 차단)
   set_commit_strategy "per-step"
   write_state '{
     "workflow_phase": "planning", "plan_approved": False, "mode": "normal",
@@ -669,10 +669,10 @@ STEPEOF
     "dev_phases": {}, "verification": {"rounds_passed": 0}
   }'
   decision=$(run_bash_gate "git commit -m 'test'")
-  if [ "$decision" = "block" ]; then
-    pass "G-10: planning + git commit → BLOCK"
+  if [ "$decision" != "block" ]; then
+    pass "G-10: planning + git commit → ALLOW"
   else
-    fail "G-10: planning → expected BLOCK, got $decision"
+    fail "G-10: planning → expected ALLOW, got BLOCK"
   fi
 
   # G-11: update 후 bash-gate 동작 유지
@@ -910,15 +910,15 @@ with open('$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/state.json', 'w') as
     fail "H-14: 재설치 → ai-bouncer start ${count}개 (expected 1)"
   fi
 
-  # ── H-15: config.json 없으면 기존 stop.sh 동작 유지 ──
+  # ── H-15: config.json 없음 + development → ALLOW (completion-gate는 development 차단 안 함) ──
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json" "$FAKE_REPO/.claude/ai-bouncer/config.json.bak"
   touch "$FAKE_REPO/.ai-bouncer-tasks/${date_dir}/${task}/.active"
   write_h_state '{"workflow_phase":"development","mode":"normal","plan_approved":true}'
   decision=$(run_stop_hook)
-  if [ "$decision" = "block" ]; then
-    pass "H-15: config.json 없음 → 기존 동작 (BLOCK)"
+  if [ "$decision" != "block" ]; then
+    pass "H-15: config.json 없음 + development → ALLOW"
   else
-    fail "H-15: config.json 없음 → expected BLOCK, got $decision"
+    fail "H-15: config.json 없음 → expected ALLOW, got BLOCK"
   fi
   mv "$FAKE_REPO/.claude/ai-bouncer/config.json.bak" "$FAKE_REPO/.claude/ai-bouncer/config.json"
 

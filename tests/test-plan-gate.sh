@@ -90,7 +90,7 @@ CFGEOF
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | 로그인 성공 | 토큰 반환 |  |
+| TC-1 | 로그인 성공 | `curl -X POST /login` → 토큰 반환 |  |
 STEPEOF
     else
       cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
@@ -244,7 +244,7 @@ tc5() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "Write" "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1/step-1.md")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-5: planning + Write step-*.md → ALLOW" "$out"
+  assert_block "TC-5: planning + Write step-*.md → BLOCK" "$out"
 }
 
 # ---------------------------------------------------------------------------

@@ -51,7 +51,7 @@ repo_name = os.path.basename(repo_root)
 
 persistent_mode = is_worktree  # worktree만 예외
 if persistent_mode:
-    docs_base = os.path.join(home, f".claude/ai-bouncer/sessions/{repo_name}/docs")
+    docs_base = os.path.join(home, f".claude/ai-bouncer/sessions/{repo_name}/.ai-bouncer-tasks")
 else:
     docs_base = os.path.join(repo_root, ".ai-bouncer-tasks", date_str)
 
@@ -124,7 +124,7 @@ context_restore_bash() {
     TASK_DIR=""
 
     # 1. persistent dir (worktree용)
-    PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/docs"
+    PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
     if [ -d "$PERSISTENT_BASE" ]; then
       for active_file in "$PERSISTENT_BASE"/*/.active; do
         [ -f "$active_file" ] || continue
@@ -276,19 +276,19 @@ tc4() {
   make_repo "$repo"
 
   local repo_name; repo_name=$(basename "$repo")
-  local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  local local_docs="$repo/.ai-bouncer-tasks/$FAKE_DATE"
+  local persistent_base="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/.ai-bouncer-tasks"
+  local local_base="$repo/.ai-bouncer-tasks/$FAKE_DATE"
 
   # Create persistent task with per-task .active
-  mkdir -p "$persistent_.ai-bouncer-tasks/persistent-task"
-  touch "$persistent_.ai-bouncer-tasks/persistent-task/.active"
-  local persistent_state="$persistent_.ai-bouncer-tasks/persistent-task/state.json"
+  mkdir -p "${persistent_base}/persistent-task"
+  touch "${persistent_base}/persistent-task/.active"
+  local persistent_state="${persistent_base}/persistent-task/state.json"
   echo '{"task":"persistent"}' > "$persistent_state"
 
   # Create local date-based task with per-task .active
-  mkdir -p "$local_.ai-bouncer-tasks/local-task"
-  touch "$local_.ai-bouncer-tasks/local-task/.active"
-  echo '{"task":"local"}' > "$local_.ai-bouncer-tasks/local-task/state.json"
+  mkdir -p "${local_base}/local-task"
+  touch "${local_base}/local-task/.active"
+  echo '{"task":"local"}' > "${local_base}/local-task/state.json"
 
   local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
 
@@ -311,13 +311,13 @@ tc5() {
   local local_docs="$repo/.ai-bouncer-tasks/$FAKE_DATE"
 
   # Only local date-based .active (no persistent)
-  mkdir -p "$local_.ai-bouncer-tasks/local-task"
-  touch "$local_.ai-bouncer-tasks/local-task/.active"
-  echo '{"task":"local"}' > "$local_.ai-bouncer-tasks/local-task/state.json"
+  mkdir -p "${local_docs}/local-task"
+  touch "${local_docs}/local-task/.active"
+  echo '{"task":"local"}' > "${local_docs}/local-task/state.json"
 
   # Ensure no persistent .active exists
-  local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  rm -rf "$persistent_docs" 2>/dev/null || true
+  local persistent_base="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/.ai-bouncer-tasks"
+  rm -rf "$persistent_base" 2>/dev/null || true
 
   local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
   local expected=".ai-bouncer-tasks/$FAKE_DATE/local-task/state.json"
@@ -345,8 +345,8 @@ tc5b() {
   echo '{"task":"legacy"}' > "$repo/.ai-bouncer-tasks/legacy-task/state.json"
 
   # Ensure no persistent .active exists
-  local persistent_docs="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/docs"
-  rm -rf "$persistent_docs" 2>/dev/null || true
+  local persistent_base="$FAKE_HOME/.claude/ai-bouncer/sessions/${repo_name}/.ai-bouncer-tasks"
+  rm -rf "$persistent_base" 2>/dev/null || true
 
   local result; result=$(context_restore_bash "$repo" "$FAKE_HOME")
   local expected=".ai-bouncer-tasks/legacy-task/state.json"

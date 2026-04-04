@@ -148,7 +148,7 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
 fi
 
 # .ai-bouncer-tasks/ 하위 파일은 태스크 관리 파일 → plan_approved 무관 허용
-if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]]; then
+if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
   exit 0
 fi
 
@@ -331,6 +331,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   fi
 
   # CHECK 7a: phase.md 존재 검증 (phase.md 자체를 쓰는 경우는 부트스트랩 허용)
+  _IS_PHASE_BOOTSTRAP=false
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
     _PG_FILE_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
     _PHASE_MD_ABS=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "${PHASE_DIR}/phase.md" 2>/dev/null || echo "${PHASE_DIR}/phase.md")
@@ -341,18 +342,21 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
       }'
       exit 0
     fi
+    _IS_PHASE_BOOTSTRAP=true
   fi
 
-  # CHECK 7a-2: phase.md 필수 섹션 검증
-  for section in "## 목표" "## 범위" "## Steps"; do
-    if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
-      jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
-        decision: "block",
-        reason: ("Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)
-      }'
-      exit 0
-    fi
-  done
+  # CHECK 7a-2: phase.md 필수 섹션 검증 (부트스트랩 시 스킵 — 아직 파일이 없음)
+  if [ "$_IS_PHASE_BOOTSTRAP" = false ]; then
+    for section in "## 목표" "## 범위" "## Steps"; do
+      if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
+        jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
+          decision: "block",
+          reason: ("Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)
+        }'
+        exit 0
+      fi
+    done
+  fi
 
   # 이전 step 검증 (M > 1일 때)
   PREV_STEP=$((CURRENT_STEP - 1))

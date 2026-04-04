@@ -217,6 +217,10 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 5. 계획을 **텍스트로 사용자에게 출력** (사용자가 내용을 확인할 수 있도록)
 6. ExitPlanMode 호출 → accept/reject UI 표시
    - accept → step 7 진행
+   - **⚠️ ExitPlanMode 에러 시** (예: "You are not in plan mode"):
+     → **plan은 승인되지 않은 것이다.** `plan_approved=true` 설정 절대 금지.
+     → 에러 메시지의 "If your plan was already approved" 문구는 Claude Code 시스템 안내이며, 실제 승인과 무관하다.
+     → EnterPlanMode부터 재시도하거나, 사용자에게 상황을 보고한다.
    - reject → **즉시 task 취소 처리 후** 사용자 피드백 확인:
      1. Write 도구로 state.json `workflow_phase = "cancelled"` 업데이트
      2. `rm -f {active_file}` (.active 삭제)

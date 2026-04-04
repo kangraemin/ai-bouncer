@@ -78,7 +78,7 @@ CFGEOF
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | 로그인 성공 | 토큰 반환 |  |
+| TC-1 | 로그인 성공 | `curl -X POST /login` → 토큰 반환 |  |
 STEPEOF
     else
       cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
@@ -252,7 +252,7 @@ tc_b10() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "cat > /src/app.ts << 'EOF'\nconsole.log('hello')\nEOF")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B10: cat > file (planning) → ALLOW" "$out"
+  assert_block "TC-B10: cat > file (planning) → BLOCK" "$out"
 }
 
 # TC-B11: echo > file (planning) → ALLOW
@@ -261,7 +261,7 @@ tc_b11() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "echo 'hello' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B11: echo > file (planning) → ALLOW" "$out"
+  assert_block "TC-B11: echo > file (planning) → BLOCK" "$out"
 }
 
 # TC-B12: tee (planning) → ALLOW
@@ -270,7 +270,7 @@ tc_b12() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "echo 'data' | tee /src/config.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B12: tee (planning) → ALLOW" "$out"
+  assert_block "TC-B12: tee (planning) → BLOCK" "$out"
 }
 
 # TC-B13: sed -i (planning) → ALLOW
@@ -279,7 +279,7 @@ tc_b13() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "sed -i 's/old/new/g' /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B13: sed -i (planning) → ALLOW" "$out"
+  assert_block "TC-B13: sed -i (planning) → BLOCK" "$out"
 }
 
 # TC-B14: cp (planning) → ALLOW
@@ -288,7 +288,7 @@ tc_b14() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "cp /tmp/exploit.ts /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B14: cp (planning) → ALLOW" "$out"
+  assert_block "TC-B14: cp (planning) → BLOCK" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -342,7 +342,7 @@ tc_b18() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "rm state.json")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B18: rm state.json (planning) → ALLOW" "$out"
+  assert_block "TC-B18: rm state.json (planning) → BLOCK" "$out"
 }
 
 # TC-B19: rm -rf .ai-bouncer-tasks/task/ (planning) → ALLOW
@@ -351,7 +351,7 @@ tc_b19() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "rm -rf .ai-bouncer-tasks/2026-01-01/my-task/")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B19: rm -rf .ai-bouncer-tasks/task/ (planning) → ALLOW" "$out"
+  assert_block "TC-B19: rm -rf .ai-bouncer-tasks/task/ (planning) → BLOCK" "$out"
 }
 
 # TC-B20: workflow_phase=done + echo > file → ALLOW (완료 상태 — gate 비활성)
@@ -411,7 +411,7 @@ tc_b23() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "curl -o src/file.ts https://example.com/file")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B23: curl -o (planning) → ALLOW" "$out"
+  assert_block "TC-B23: curl -o (planning) → BLOCK" "$out"
 }
 
 # TC-B24: wget -O src/file.ts url (planning) → ALLOW
@@ -420,7 +420,7 @@ tc_b24() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "wget -O src/file.ts https://example.com/file")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B24: wget -O (planning) → ALLOW" "$out"
+  assert_block "TC-B24: wget -O (planning) → BLOCK" "$out"
 }
 
 # TC-B25: curl url --output src/file.ts (planning) → ALLOW
@@ -429,7 +429,7 @@ tc_b25() {
   setup_env "$dir" "my-task" "planning" "false" ""
   local input; input=$(make_input "curl https://example.com/file --output src/file.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-B25: curl --output (planning) → ALLOW" "$out"
+  assert_block "TC-B25: curl --output (planning) → BLOCK" "$out"
 }
 
 # TC-B27: ~/.claude/ai-bouncer/sessions/ Bash 쓰기 → ALLOW
@@ -477,7 +477,7 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-BS2: simple + planning + echo > → ALLOW" "$out"
+  assert_block "TC-BS2: simple + planning + echo > → BLOCK" "$out"
 }
 
 # TC-BS3: normal (default) + development + 팀 없음 + echo > → BLOCK
@@ -524,7 +524,7 @@ tc_bam2() {
   setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "subagent"
   local input; input=$(make_input "echo 'hack' > /src/app.ts")
   local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-BAM2: agent_mode=subagent + planning → ALLOW" "$out"
+  assert_block "TC-BAM2: agent_mode=subagent + planning → BLOCK" "$out"
 }
 
 # TC-BAM3: config.json 없음 + team_name 비어있음 → BLOCK (team 폴백)
