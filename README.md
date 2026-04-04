@@ -2,26 +2,26 @@
 
 # ai-bouncer
 
-**Claude Code가 계획 없이 코드를 수정하는 걸 막는다.**
+**Stop Claude Code from touching code without a plan.**
 
 [![License](https://img.shields.io/github/license/kangraemin/ai-bouncer?style=for-the-badge)](https://github.com/kangraemin/ai-bouncer/blob/main/LICENSE)
 [![Stars](https://img.shields.io/github/stars/kangraemin/ai-bouncer?style=for-the-badge)](https://github.com/kangraemin/ai-bouncer/stargazers)
 [![Tests](https://img.shields.io/badge/tests-750%2B-brightgreen?style=for-the-badge)](#tests)
 
-[Getting Started](#install) · [How It Works](#how-it-works) · [Issues](https://github.com/kangraemin/ai-bouncer/issues)
+[Getting Started](#install) · [한국어](README.ko.md) · [Issues](https://github.com/kangraemin/ai-bouncer/issues)
 
 </div>
 
 ---
 
-Claude Code는 강력하지만 요청하지 않은 코드를 수정하거나, 계획 승인 없이 개발을 시작하거나, 검증 없이 완료 처리하는 경우가 있다.
+Claude Code is powerful, but it sometimes edits files you didn't ask for, starts coding without approval, or skips verification entirely.
 
-ai-bouncer는 **hook 기반 강제 워크플로우**로 이 문제를 해결한다.
+ai-bouncer fixes this with **hook-enforced workflows**.
 
-- **Plan → Approve → Develop → Verify** — 승인 없이 코드 수정 불가
-- **2-layer Bash 방어** — Write/Edit뿐 아니라 Bash를 통한 우회도 차단
-- **TDD 강제** — TC 작성 → 구현 → 검증, step 단위로 잠금
-- **다중 세션 격리** — 같은 프로젝트에서 여러 세션이 서로 간섭하지 않음
+- **Plan → Approve → Develop → Verify** — no code changes without approval
+- **2-layer Bash defense** — blocks Write/Edit and Bash file-write bypasses
+- **TDD enforcement** — TC first, then code, step-level locking
+- **Multi-session isolation** — parallel sessions on the same project don't interfere
 
 ## Install
 
@@ -29,28 +29,28 @@ ai-bouncer는 **hook 기반 강제 워크플로우**로 이 문제를 해결한�
 bash <(curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/install.sh)
 ```
 
-대화형 설치 마법사가 실행된다:
+The interactive wizard walks you through:
 
-1. **범위** — 전역(`~/.claude/`) 또는 프로젝트 로컬(`.claude/`)
-2. **커밋 전략** — Step마다, Phase마다, 또는 수동
-3. **실행 모드** — hook 강제 또는 프롬프트 가이드
-4. **에이전트 모드** — Team(TeamCreate), Subagent(Agent tool), Single(직접 수행)
+1. **Scope** — global (`~/.claude/`) or project-local (`.claude/`)
+2. **Commit strategy** — per-step, per-phase, or manual
+3. **Enforcement** — hook-enforced or prompt-only
+4. **Agent mode** — Team (TeamCreate), Subagent (Agent tool), or Single
 
 ## Usage
 
 ```
-/dev-bounce 로그인 API에 rate limiting 추가해줘
+/dev-bounce Add rate limiting to the login API
 ```
 
-그게 전부. 나머지는 자동:
+That's it. The rest is automatic:
 
 ```
-Phase 0  인텐트 판별 (질문 vs 개발)
-Phase 1  계획 수립 → EnterPlanMode → 사용자 승인
+Phase 0  Intent detection (question vs development)
+Phase 1  Plan → EnterPlanMode → user approval
          ↓ accept
-Phase 2  SIMPLE: 직접 개발 + TC 검증
-Phase 3  NORMAL: Dev Team 스폰 → TDD 루프
-Phase 4  NORMAL: 3라운드 통합 검증
+Phase 2  SIMPLE: direct development + TC verification
+Phase 3  NORMAL: Dev Team spawn → TDD loop
+Phase 4  NORMAL: 3-round integration verification
 ```
 
 ## How It Works
@@ -59,11 +59,11 @@ Phase 4  NORMAL: 3라운드 통합 검증
 
 | Hook | Event | Role |
 |---|---|---|
-| **plan-gate.sh** | PreToolUse (Write/Edit) | 계획 미승인 시 코드 수정 차단 |
-| **bash-gate.sh** | PreToolUse (Bash) | Bash를 통한 파일 쓰기 우회 차단 |
-| **bash-audit.sh** | PostToolUse (Bash) | git diff로 무단 변경 감지 + 자동 복원 |
-| **completion-gate.sh** | Stop | 검증 미완료 시 세션 종료 차단 |
-| **doc-reminder.sh** | PostToolUse (Write/Edit) | TC/문서 작성 알림 |
+| **plan-gate.sh** | PreToolUse (Write/Edit) | Block code changes without approved plan |
+| **bash-gate.sh** | PreToolUse (Bash) | Block file writes via Bash bypass |
+| **bash-audit.sh** | PostToolUse (Bash) | Detect + auto-revert unauthorized changes |
+| **completion-gate.sh** | Stop | Block session end before verification |
+| **doc-reminder.sh** | PostToolUse (Write/Edit) | Nudge TC/doc writing |
 
 ### 2-Layer Bash Defense
 
@@ -71,28 +71,29 @@ Phase 4  NORMAL: 3라운드 통합 검증
 Layer 1 (PreToolUse)     Layer 2 (PostToolUse)
 ┌─────────────────┐     ┌──────────────────────┐
 │  bash-gate.sh   │     │   bash-audit.sh      │
-│  쓰기 패턴 감지  │     │  git diff 스냅샷 비교  │
-│  → 사전 차단     │     │  → 무단 변경 자동 복원  │
+│  write pattern  │     │  git diff snapshot    │
+│  detection      │     │  comparison           │
+│  → pre-block    │     │  → auto-revert        │
 └─────────────────┘     └──────────────────────┘
 ```
 
-Write/Edit은 plan-gate가 차단. Bash `echo > file`은 bash-gate가 차단. bash-gate를 우회해도 bash-audit가 복원.
+Write/Edit goes through plan-gate. Bash `echo > file` hits bash-gate. If bash-gate is bypassed, bash-audit reverts.
 
 ### Complexity Modes
 
 | | SIMPLE | NORMAL |
 |---|---|---|
-| **기준** | 변경 3파일 이하, 50줄 이하 | 4파일 이상 또는 신규 모듈 |
-| **팀** | Main Claude 단독 | Lead + Dev + QA |
-| **검증** | TC 통과 후 완료 | 3라운드 통합 검증 |
+| **Criteria** | 3 files or fewer, under 50 lines | 4+ files or new modules |
+| **Team** | Main Claude solo | Lead + Dev + QA |
+| **Verification** | TC pass → done | 3-round integration verification |
 
 ## Configuration
 
 ```bash
-bash install.sh --config   # 설정 변경
+bash install.sh --config   # change settings
 ```
 
-| 설정 | 옵션 | 기본값 |
+| Setting | Options | Default |
 |---|---|---|
 | `commit_strategy` | `per-step` · `per-phase` · `none` | `per-step` |
 | `enforcement_mode` | `hooks` · `prompt-only` | `hooks` |
@@ -100,15 +101,15 @@ bash install.sh --config   # 설정 변경
 
 ## Tests
 
-750건 이상의 e2e 테스트:
+750+ e2e tests across 13 test files:
 
 ```bash
-bash tests/e2e-full.sh       # 설치/업데이트/삭제 (74건)
-bash tests/e2e-hooks.sh      # hook 동작 (123건)
-bash tests/e2e-modes.sh      # 모드별 동작 (106건)
-bash tests/e2e-install.sh    # 설치 시나리오 (130건)
-bash tests/test-plan-gate.sh # plan-gate 단위 (25건)
-bash tests/test-bash-gate.sh # bash-gate 단위 (33건)
+bash tests/e2e-full.sh       # install/update/uninstall (74)
+bash tests/e2e-hooks.sh      # hook behavior (123)
+bash tests/e2e-modes.sh      # mode-specific behavior (106)
+bash tests/e2e-install.sh    # install scenarios (130)
+bash tests/test-plan-gate.sh # plan-gate unit (25)
+bash tests/test-bash-gate.sh # bash-gate unit (33)
 ```
 
 ## Update
@@ -117,7 +118,7 @@ bash tests/test-bash-gate.sh # bash-gate 단위 (33건)
 /update-bouncer
 ```
 
-또는 세션 시작 시 자동 체크 (24시간 throttle).
+Or automatic check on session start (24h throttle).
 
 ## Uninstall
 
@@ -125,7 +126,7 @@ bash tests/test-bash-gate.sh # bash-gate 단위 (33건)
 bash uninstall.sh
 ```
 
-hook, agent, skill, 설정을 제거한다. `.ai-bouncer-tasks/` 작업 문서는 보존.
+Removes hooks, agents, skills, and config. Preserves `.ai-bouncer-tasks/` work documents.
 
 ## License
 
