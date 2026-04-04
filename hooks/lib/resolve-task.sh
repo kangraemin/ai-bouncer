@@ -175,6 +175,21 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
   fi
 fi
 
+# Helper: config.json 경로 해석 (로컬 → 글로벌 폴백)
+resolve_config() {
+  local _rc_local="${REPO_ROOT:-.}/.claude/ai-bouncer/config.json"
+  local _rc_global="$HOME/.claude/ai-bouncer/config.json"
+  if [ -f "$_rc_local" ]; then
+    echo "$_rc_local"
+  elif [ -f "$_rc_global" ]; then
+    echo "$_rc_global"
+  else
+    echo ""
+  fi
+}
+
+BOUNCER_CONFIG=$(resolve_config)
+
 # Helper: dev_phases에서 phase 폴더명 추출
 # object 포맷 {"folder": "..."} 과 legacy string 포맷 "name" 모두 처리
 _get_phase_folder() {

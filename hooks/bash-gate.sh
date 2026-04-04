@@ -43,7 +43,8 @@ fi
 # 2-1. commit_strategy 검증 (git commit/push)
 if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   REPO_ROOT_CS=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-  CONFIG_CS="$REPO_ROOT_CS/.claude/ai-bouncer/config.json"
+  CONFIG_CS="${REPO_ROOT_CS}/.claude/ai-bouncer/config.json"
+  [ ! -f "$CONFIG_CS" ] && CONFIG_CS="$HOME/.claude/ai-bouncer/config.json"
 
   # config.json 없으면 통과
   [ ! -f "$CONFIG_CS" ] && exit 0
@@ -413,7 +414,7 @@ fi
 
 # agent_mode 읽기 (config.json에서)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-AGENT_MODE=$(jq -r '.agent_mode // "team"' "$REPO_ROOT/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
+AGENT_MODE=$(jq -r '.agent_mode // "team"' "$BOUNCER_CONFIG" 2>/dev/null || echo "team")
 
 # agent_mode별 검증 분기
 case "$AGENT_MODE" in

@@ -178,7 +178,7 @@ fi
 
 # agent_mode 읽기 (config.json에서)
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
-AGENT_MODE=$(jq -r '.agent_mode // "team"' "$REPO_ROOT/.claude/ai-bouncer/config.json" 2>/dev/null || echo "team")
+AGENT_MODE=$(jq -r '.agent_mode // "team"' "$BOUNCER_CONFIG" 2>/dev/null || echo "team")
 
 # agent_mode별 검증 분기
 case "$AGENT_MODE" in
