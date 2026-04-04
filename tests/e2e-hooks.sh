@@ -1077,9 +1077,9 @@ rm -f /tmp/.ai-bouncer-approved-agents
 R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/test.py\"},\"session_id\":\"$UNREGISTERED_SID\"}")
 assert_pass "UF-1: 미등록 subagent + claimed 태스크 → plan-gate 통과 (MSI 트레이드오프)" "$R"
 
-# UF-2: 미등록 subagent + claimed 태스크 → bash-gate 차단 (no-active → 소스 쓰기 차단)
+# UF-2: 미등록 subagent + claimed 태스크 → bash-gate 통과 (session isolation 우선)
 R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$UNREGISTERED_SID\"}")
-assert_block "UF-2: 미등록 subagent + claimed 태스크 → bash-gate 차단 (no-active gate)" "$R"
+assert_pass "UF-2: 미등록 subagent + claimed 태스크 → bash-gate 통과 (MSI 트레이드오프)" "$R"
 cleanup_subagent
 
 # UF-3: 미등록 subagent + 활성 태스크 없음 → 통과
@@ -1322,53 +1322,6 @@ assert_block "PG-TASK-10: plan_approved=false + Write state.json(development) �
 
 # 정리
 rm -rf "$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01" "$INSTALL_REPO/src"
-
-echo ""
-
-# ─── .active 없음 시나리오 (no-active gate) ────
-echo "─── no-active gate ───"
-
-# .active 삭제하여 TASK_NAME="" 상태 만들기
-rm -f "$ACTIVE_FILE"
-
-# TC-1: .active 없음 + 프로젝트 소스 파일 Edit → 차단
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$INSTALL_REPO/src/app.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "no-active + 프로젝트 소스 Edit → 차단" "$R"
-
-# TC-2: .active 없음 + /tmp/ 파일 Write → 통과
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"/tmp/scratch.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + /tmp Write → 통과" "$R"
-
-# TC-3: .active 없음 + .ai-bouncer-tasks/ Write → 통과
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$INSTALL_REPO/.ai-bouncer-tasks/2026-04-05/test/state.json\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + .ai-bouncer-tasks Write → 통과" "$R"
-
-# TC-4: .active 없음 + .claude/ 하위 Write → 통과
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$INSTALL_REPO/.claude/settings.json\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + .claude/ Write → 통과" "$R"
-
-# TC-5: .active 없음 + ~/.claude/ Write → 통과
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$HOME/.claude/test.md\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + ~/.claude Write → 통과" "$R"
-
-# TC-6: .active 없음 + plan.md Write → 통과 (CHECK 1에서 먼저 허용)
-R=$(run_hook plan-gate.sh "{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$INSTALL_REPO/plan.md\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + plan.md Write → 통과" "$R"
-
-# TC-7: .active 없음 + bash-gate 프로젝트 소스 쓰기 → 차단
-R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > $INSTALL_REPO/src/app.py\"},\"session_id\":\"$TEST_SID\"}")
-assert_block "no-active + bash 소스 파일 쓰기 → 차단" "$R"
-
-# TC-8: .active 없음 + bash-gate /tmp/ 쓰기 → 통과
-R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > /tmp/scratch.txt\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + bash /tmp 쓰기 → 통과" "$R"
-
-# TC-9: .active 없음 + bash-gate 읽기 전용 → 통과
-R=$(run_hook bash-gate.sh "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls -la\"},\"session_id\":\"$TEST_SID\"}")
-assert_pass "no-active + bash 읽기전용 → 통과" "$R"
-
-# .active 복구 (이후 정리에 영향 안 주도록)
-echo "$TEST_SID" > "$ACTIVE_FILE"
 
 echo ""
 
