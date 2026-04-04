@@ -50,7 +50,7 @@ fi
 if [[ "$FILE_PATH" == */state.json ]]; then
   _CURRENT_PHASE=$(jq -r '.workflow_phase // ""' "$STATE_FILE" 2>/dev/null)
   _PLAN_APPROVED_16=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
-  if [ "$_CURRENT_PHASE" = "planning" ] || [ "$_PLAN_APPROVED_16" != "true" ]; then
+  if [ "$_PLAN_APPROVED_16" != "true" ]; then
     _NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
     _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
 import json, sys, re
