@@ -295,7 +295,7 @@ if echo "$CMD" | grep -qE '\.active'; then
 fi
 
 # /tmp/ 임시 파일 조작 항상 허용 (worklog 중간 파일, mktemp 등)
-if echo "$CMD_CLEAN" | grep -qE '(>\s*|>>\s*|tee\s+)/tmp/|\brm\b.*/tmp/|\bmktemp\b'; then
+if echo "$CMD_CLEAN" | grep -qE '(>|>>|tee\s+)/tmp/|\brm\b.*/tmp/|\bmktemp\b'; then
   EXCEPTION=true
 fi
 
@@ -315,12 +315,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 
-# .active 없으면 → 프로젝트 소스 파일 쓰기 차단
+# .active 없거나 비어있으면 → 통과 (gate 비활성)
 if [ -z "$TASK_NAME" ]; then
-  jq -n '{
-    decision: "block",
-    reason: "⛔ [bash-gate] 활성 작업이 없습니다. /dev-bounce로 작업을 시작한 후 코드를 수정하세요."
-  }'
   exit 0
 fi
 
