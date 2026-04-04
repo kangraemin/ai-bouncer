@@ -1,26 +1,2 @@
 HANDOFF.md
 .idea/
-
-# --- ai-bouncer start ---
-# ai-bouncer runtime artifacts
-.claude/ai-bouncer/.version-checked
-.claude/ai-bouncer/config.json
-.claude/ai-bouncer/manifest.json
-.claude/**/*.backup-*
-.claude/settings.json
-.ai-bouncer-tasks/
-# ai-bouncer installed files
-.claude/agents/intent.md
-.claude/agents/verifier.md
-.claude/agents/lead.md
-.claude/agents/dev.md
-.claude/agents/qa.md
-.claude/hooks/plan-gate.sh
-.claude/hooks/doc-reminder.sh
-.claude/hooks/completion-gate.sh
-.claude/hooks/bash-gate.sh
-.claude/hooks/bash-audit.sh
-.claude/hooks/subagent-track.sh
-.claude/hooks/subagent-cleanup.sh
-.claude/hooks/lib/resolve-task.sh
-# --- ai-bouncer end ---
