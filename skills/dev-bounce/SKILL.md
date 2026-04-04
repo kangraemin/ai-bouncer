@@ -184,19 +184,7 @@ TASK_DIR 초기화 (Python으로 실행):
 }
 ```
 
-→ Phase 1 진행
-
-**agent_mode 확인** (config.json에서 읽기):
-
-```bash
-python3 -c "
-import json
-cfg = json.load(open('.claude/ai-bouncer/config.json'))
-print(cfg.get('agent_mode', 'team'))
-"
-```
-
-`agent_mode` 값에 따라 NORMAL 모드의 Phase 3/4 동작이 달라진다 (아래 참조).
+→ **즉시** Phase 1 진행 (중간에 다른 작업 금지)
 
 ---
 
@@ -204,8 +192,10 @@ print(cfg.get('agent_mode', 'team'))
 
 Main Claude가 직접 수행 (팀 스폰 없음):
 
-1. EnterPlanMode 호출
-2. 관련 코드 탐색 (Read/Grep/Glob)
+⚠️ **Phase 1의 첫 번째 tool call은 반드시 EnterPlanMode이다.** 코드 탐색, 질문, 출력 등 어떤 행동보다 먼저 EnterPlanMode을 호출한다. plan mode 진입 전 다른 도구 호출 금지.
+
+1. **EnterPlanMode 호출** (Phase 1 시작 = plan mode 진입, 예외 없음)
+2. 관련 코드 탐색 (Read/Grep/Glob) — plan mode 안에서 수행
 3. 필요시 사용자에게 AskUserQuestion 1~2회
 4. plan mode plan 파일에 계획 작성 — **이것이 사용자에게 보이는 원본이자 최종 plan.md가 된다.**
    plan mode plan 파일 경로는 EnterPlanMode 호출 시 시스템이 알려준다.
@@ -373,6 +363,16 @@ print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 ### Phase 3: Dev Team 구성 + 개발
+
+**agent_mode 확인** (config.json에서 읽기 — Phase 3/4 분기에 필요):
+
+```bash
+python3 -c "
+import json
+cfg = json.load(open('.claude/ai-bouncer/config.json'))
+print(cfg.get('agent_mode', 'team'))
+"
+```
 
 #### 3-1. Lead 에이전트 스폰
 
