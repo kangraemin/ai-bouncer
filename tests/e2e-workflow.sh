@@ -138,7 +138,10 @@ PHASEEOF
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | test | expected |  |
+| TC-1 | 기능이 정상 동작하는지 확인 | 에러 없이 완료되어야 함 |  |
+
+## 검증 명령어
+\`bash tests/run.sh\`
 STEPEOF
   done
 }
@@ -149,11 +152,13 @@ mark_step_complete() {
 ## 테스트 케이스
 | TC | 시나리오 | 기대 결과 | 실제 결과 |
 |---|---|---|---|
-| TC-1 | test | expected | ✅ |
+| TC-1 | 기능이 정상 동작하는지 확인 | 에러 없이 완료되어야 함 | ✅ |
 
-## 실행 결과
+## 실행출력
+```
 $ pytest
 1 passed
+```
 DONEEOF
 }
 
@@ -169,33 +174,33 @@ create_rounds() {
 # ── Hook Runner ───────────────────────────────────────────────
 
 run_plan_gate() {
-  local fake_repo="$1" target="$2" fake_home="$3"
-  local input='{"tool_name":"Write","tool_input":{"file_path":"/src/feat.ts"}}'
+  local fake_repo="$1" target="$2" fake_home="$3" sid="${4:-wf-test-session-$$}"
+  local input="{\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$fake_repo/src/feat.ts\"},\"session_id\":\"$sid\"}"
   local out
-  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/hooks/plan-gate.sh" 2>/dev/null || true)
+  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/ai-bouncer/hooks/plan-gate.sh" 2>/dev/null || true)
   echo "$out" | grep -q '"block"' 2>/dev/null && echo "block" || echo "allow"
 }
 
 run_bash_gate_write() {
-  local fake_repo="$1" target="$2" fake_home="$3"
-  local input='{"tool_name":"Bash","tool_input":{"command":"echo test > file.txt"}}'
+  local fake_repo="$1" target="$2" fake_home="$3" sid="${4:-wf-test-session-$$}"
+  local input="{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"echo test > file.txt\"},\"session_id\":\"$sid\"}"
   local out
-  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/hooks/bash-gate.sh" 2>/dev/null || true)
+  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/ai-bouncer/hooks/bash-gate.sh" 2>/dev/null || true)
   echo "$out" | grep -q '"block"' 2>/dev/null && echo "block" || echo "allow"
 }
 
 run_bash_gate_commit() {
-  local fake_repo="$1" target="$2" fake_home="$3"
-  local input='{"tool_name":"Bash","tool_input":{"command":"git commit -m test"}}'
+  local fake_repo="$1" target="$2" fake_home="$3" sid="${4:-wf-test-session-$$}"
+  local input="{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"git commit -m test\"},\"session_id\":\"$sid\"}"
   local out
-  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/hooks/bash-gate.sh" 2>/dev/null || true)
+  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "$input" | bash "$target/ai-bouncer/hooks/bash-gate.sh" 2>/dev/null || true)
   echo "$out" | grep -q '"block"' 2>/dev/null && echo "block" || echo "allow"
 }
 
 run_completion_gate() {
-  local fake_repo="$1" target="$2" fake_home="$3"
+  local fake_repo="$1" target="$2" fake_home="$3" sid="${4:-wf-test-session-$$}"
   local out
-  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo '{}' | bash "$target/hooks/completion-gate.sh" 2>/dev/null || true)
+  out=$(cd "$fake_repo" && export HOME="$fake_home" && echo "{\"session_id\":\"$sid\"}" | bash "$target/ai-bouncer/hooks/completion-gate.sh" 2>/dev/null || true)
   echo "$out" | grep -q '"block"' 2>/dev/null && echo "block" || echo "allow"
 }
 
@@ -239,13 +244,14 @@ simulate_hooks_workflow() {
   if [ "$agent_mode" = "team" ]; then
     TEAM_VAL="wf-team"
     mkdir -p "$FAKE_HOME/.claude/teams/wf-team"
-    echo '{"members":["lead-agent"]}' > "$FAKE_HOME/.claude/teams/wf-team/config.json"
+    echo '{"members":[{"name":"lead-agent","agentType":"team-lead"},{"name":"dev-agent","agentType":"dev"}]}' > "$FAKE_HOME/.claude/teams/wf-team/config.json"
   fi
 
   # docs 구조 생성
+  local WF_SID="wf-test-session-$$"
   local DOCS_DIR="$FAKE_REPO/.ai-bouncer-tasks/2026-01-15/wf-test"
   mkdir -p "$DOCS_DIR"
-  touch "$DOCS_DIR/.active"
+  echo "$WF_SID" > "$DOCS_DIR/.active"
   echo "# Plan" > "$DOCS_DIR/plan.md"
 
   # W2: planning → 전부 차단

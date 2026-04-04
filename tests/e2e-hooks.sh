@@ -131,7 +131,7 @@ with open('$STATE_FILE', 'w') as f: json.dump(s, f, indent=2)
   echo "$TEST_SID" > "$ACTIVE_FILE"
   make_valid_plan
   mkdir -p "$HOME/.claude/teams/$team_name"
-  echo '{"members":["lead-agent"]}' > "$HOME/.claude/teams/$team_name/config.json"
+  echo '{"members":[{"name":"lead-agent","agentType":"team-lead"},{"name":"dev-agent","agentType":"dev"}]}' > "$HOME/.claude/teams/$team_name/config.json"
   rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 }
 
@@ -1173,7 +1173,7 @@ with open('$SESSION_A_STATE', 'w') as f: json.dump(s, f, indent=2)
 echo "$SESSION_A_SID" > "$SESSION_A_ACTIVE"
 echo "# Session A Plan" > "$SESSION_A_DIR/plan.md"
 mkdir -p "$HOME/.claude/teams/msi-test-team"
-echo '{"members":["lead"]}' > "$HOME/.claude/teams/msi-test-team/config.json"
+echo '{"members":[{"name":"lead","agentType":"team-lead"},{"name":"dev","agentType":"dev"}]}' > "$HOME/.claude/teams/msi-test-team/config.json"
 mkdir -p "$SESSION_A_DIR/phase-1-msi"
 printf "## 목표\ntest\n## 범위\ntest\n## Steps\n1. test\n" > "$SESSION_A_DIR/phase-1-msi/phase.md"
 printf "| TC | 검증 항목 | 기대 결과 | 상태 |\n|----|----------|----------|------|\n| TC-01 | x | y | ⬜ |\n" > "$SESSION_A_DIR/phase-1-msi/step-1.md"
