@@ -146,6 +146,11 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
   exit 0
 fi
 
+# .ai-bouncer-tasks/ 하위 파일은 태스크 관리 파일 → plan_approved 무관 허용
+if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]]; then
+  exit 0
+fi
+
 # CHECK 3: plan_approved 체크 + plan.md 파일 실존 이중 체크
 if [ "$PLAN_APPROVED" != "true" ]; then
   jq -n '{

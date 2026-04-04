@@ -1238,6 +1238,61 @@ assert_pass "TC-QS2: state.json current_step=1 = max_steps=1 → CHECK 1.6b 통�
 
 echo ""
 
+# ─── plan-gate: .ai-bouncer-tasks/ 예외 검증 ───��─────────────────
+echo "─── plan-gate: .ai-bouncer-tasks/ 예외 ───"
+
+# PG-TASK-1: plan_approved=false + Write to .ai-bouncer-tasks/*/state.json → ALLOW
+setup simple development false
+TASK_STATE_PATH="$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01/test-task/state.json"
+mkdir -p "$(dirname "$TASK_STATE_PATH")"
+echo '{"workflow_phase":"planning"}' > "$TASK_STATE_PATH"
+PGTASK1_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "{}"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK1_INPUT")
+assert_pass "PG-TASK-1: plan_approved=false + Write state.json in .ai-bouncer-tasks → 통과" "$R"
+
+# PG-TASK-2: plan_approved=false + Write to .ai-bouncer-tasks/*/tests.md → ALLOW
+TASK_TESTS_PATH="$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01/test-task/tests.md"
+PGTASK2_INPUT=$(jq -n --arg fp "$TASK_TESTS_PATH" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "# TC"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK2_INPUT")
+assert_pass "PG-TASK-2: plan_approved=false + Write tests.md in .ai-bouncer-tasks → 통과" "$R"
+
+# PG-TASK-3: plan_approved=false + Write to src/main.py → BLOCK
+SRC_FILE="$INSTALL_REPO/src/main.py"
+mkdir -p "$(dirname "$SRC_FILE")"
+PGTASK3_INPUT=$(jq -n --arg fp "$SRC_FILE" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "print(1)"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK3_INPUT")
+assert_block "PG-TASK-3: plan_approved=false + Write src/main.py → 차단" "$R"
+
+# PG-TASK-4: plan_approved=true + Write to .ai-bouncer-tasks/*/state.json → ALLOW
+setup simple development true
+PGTASK4_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "{}"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK4_INPUT")
+assert_pass "PG-TASK-4: plan_approved=true + Write state.json → 통과" "$R"
+
+# PG-TASK-5: plan_approved=false + Write to .ai-bouncer-tasks/*/plan.md → ALLOW
+setup simple development false
+TASK_PLAN_PATH="$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01/test-task/plan.md"
+PGTASK5_INPUT=$(jq -n --arg fp "$TASK_PLAN_PATH" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "# Plan"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK5_INPUT")
+assert_pass "PG-TASK-5: plan_approved=false + Write plan.md in .ai-bouncer-tasks → 통과" "$R"
+
+# PG-TASK-6: planning 단계 + Write to .ai-bouncer-tasks/*/state.json → ALLOW
+setup simple planning false
+PGTASK6_INPUT=$(jq -n --arg fp "$TASK_STATE_PATH" --arg sid "$TEST_SID" \
+  '{tool_name: "Write", tool_input: {file_path: $fp, content: "{}"}, session_id: $sid}')
+R=$(run_hook plan-gate.sh "$PGTASK6_INPUT")
+assert_pass "PG-TASK-6: planning + Write state.json in .ai-bouncer-tasks → ��과" "$R"
+
+# 정리
+rm -rf "$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01" "$INSTALL_REPO/src"
+
+echo ""
+
 # ─── 정리 ─────────────────────────────────
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
 
