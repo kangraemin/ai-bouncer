@@ -38,8 +38,24 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 
-# .active 없거나 비어있으면 → 통과
+# .active 없으면 → 프로젝트 소스 파일 차단, 외부/관리 파일만 허용
 if [ -z "$TASK_NAME" ]; then
+  # 허용 경로: /tmp, ~/.claude, .ai-bouncer-tasks, .claude/ 하위
+  case "$FILE_PATH" in
+    /tmp/*|/private/tmp/*) exit 0 ;;
+    "$HOME"/.claude/*|"$HOME"/.claude) exit 0 ;;
+  esac
+  if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
+    exit 0
+  fi
+  if [[ "$FILE_PATH" == */.claude/* ]]; then
+    exit 0
+  fi
+  # 프로젝트 소스 파일 → 차단
+  jq -n '{
+    decision: "block",
+    reason: "⛔ 활성 작업이 없습니다. /dev-bounce로 작업을 시작한 후 코드를 수정하세요."
+  }'
   exit 0
 fi
 
