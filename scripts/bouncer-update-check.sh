@@ -64,6 +64,56 @@ if [ -z "$BOUNCER_DATA_DIR" ] || [ ! -d "$BOUNCER_DATA_DIR" ]; then
   exit 0
 fi
 
+TARGET_DIR=$(dirname "$BOUNCER_DATA_DIR")
+
+# ── 누락 hook 검증 (매 세션) ──────────────────────────────────────────────────
+_ensure_hook() {
+  local sf="$1" event="$2" cmd="$3" timeout="${4:-5}" is_async="${5:-false}" matcher="${6:-}"
+  [ -f "$sf" ] || return 0
+  [ -f "$cmd" ] || return 0
+  local bn
+  bn=$(basename "$cmd")
+  grep -q "$bn" "$sf" 2>/dev/null && return 0
+  $PYTHON -c "
+import json, sys
+sf, event, cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+timeout, is_async, matcher = int(sys.argv[4]), sys.argv[5] == 'true', sys.argv[6]
+cfg = json.load(open(sf))
+hooks = cfg.setdefault('hooks', {})
+entries = hooks.setdefault(event, [])
+hook = {'type': 'command', 'command': cmd, 'timeout': timeout}
+if is_async:
+    hook['async'] = True
+entry = {'hooks': [hook]}
+if matcher:
+    entry['matcher'] = matcher
+entries.append(entry)
+with open(sf, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+print('added')
+" "$sf" "$event" "$cmd" "$timeout" "$is_async" "$matcher" >/dev/null 2>&1
+  echo "✓  ${event} hook 등록: $bn" >&2
+}
+
+HOOKS_JSON="$BOUNCER_DATA_DIR/hooks/hooks.json"
+SETTINGS_FILE="$TARGET_DIR/settings.json"
+if [ -f "$HOOKS_JSON" ] && [ -f "$SETTINGS_FILE" ]; then
+  while IFS=$'\t' read -r _ev _matcher _file; do
+    _cmd="$BOUNCER_DATA_DIR/hooks/$_file"
+    _ensure_hook "$SETTINGS_FILE" "$_ev" "$_cmd" 5 false "$_matcher" || true
+  done < <($PYTHON -c "
+import json, sys
+hj = json.load(open(sys.argv[1]))
+for event, entries in hj.items():
+    for e in entries:
+        matcher = e.get('matcher', '')
+        print(f\"{event}\t{matcher}\t{e['file']}\")
+" "$HOOKS_JSON")
+  # SessionStart: 자기 자신
+  _ensure_hook "$SETTINGS_FILE" "SessionStart" "$BOUNCER_DATA_DIR/scripts/bouncer-update-check.sh" 30 false "" || true
+fi
+
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 CHECKED_FILE="$BOUNCER_DATA_DIR/.version-checked"
 TARGET_DIR=$(dirname "$BOUNCER_DATA_DIR")
