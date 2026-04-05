@@ -28,6 +28,10 @@ copy_if_changed() {
     skip "$label"
     UNCHANGED=$((UNCHANGED + 1))
   else
+    # 기존 파일이 있으면 백업 생성 (사용자 수정 복구용)
+    if [ -f "$dst" ]; then
+      cp "$dst" "${dst}.pre-update"
+    fi
     cp "$src" "$dst"
     ok "$label"
     UPDATED=$((UPDATED + 1))
@@ -394,18 +398,28 @@ _register_session_start() {
   local sf="$1"
   [ -f "$sf" ] || return 0
   local cmd="$TARGET_DIR/ai-bouncer/scripts/update-check.sh"
-  grep -q "update-check.sh" "$sf" 2>/dev/null && return 0
-  $PYTHON -c "
+  local result
+  result=$($PYTHON -c "
 import json, sys
 sf, cmd = sys.argv[1], sys.argv[2]
 cfg = json.load(open(sf))
-hooks = cfg.setdefault('hooks', {})
-ss = hooks.setdefault('SessionStart', [])
+hooks = cfg.get('hooks', {})
+ss = hooks.get('SessionStart', [])
+already = any('update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
+if already:
+    print('already')
+    sys.exit(0)
 ss.append({'hooks': [{'type': 'command', 'command': cmd, 'timeout': 30}]})
-json.dump(cfg, open(sf, 'w'), indent=2, ensure_ascii=False)
-print('\n')
-" "$sf" "$cmd" 2>/dev/null
-  ok "SessionStart hook 등록"
+hooks['SessionStart'] = ss
+cfg['hooks'] = hooks
+with open(sf, 'w') as f:
+    json.dump(cfg, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+print('registered')
+" "$sf" "$cmd" 2>/dev/null) || true
+  if [ "$result" = "registered" ]; then
+    ok "SessionStart hook 등록"
+  fi
 }
 PYTHON=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo python3)
 _register_session_start "$TARGET_DIR/settings.json"

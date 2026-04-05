@@ -15,10 +15,12 @@ API_URL="https://api.github.com/repos/$REPO/commits/main"
 # ── 옵션 파싱 ──────────────────────────────────────────────────────────────────
 FORCE=false
 CHECK_ONLY=false
+HEALTH=false
 for arg in "$@"; do
   case $arg in
     --force)      FORCE=true ;;
     --check-only) CHECK_ONLY=true ;;
+    --health)     HEALTH=true ;;
   esac
 done
 
@@ -65,6 +67,76 @@ fi
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 CHECKED_FILE="$BOUNCER_DATA_DIR/.version-checked"
 TARGET_DIR=$(dirname "$BOUNCER_DATA_DIR")
+
+# ── 헬스체크 ─────────────────────────────────────────────────────────────────
+_run_health_check() {
+  local issues=0
+
+  # 1. hooks.json에 등재된 hook 파일 존재 확인
+  local hooks_json="$BOUNCER_DATA_DIR/hooks/hooks.json"
+  if [ -f "$hooks_json" ]; then
+    local missing
+    missing=$($PYTHON -c "
+import json, sys, os
+hj = json.load(open(sys.argv[1]))
+bd = sys.argv[2]
+missing = []
+for entries in hj.values():
+    for e in entries:
+        f = os.path.join(bd, 'hooks', e['file'])
+        if not os.path.isfile(f):
+            missing.append(e['file'])
+if missing:
+    print(', '.join(missing))
+" "$hooks_json" "$BOUNCER_DATA_DIR" 2>/dev/null) || true
+    if [ -n "$missing" ]; then
+      echo "⚠ ai-bouncer: 누락된 hook 파일: $missing"
+      issues=$((issues + 1))
+    fi
+  else
+    echo "⚠ ai-bouncer: hooks.json 없음"
+    issues=$((issues + 1))
+  fi
+
+  # 2. settings.json에 핵심 hook 등록 확인
+  local settings="$TARGET_DIR/settings.json"
+  if [ -f "$settings" ]; then
+    local unreg
+    unreg=$($PYTHON -c "
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+hooks = cfg.get('hooks', {})
+needed = ['plan-gate.sh', 'bash-gate.sh', 'completion-gate.sh']
+all_cmds = [h.get('command','') for gs in hooks.values() for g in gs for h in g.get('hooks',[])]
+missing = [n for n in needed if not any(n in c for c in all_cmds)]
+if missing:
+    print(', '.join(missing))
+" "$settings" 2>/dev/null) || true
+    if [ -n "$unreg" ]; then
+      echo "⚠ ai-bouncer: settings.json에 미등록 hook: $unreg"
+      issues=$((issues + 1))
+    fi
+  fi
+
+  # 3. CLAUDE.md에 bouncer 규칙 확인
+  local claude_md="$TARGET_DIR/CLAUDE.md"
+  if [ -f "$claude_md" ]; then
+    if ! grep -q "ai-bouncer-rule" "$claude_md" 2>/dev/null; then
+      echo "⚠ ai-bouncer: CLAUDE.md에 bouncer 규칙 없음"
+      issues=$((issues + 1))
+    fi
+  fi
+
+  if [ "$issues" -gt 0 ]; then
+    echo "⚠ ai-bouncer 설치 손상 감지 (${issues}건). bash update.sh로 복구하세요."
+  fi
+  return $issues
+}
+
+if [ "$HEALTH" = true ]; then
+  _run_health_check
+  exit $?
+fi
 
 # ── 24시간 throttle ───────────────────────────────────────────────────────────
 if [ "$FORCE" = false ] && [ "$CHECK_ONLY" = false ] && [ -f "$CHECKED_FILE" ]; then

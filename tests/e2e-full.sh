@@ -429,7 +429,41 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-echo -e "\n${BOLD}─── 10. 정리 ───${NC}"
+echo -e "\n${BOLD}─── 10. 헬스체크 ───${NC}"
+
+# HC-1: 정상 설치 후 --health 경고 없음
+HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/update-check.sh" --health) 2>&1) || true
+if echo "$HC_OUT" | grep -q "손상 감지"; then
+  fail "HC-1: 정상 설치인데 헬스체크 경고 발생: $HC_OUT"
+else
+  pass "HC-1: 정상 설치 후 헬스체크 통과"
+fi
+
+# HC-2: hook 파일 삭제 후 --health 경고 출력
+mv "$TARGET/ai-bouncer/hooks/plan-gate.sh" "$TARGET/ai-bouncer/hooks/plan-gate.sh.bak"
+HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/update-check.sh" --health) 2>&1) || true
+if echo "$HC_OUT" | grep -q "plan-gate.sh"; then
+  pass "HC-2: hook 삭제 후 헬스체크 경고 출력됨"
+else
+  fail "HC-2: hook 삭제 후 헬스체크 경고 미출력"
+fi
+mv "$TARGET/ai-bouncer/hooks/plan-gate.sh.bak" "$TARGET/ai-bouncer/hooks/plan-gate.sh"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 11. 업데이트 백업 ───${NC}"
+
+# BU-1: agent 파일 수정 후 update.sh → .pre-update 백업 존재
+echo "# custom modification" >> "$TARGET/agents/dev.md"
+(cd "$REPO_DIR" && bash "$SRC_DIR/update.sh") 2>&1 | tail -3
+if [ -f "$TARGET/agents/dev.md.pre-update" ]; then
+  pass "BU-1: update 후 수정된 agent 백업 생성됨"
+else
+  fail "BU-1: update 후 .pre-update 백업 없음"
+fi
+rm -f "$TARGET/agents/dev.md.pre-update"
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 12. 정리 ───${NC}"
 
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
 # TEST_DIR은 trap이 정리
