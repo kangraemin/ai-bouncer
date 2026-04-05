@@ -169,7 +169,30 @@ def add_hook(hook_type, matcher, cmd):
             entry['matcher'] = matcher
         hook_list.append(entry)
 
+def snapshot_non_bouncer():
+    """bouncer 소속이 아닌 기존 hook을 스냅샷"""
+    snap = {}
+    for ht, groups in hooks.items():
+        for g in groups:
+            for h in g.get('hooks', []):
+                cmd = h.get('command', '')
+                if not any(bh in cmd for bh in BOUNCER_HOOKS):
+                    snap.setdefault(ht, []).append(dict(g))
+    return snap
+
+def restore_non_bouncer(snap):
+    """스냅샷에 있던 non-bouncer hook이 누락됐으면 복구"""
+    for ht, groups in snap.items():
+        hook_list = hooks.setdefault(ht, [])
+        for g in groups:
+            cmd = g['hooks'][0].get('command', '')
+            already = any(cmd in h.get('command', '') for eg in hook_list for h in eg.get('hooks', []))
+            if not already:
+                hook_list.append(g)
+                print(f"  ✓ non-bouncer hook 복구: {ht} → {os.path.basename(cmd)}")
+
 if old_enforcement != enforcement_mode:
+    pre_snap = snapshot_non_bouncer()
     if enforcement_mode == 'prompt-only':
         remove_bouncer_hooks()
         print("  ✓ settings.json: hook 전부 제거됨")
@@ -193,6 +216,7 @@ if old_enforcement != enforcement_mode:
             add_hook('SubagentStart', None, 'subagent-track.sh')
             add_hook('SubagentStop', None, 'subagent-cleanup.sh')
         print("  ✓ settings.json: hook 재등록됨")
+    restore_non_bouncer(pre_snap)
 
 # --- Agent Teams env ---
 if agent_mode == 'team':
@@ -819,6 +843,25 @@ def add_hook(hook_type, matcher, cmd):
     else:
         print(f"  · {hook_type} hook 이미 등록됨: {cmd}")
 
+# bouncer hook 파일명 집합 (보존 검증용)
+bouncer_files = set()
+if os.path.exists(hooks_manifest_path):
+    for entries in json.load(open(hooks_manifest_path)).values():
+        for e in entries:
+            bouncer_files.add(e.get('file', ''))
+
+def is_bouncer_hook(cmd):
+    return os.path.basename(cmd) in bouncer_files or '/ai-bouncer/' in cmd
+
+# 기존 non-bouncer hook 스냅샷 (등록 전)
+pre_snap = {}
+for ht, groups in hooks.items():
+    for g in groups:
+        for h in g.get('hooks', []):
+            cmd = h.get('command', '')
+            if cmd and not is_bouncer_hook(cmd):
+                pre_snap.setdefault(ht, []).append(dict(g))
+
 # hooks.json 매니페스트 기반 등록
 if enforcement_mode == 'hooks' and os.path.exists(hooks_manifest_path):
     manifest = json.load(open(hooks_manifest_path))
@@ -828,6 +871,15 @@ if enforcement_mode == 'hooks' and os.path.exists(hooks_manifest_path):
             add_hook(hook_type, matcher, entry['file'])
 else:
     print('  · hook 등록 스킵 (enforcement_mode=prompt-only)')
+
+# non-bouncer hook 보존 검증 — 누락된 것 복구
+for ht, groups in pre_snap.items():
+    hook_list = hooks.setdefault(ht, [])
+    for g in groups:
+        cmd = g['hooks'][0].get('command', '')
+        if not is_registered(hook_list, cmd):
+            hook_list.append(g)
+            print(f"  ✓ non-bouncer hook 복구: {ht} → {os.path.basename(cmd)}")
 
 # SessionStart hook: update-check.sh (enforcement_mode 무관)
 update_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'update-check.sh')

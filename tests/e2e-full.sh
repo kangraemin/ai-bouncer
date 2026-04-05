@@ -385,7 +385,51 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════
-echo -e "\n${BOLD}─── 9. 정리 ───${NC}"
+echo -e "\n${BOLD}─── 9. 기존 hook 보존 ───${NC}"
+
+# uninstall → 기존 non-bouncer Stop hook 등록 → install → 보존 확인
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --uninstall) 2>&1 | tail -2
+
+# 사용자의 기존 Stop hook을 settings.json에 등록
+python3 -c "
+import json, os
+sf = '$TARGET/settings.json'
+cfg = {}
+if os.path.exists(sf):
+    cfg = json.load(open(sf))
+hooks = cfg.setdefault('hooks', {})
+stop = hooks.setdefault('Stop', [])
+stop.append({'hooks': [{'type': 'command', 'command': '/tmp/test-user-stop-hook.sh', 'timeout': 10}]})
+with open(sf, 'w') as f:
+    json.dump(cfg, f, indent=2)
+    f.write('\n')
+"
+
+# HP-1: install 후 기존 Stop hook 보존
+(cd "$REPO_DIR" && bash "$SRC_DIR/install.sh" --ci) 2>&1 | tail -3
+if grep -q "test-user-stop-hook.sh" "$TARGET/settings.json" 2>/dev/null; then
+  pass "HP-1: install 후 기존 non-bouncer Stop hook 보존됨"
+else
+  fail "HP-1: install 후 기존 non-bouncer Stop hook 유실됨"
+fi
+
+# HP-2: install 후 bouncer Stop hook도 등록됨
+if grep -q "completion-gate.sh" "$TARGET/settings.json" 2>/dev/null; then
+  pass "HP-2: install 후 bouncer Stop hook 등록됨"
+else
+  fail "HP-2: install 후 bouncer Stop hook 미등록"
+fi
+
+# HP-3: update 후 기존 Stop hook 보존
+(cd "$REPO_DIR" && CI=true bash "$SRC_DIR/install.sh" --update) 2>&1 | tail -2
+if grep -q "test-user-stop-hook.sh" "$TARGET/settings.json" 2>/dev/null; then
+  pass "HP-3: update 후 기존 non-bouncer Stop hook 보존됨"
+else
+  fail "HP-3: update 후 기존 non-bouncer Stop hook 유실됨"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 10. 정리 ───${NC}"
 
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
 # TEST_DIR은 trap이 정리
