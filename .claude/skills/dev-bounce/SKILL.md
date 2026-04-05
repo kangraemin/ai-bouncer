@@ -142,23 +142,14 @@ print(json.dumps(results, ensure_ascii=False))
 - **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "cancelled"` 처리 → Case C 진행.
 
 **Case C: `active`도 `incomplete`도 없음**
-→ 새 작업 시작 (Phase 0부터)
+→ 새 작업 시작. **즉시 Phase 0-A (TASK_DIR 초기화)** 진행.
 
 ---
 
-## Phase 0: 인텐트 판별
+### Phase 0-A: TASK_DIR 조기 초기화
 
-Main Claude가 직접 판별한다 (에이전트 스폰 없음):
-
-- **일반응답** (질문, 설명 요청 등) → 일반 응답 후 종료
-- **내용불충분** (개발 의도는 있으나 구체적이지 않음) → AskUserQuestion으로 구체화 요청 후 Phase 0 재시도
-  (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
-  ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
-- **개발요청** → Phase 0-B 진행
-
-### Phase 0-B: TASK_DIR 초기화
-
-TASK_DIR을 초기화한다. **복잡도 판별은 하지 않는다** — Phase 1-B에서 plan 기반으로 판별하기 때문.
+⚠️ **/dev-bounce가 호출되면 인텐트 판별 전에 반드시 `.active`를 먼저 생성한다.**
+이래야 hook이 이 세션의 Edit/Write/Bash를 감시할 수 있다. 인텐트 판별을 먼저 하면 Claude가 워크플로우를 건너뛰고 직접 수정할 수 있다.
 
 TASK_DIR 초기화 (Python으로 실행):
 
@@ -184,7 +175,19 @@ TASK_DIR 초기화 (Python으로 실행):
 }
 ```
 
-→ **즉시** Phase 1 진행 (중간에 다른 작업 금지)
+→ **즉시** Phase 0 (인텐트 판별) 진행
+
+---
+
+## Phase 0: 인텐트 판별
+
+Main Claude가 직접 판별한다 (에이전트 스폰 없음):
+
+- **일반응답** (질문, 설명 요청 등) → `.active` 삭제 + `state.json`의 `workflow_phase = "cancelled"` → 일반 응답 후 종료
+- **내용불충분** (개발 의도는 있으나 구체적이지 않음) → AskUserQuestion으로 구체화 요청 후 Phase 0 재시도
+  (예: "어떤 기능/버그를 개발·수정할지 구체적으로 알려주세요.")
+  ⚠️ "개발 작업으로 처리할까요?" 같은 yes/no 확인 질문 절대 금지.
+- **개발요청** → Phase 1 진행 (TASK_DIR은 이미 Phase 0-A에서 생성됨)
 
 ---
 
