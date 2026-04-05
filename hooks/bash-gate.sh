@@ -143,9 +143,26 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
       COMMIT_FOLDER_CS=$(_get_phase_folder "$STATE_FILE" "$COMMIT_PHASE_CS")
     fi
     STEP_COUNT_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].steps | length" "$STATE_FILE" 2>/dev/null)
+    # state.json에 steps 미등록 시 파일시스템 fallback: step-*.md 파일로 판단
     if [ "${STEP_COUNT_CS:-0}" -le 0 ] 2>/dev/null; then
-      jq -n --arg p "$COMMIT_PHASE_CS" \
-        '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
+      COMMIT_PDIR="${TASK_DIR}/${COMMIT_FOLDER_CS}"
+      FS_LAST_STEP_CS=0
+      for sf in "$COMMIT_PDIR"/step-*.md; do
+        [ -f "$sf" ] || continue
+        snum="${sf##*/step-}"; snum="${snum%.md}"
+        [ "$snum" -gt "$FS_LAST_STEP_CS" ] 2>/dev/null && FS_LAST_STEP_CS=$snum
+      done
+      if [ "$FS_LAST_STEP_CS" -le 0 ] 2>/dev/null; then
+        jq -n --arg p "$COMMIT_PHASE_CS" \
+          '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
+        exit 0
+      fi
+      FS_LAST_STEP_FILE="${COMMIT_PDIR}/step-${FS_LAST_STEP_CS}.md"
+      if [ -f "$FS_LAST_STEP_FILE" ] && grep -q '✅' "$FS_LAST_STEP_FILE" 2>/dev/null; then
+        exit 0
+      fi
+      jq -n --arg p "$COMMIT_PHASE_CS" --arg ls "$FS_LAST_STEP_CS" \
+        '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + " 마지막 Step " + $ls + " 미완료. Phase 완료 후 커밋하세요.")}'
       exit 0
     fi
     LAST_STEP_CS=$(jq -r ".dev_phases[\"$COMMIT_PHASE_CS\"].steps | keys | map(tonumber) | max // 0" "$STATE_FILE" 2>/dev/null)
