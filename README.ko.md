@@ -219,7 +219,7 @@ ai-bouncer/
 │   ├── update-bouncer/SKILL.md
 │   └── bouncer-status/SKILL.md
 ├── scripts/
-│   └── update-check.sh        # SessionStart 자동 업데이트 (24시간 throttle)
+│   └── bouncer-update-check.sh        # SessionStart 자동 업데이트 (24시간 throttle)
 └── tests/                     # 750건 이상 e2e 테스트
 ```
 

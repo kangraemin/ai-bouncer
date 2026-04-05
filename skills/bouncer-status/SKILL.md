@@ -48,12 +48,12 @@ config.json이 없으면:
 
 #### 2-1. 업데이트 확인
 
-update-check.sh를 사용해서 업데이트 필요 여부를 확인한다.
+bouncer-update-check.sh를 사용해서 업데이트 필요 여부를 확인한다.
 
 ```bash
-# 로컬 또는 전역에서 update-check.sh 찾기
-UPDATE_CHECK="$TARGET_DIR/scripts/update-check.sh"
-[ -f "$UPDATE_CHECK" ] || UPDATE_CHECK="$HOME/.claude/scripts/update-check.sh"
+# 로컬 또는 전역에서 bouncer-update-check.sh 찾기
+UPDATE_CHECK="$TARGET_DIR/scripts/bouncer-update-check.sh"
+[ -f "$UPDATE_CHECK" ] || UPDATE_CHECK="$HOME/.claude/scripts/bouncer-update-check.sh"
 
 bash "$UPDATE_CHECK" --check-only 2>/dev/null
 ```

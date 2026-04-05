@@ -319,25 +319,25 @@ check "E4: 빈 CLAUDE.md → --update 후 bouncer rule 추가" grep -q "ai-bounc
 # ═════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── F. scripts/ 손상 ───${NC}"
 
-# F1: update-check.sh 삭제 → update
+# F1: bouncer-update-check.sh 삭제 → update
 R="$TEST_DIR/f1"; fresh_install "$R"
-rm -f "$R/.claude/ai-bouncer/scripts/update-check.sh"
+rm -f "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
 run_update "$R" 2>&1 >/dev/null
-check "F1: update-check.sh 삭제 → update 후 복원" test -f "$R/.claude/ai-bouncer/scripts/update-check.sh"
-check "F1: 실행 권한" test -x "$R/.claude/ai-bouncer/scripts/update-check.sh"
+check "F1: bouncer-update-check.sh 삭제 → update 후 복원" test -f "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
+check "F1: 실행 권한" test -x "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # F2: scripts/ 디렉토리 삭제 → update
 R="$TEST_DIR/f2"; fresh_install "$R"
 rm -rf "$R/.claude/ai-bouncer/scripts"
 run_update "$R" 2>&1 >/dev/null
 check "F2: scripts/ 삭제 → update 후 디렉토리 재생성" test -d "$R/.claude/ai-bouncer/scripts"
-check "F2: update-check.sh 존재" test -f "$R/.claude/ai-bouncer/scripts/update-check.sh"
+check "F2: bouncer-update-check.sh 존재" test -f "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
 
-# F3: update-check.sh 비우기 → update
+# F3: bouncer-update-check.sh 비우기 → update
 R="$TEST_DIR/f3"; fresh_install "$R"
-: > "$R/.claude/ai-bouncer/scripts/update-check.sh"
+: > "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
 run_update "$R" 2>&1 >/dev/null
-check "F3: 빈 script → update 후 크기 > 0" test -s "$R/.claude/ai-bouncer/scripts/update-check.sh"
+check "F3: 빈 script → update 후 크기 > 0" test -s "$R/.claude/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # ═════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── G. agents/skills 손상 ───${NC}"

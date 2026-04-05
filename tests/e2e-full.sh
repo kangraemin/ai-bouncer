@@ -116,8 +116,8 @@ assert_file "dev-bounce SKILL.md 설치됨"  "$TARGET/skills/dev-bounce/SKILL.md
 assert_file "tc-guide.md 설치됨"  "$TARGET/agents/guides/tc-guide.md"
 
 # scripts
-assert_file "update-check.sh 설치됨"  "$TARGET/ai-bouncer/scripts/update-check.sh"
-assert_ok "update-check.sh 실행 가능"  test -x "$TARGET/ai-bouncer/scripts/update-check.sh"
+assert_file "bouncer-update-check.sh 설치됨"  "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh"
+assert_ok "bouncer-update-check.sh 실행 가능"  test -x "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # hooks.json
 assert_file "hooks.json 설치됨"  "$TARGET/ai-bouncer/hooks/hooks.json"
@@ -131,7 +131,7 @@ assert_contains "completion-gate 등록됨"  "$TARGET/settings.json" "completion
 assert_contains "subagent-track 등록됨"   "$TARGET/settings.json" "subagent-track.sh"
 assert_contains "subagent-cleanup 등록됨" "$TARGET/settings.json" "subagent-cleanup.sh"
 assert_contains "AGENT_TEAMS env 등록됨"  "$TARGET/settings.json" "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"
-assert_contains "SessionStart hook 등록됨"  "$TARGET/settings.json" "update-check.sh"
+assert_contains "SessionStart hook 등록됨"  "$TARGET/settings.json" "bouncer-update-check.sh"
 
 # CLAUDE.md
 assert_file "CLAUDE.md 생성됨"  "$TARGET/CLAUDE.md"
@@ -239,7 +239,7 @@ assert_file "update 후 settings.json 존재"  "$TARGET/settings.json"
 assert_contains "update 후 hook 유지됨"     "$TARGET/settings.json" "plan-gate.sh"
 assert_file "update 후 tc-guide.md 존재"    "$TARGET/agents/guides/tc-guide.md"
 assert_file "update 후 hooks.json 존재"     "$TARGET/ai-bouncer/hooks/hooks.json"
-assert_file "update 후 update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/update-check.sh"
+assert_file "update 후 bouncer-update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # 커스텀 agent 보호 테스트
 echo "custom agent" > "$TARGET/agents/my-custom-agent.md"
@@ -274,7 +274,7 @@ assert_no_file "uninstall 후 SKILL.md 없음"        "$TARGET/skills/dev-bounce
 assert_no_file "uninstall 후 tc-guide.md 없음"     "$TARGET/agents/guides/tc-guide.md"
 assert_no_file "uninstall 후 manifest.json 없음"   "$TARGET/ai-bouncer/manifest.json"
 assert_no_file "uninstall 후 config.json 없음"     "$TARGET/ai-bouncer/config.json"
-assert_no_file "uninstall 후 update-check.sh 없음"  "$TARGET/ai-bouncer/scripts/update-check.sh"
+assert_no_file "uninstall 후 bouncer-update-check.sh 없음"  "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # settings.json에서 bouncer hook이 제거되었는지 확인
 if [ -f "$TARGET/settings.json" ]; then
@@ -283,7 +283,7 @@ if [ -f "$TARGET/settings.json" ]; then
   else
     pass "uninstall 후 settings.json에서 hook 제거됨"
   fi
-  if grep -q "update-check.sh" "$TARGET/settings.json" 2>/dev/null; then
+  if grep -q "bouncer-update-check.sh" "$TARGET/settings.json" 2>/dev/null; then
     fail "uninstall 후 settings.json에 SessionStart hook 남아있음"
   else
     pass "uninstall 후 settings.json에서 SessionStart hook 제거됨"
@@ -313,8 +313,8 @@ assert_file "재설치 후 settings.json 존재"    "$TARGET/settings.json"
 assert_file "재설치 후 CLAUDE.md 존재"        "$TARGET/CLAUDE.md"
 assert_contains "재설치 후 hook 등록됨"       "$TARGET/settings.json" "plan-gate.sh"
 assert_contains "재설치 후 bouncer 규칙 주입" "$TARGET/CLAUDE.md" "ai-bouncer-rule"
-assert_file "재설치 후 update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/update-check.sh"
-assert_contains "재설치 후 SessionStart hook 등록됨"  "$TARGET/settings.json" "update-check.sh"
+assert_file "재설치 후 bouncer-update-check.sh 존재"  "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh"
+assert_contains "재설치 후 SessionStart hook 등록됨"  "$TARGET/settings.json" "bouncer-update-check.sh"
 
 # ═══════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 7. CLAUDE.md 콘텐츠 보존 ───${NC}"
@@ -432,7 +432,7 @@ fi
 echo -e "\n${BOLD}─── 10. 헬스체크 ───${NC}"
 
 # HC-1: 정상 설치 후 --health 경고 없음
-HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/update-check.sh" --health) 2>&1) || true
+HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh" --health) 2>&1) || true
 if echo "$HC_OUT" | grep -q "손상 감지"; then
   fail "HC-1: 정상 설치인데 헬스체크 경고 발생: $HC_OUT"
 else
@@ -441,7 +441,7 @@ fi
 
 # HC-2: hook 파일 삭제 후 --health 경고 출력
 mv "$TARGET/ai-bouncer/hooks/plan-gate.sh" "$TARGET/ai-bouncer/hooks/plan-gate.sh.bak"
-HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/update-check.sh" --health) 2>&1) || true
+HC_OUT=$((cd "$REPO_DIR" && bash "$TARGET/ai-bouncer/scripts/bouncer-update-check.sh" --health) 2>&1) || true
 if echo "$HC_OUT" | grep -q "plan-gate.sh"; then
   pass "HC-2: hook 삭제 후 헬스체크 경고 출력됨"
 else

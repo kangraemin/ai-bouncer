@@ -227,9 +227,17 @@ else:
     print(f"  ✓ env: AGENT_TEAMS 제거 (agent_mode={agent_mode})")
 
 # SessionStart: auto-update hook 등록 (enforcement_mode 무관, 항상)
-update_check_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'update-check.sh')
+update_check_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'bouncer-update-check.sh')
 ss = hooks.setdefault('SessionStart', [])
-already_ss = any('update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
+# 구 이름(update-check.sh) hook 마이그레이션
+for group in list(ss):
+    for h in group.get('hooks', []):
+        cmd = h.get('command', '')
+        if 'update-check.sh' in cmd and 'bouncer-update-check.sh' not in cmd:
+            ss.remove(group)
+            print("  ✓ 구 SessionStart hook 제거: update-check.sh")
+            break
+already_ss = any('bouncer-update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
 if not already_ss:
     ss.append({'hooks': [{'type': 'command', 'command': update_check_cmd, 'timeout': 30}]})
     print("  ✓ SessionStart hook 등록 (auto-update)")
@@ -471,10 +479,15 @@ for hooks in manifest.values():
       done
     fi
 
-    # 4) scripts/update-check.sh 이동
-    if [ -f "$OLD_SCRIPTS_DIR/update-check.sh" ] && [ ! -f "$BOUNCER_DATA_DIR/scripts/update-check.sh" ]; then
-      mv "$OLD_SCRIPTS_DIR/update-check.sh" "$BOUNCER_DATA_DIR/scripts/update-check.sh"
-      echo "  ✓ 이동: scripts/update-check.sh → ai-bouncer/scripts/update-check.sh"
+    # 4) scripts/update-check.sh → bouncer-update-check.sh 마이그레이션
+    if [ -f "$OLD_SCRIPTS_DIR/update-check.sh" ] && [ ! -f "$BOUNCER_DATA_DIR/scripts/bouncer-update-check.sh" ]; then
+      mv "$OLD_SCRIPTS_DIR/update-check.sh" "$BOUNCER_DATA_DIR/scripts/bouncer-update-check.sh"
+      echo "  ✓ 이동: scripts/update-check.sh → ai-bouncer/scripts/bouncer-update-check.sh"
+    fi
+    # 구 파일명 rename (ai-bouncer/scripts/ 안에 있는 경우)
+    if [ -f "$BOUNCER_DATA_DIR/scripts/update-check.sh" ] && [ ! -f "$BOUNCER_DATA_DIR/scripts/bouncer-update-check.sh" ]; then
+      mv "$BOUNCER_DATA_DIR/scripts/update-check.sh" "$BOUNCER_DATA_DIR/scripts/bouncer-update-check.sh"
+      echo "  ✓ rename: update-check.sh → bouncer-update-check.sh"
     fi
 
     # 5) 빈 디렉토리 정리 (non-bouncer 파일 있으면 유지)
@@ -881,14 +894,22 @@ for ht, groups in pre_snap.items():
             hook_list.append(g)
             print(f"  ✓ non-bouncer hook 복구: {ht} → {os.path.basename(cmd)}")
 
-# SessionStart hook: update-check.sh (enforcement_mode 무관)
-update_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'update-check.sh')
+# SessionStart hook: bouncer-update-check.sh (enforcement_mode 무관)
+update_cmd = os.path.join(target_dir, 'ai-bouncer', 'scripts', 'bouncer-update-check.sh')
 ss_list = hooks.setdefault('SessionStart', [])
-if not is_registered(ss_list, 'update-check.sh'):
+# 구 이름(update-check.sh) hook 마이그레이션
+for group in list(ss_list):
+    for h in group.get('hooks', []):
+        cmd = h.get('command', '')
+        if 'update-check.sh' in cmd and 'bouncer-update-check.sh' not in cmd:
+            ss_list.remove(group)
+            print(f"  ✓ 구 SessionStart hook 제거: update-check.sh")
+            break
+if not is_registered(ss_list, 'bouncer-update-check.sh'):
     ss_list.append({'hooks': [{'type': 'command', 'command': update_cmd, 'timeout': 30}]})
-    print(f"  ✓ SessionStart hook 등록: update-check.sh")
+    print(f"  ✓ SessionStart hook 등록: bouncer-update-check.sh")
 else:
-    print(f"  · SessionStart hook 이미 등록됨: update-check.sh")
+    print(f"  · SessionStart hook 이미 등록됨: bouncer-update-check.sh")
 
 # permissions.allow에 Read/Glob/Grep 추가 (multi-agent 권한 프롬프트 방지)
 perms = cfg.setdefault('permissions', {})

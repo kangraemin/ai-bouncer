@@ -142,7 +142,8 @@ def is_bouncer_hook(group):
     return False
 
 hooks = cfg.get('hooks', {})
-BOUNCER_HOOKS.add('update-check.sh')
+BOUNCER_HOOKS.add('bouncer-update-check.sh')
+BOUNCER_HOOKS.add('update-check.sh')  # 하위 호환
 
 for hook_type in ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionStart']:
     if hook_type in hooks:

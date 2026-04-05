@@ -1,6 +1,6 @@
 #!/bin/bash
 # ai-bouncer 자동 업데이트 체커
-# Usage: update-check.sh [--force] [--check-only]
+# Usage: bouncer-update-check.sh [--force] [--check-only]
 #   --force      : 24h throttle 무시하고 즉시 체크
 #   --check-only : 버전 확인만 (업데이트 안 함)
 
@@ -191,11 +191,11 @@ if [ "$LATEST_SHA" = "$INSTALLED_SHA" ]; then
 fi
 
 # ── bootstrap: 자기 자신을 먼저 업데이트 후 재실행 ────────────────────────────
-SELF_SCRIPT="$TARGET_DIR/scripts/update-check.sh"
+SELF_SCRIPT="$TARGET_DIR/scripts/bouncer-update-check.sh"
 if [ "${_UPDATE_BOOTSTRAPPED:-}" != "1" ]; then
   SELF_TMP=$(mktemp) || { echo "ai-bouncer: mktemp failed" >&2; exit 0; }
   trap 'rm -f "$SELF_TMP"' EXIT
-  if curl -sf --max-time 10 "$RAW_BASE/scripts/update-check.sh" -o "$SELF_TMP" 2>/dev/null; then
+  if curl -sf --max-time 10 "$RAW_BASE/scripts/bouncer-update-check.sh" -o "$SELF_TMP" 2>/dev/null; then
     # 무결성 검증: 비어있지 않고, 유효한 bash 구문이어야 함
     if [ -s "$SELF_TMP" ] && bash -n "$SELF_TMP" 2>/dev/null; then
       if ! cmp -s "$SELF_TMP" "$SELF_SCRIPT"; then

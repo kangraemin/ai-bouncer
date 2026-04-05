@@ -61,7 +61,7 @@ check "L3: completion-gate.sh in ai-bouncer/hooks" test -f "$T/ai-bouncer/hooks/
 check "L4: resolve-task.sh in ai-bouncer/hooks/lib" test -f "$T/ai-bouncer/hooks/lib/resolve-task.sh"
 
 # scripts in ai-bouncer/scripts/
-check "L5: update-check.sh in ai-bouncer/scripts" test -f "$T/ai-bouncer/scripts/update-check.sh"
+check "L5: bouncer-update-check.sh in ai-bouncer/scripts" test -f "$T/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # config/manifest
 check "L6: config.json in ai-bouncer" test -f "$T/ai-bouncer/config.json"
@@ -83,7 +83,7 @@ check_no "ISO2: 구 경로 hooks/bash-gate.sh 없음" test -f "$T/hooks/bash-gat
 check_no "ISO3: 구 경로 hooks/hooks.json 없음" test -f "$T/hooks/hooks.json"
 
 # .claude/scripts/에 bouncer 파일 0개
-check_no "ISO4: 구 경로 scripts/update-check.sh 없음" test -f "$T/scripts/update-check.sh"
+check_no "ISO4: 구 경로 scripts/bouncer-update-check.sh 없음" test -f "$T/scripts/bouncer-update-check.sh"
 
 # ═════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 3. settings.json hook 경로 검증 ───${NC}"
@@ -91,7 +91,7 @@ echo -e "\n${BOLD}─── 3. settings.json hook 경로 검증 ───${NC}"
 SETTINGS="$T/settings.json"
 check "S1: settings.json에 ai-bouncer/hooks/plan-gate 포함" grep -q "ai-bouncer/hooks/plan-gate" "$SETTINGS"
 check "S2: settings.json에 ai-bouncer/hooks/bash-gate 포함" grep -q "ai-bouncer/hooks/bash-gate" "$SETTINGS"
-check "S3: settings.json에 ai-bouncer/scripts/update-check 포함" grep -q "ai-bouncer/scripts/update-check" "$SETTINGS"
+check "S3: settings.json에 ai-bouncer/scripts/bouncer-update-check 포함" grep -q "ai-bouncer/scripts/bouncer-update-check" "$SETTINGS"
 
 # 모든 hook 경로에 ai-bouncer 포함 확인
 HOOK_COUNT=$(python3 -c "
@@ -123,7 +123,7 @@ check "H1: plan-gate.sh 실행 권한" test -x "$T/ai-bouncer/hooks/plan-gate.sh
 check "H2: bash-gate.sh 실행 권한" test -x "$T/ai-bouncer/hooks/bash-gate.sh"
 check "H3: completion-gate.sh 실행 권한" test -x "$T/ai-bouncer/hooks/completion-gate.sh"
 check "H4: resolve-task.sh 실행 권한" test -x "$T/ai-bouncer/hooks/lib/resolve-task.sh"
-check "H5: update-check.sh 실행 권한" test -x "$T/ai-bouncer/scripts/update-check.sh"
+check "H5: bouncer-update-check.sh 실행 권한" test -x "$T/ai-bouncer/scripts/bouncer-update-check.sh"
 
 # ═════════════════════════════════════════════════════════════
 echo -e "\n${BOLD}─── 5. 로컬 uninstall — 완전 삭제 ───${NC}"
@@ -171,7 +171,7 @@ done
 for lib in "$SRC_DIR/hooks/lib/"*.sh; do
   [ -f "$lib" ] && cp "$lib" "$T2/hooks/lib/$(basename "$lib")" && chmod +x "$T2/hooks/lib/$(basename "$lib")"
 done
-cp "$SRC_DIR/scripts/update-check.sh" "$T2/scripts/update-check.sh" && chmod +x "$T2/scripts/update-check.sh"
+cp "$SRC_DIR/scripts/bouncer-update-check.sh" "$T2/scripts/bouncer-update-check.sh" && chmod +x "$T2/scripts/bouncer-update-check.sh"
 
 # 사용자 hook (마이그레이션 중 보존 확인)
 echo "my hook" > "$T2/hooks/on-commit.sh"

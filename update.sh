@@ -397,7 +397,7 @@ fi
 _register_session_start() {
   local sf="$1"
   [ -f "$sf" ] || return 0
-  local cmd="$TARGET_DIR/ai-bouncer/scripts/update-check.sh"
+  local cmd="$TARGET_DIR/ai-bouncer/scripts/bouncer-update-check.sh"
   local result
   result=$($PYTHON -c "
 import json, sys
@@ -405,7 +405,14 @@ sf, cmd = sys.argv[1], sys.argv[2]
 cfg = json.load(open(sf))
 hooks = cfg.get('hooks', {})
 ss = hooks.get('SessionStart', [])
-already = any('update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
+# 구 이름(update-check.sh) hook 마이그레이션
+for group in list(ss):
+    for h in group.get('hooks', []):
+        c = h.get('command', '')
+        if 'update-check.sh' in c and 'bouncer-update-check.sh' not in c:
+            ss.remove(group)
+            break
+already = any('bouncer-update-check.sh' in h.get('command', '') for g in ss for h in g.get('hooks', []))
 if already:
     print('already')
     sys.exit(0)

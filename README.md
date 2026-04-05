@@ -220,7 +220,7 @@ ai-bouncer/
 │   ├── update-bouncer/SKILL.md
 │   └── bouncer-status/SKILL.md
 ├── scripts/
-│   └── update-check.sh        # SessionStart auto-update (24h throttle)
+│   └── bouncer-update-check.sh        # SessionStart auto-update (24h throttle)
 └── tests/                     # 750+ e2e tests
 ```
 
