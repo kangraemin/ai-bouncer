@@ -306,8 +306,10 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 ```bash
 python3 -c "
-import json
-cfg = json.load(open('.claude/ai-bouncer/config.json'))
+import json, os
+_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
+_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
+cfg = json.load(open(_cfg_file)) if _cfg_file else {}
 print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 "
 ```
@@ -374,8 +376,10 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 ```bash
 python3 -c "
-import json
-cfg = json.load(open('.claude/ai-bouncer/config.json'))
+import json, os
+_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
+_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
+cfg = json.load(open(_cfg_file)) if _cfg_file else {}
 print(cfg.get('agent_mode', 'team'))
 "
 ```
@@ -468,8 +472,10 @@ Lead가 수행:
 
 ```bash
 python3 -c "
-import json
-cfg = json.load(open('.claude/ai-bouncer/config.json'))
+import json, os
+_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
+_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
+cfg = json.load(open(_cfg_file)) if _cfg_file else {}
 print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
 "
 ```
@@ -578,6 +584,6 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 - 완료 후 task_dir 삭제 금지 — active_file(`.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`)만 삭제한다
 - 세션 격리: `.active` 파일은 `.ai-bouncer-tasks/YYYY-MM-DD/<task>/.active`에 위치하며 session_id를 저장. hook이 자동으로 claim한다.
 - docs 구조: `.ai-bouncer-tasks/YYYY-MM-DD/task-name/` — 날짜별로 태스크 문서를 구조화
-- config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬)
+- config.json 경로: `.claude/ai-bouncer/config.json` (프로젝트 로컬) → 없으면 `~/.claude/ai-bouncer/config.json` (전역) fallback
 - `enforcement_mode=prompt-only`일 때 hook이 없으므로 프롬프트 규칙만으로 워크플로우를 준수해야 한다. 차단이 아닌 가이드 역할.
 - `agent_mode`에 따라 Phase 3/4의 에이전트 스폰 방식이 달라진다. config.json에서 확인 후 분기. Phase 1(계획 수립)은 항상 Main Claude가 직접 수행.
