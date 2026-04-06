@@ -302,16 +302,13 @@ Main Claude가 직접 코드 수정 (phase/step 구조 없이 자유롭게).
 
 개발 완료 + TC 전부 ✅ 후 커밋하고, **커밋 성공 즉시 같은 흐름에서 완료 처리**한다. 별도 Phase로 분리하지 않는다.
 
-`.claude/ai-bouncer/config.json`에서 커밋 전략 확인:
+config.json에서 커밋 전략 확인 (로컬 우선 → 전역 fallback):
 
 ```bash
-python3 -c "
-import json, os
-_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
-_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
-cfg = json.load(open(_cfg_file)) if _cfg_file else {}
-print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
-"
+_BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+COMMIT_STRATEGY=$(bash "$_BCFG/bouncer-config.sh" commit_strategy per-step)
+COMMIT_SKILL=$(bash "$_BCFG/bouncer-config.sh" commit_skill false)
+echo "$COMMIT_STRATEGY $COMMIT_SKILL"
 ```
 
 | commit_strategy | SIMPLE 모드 커밋 시점 | commit_skill | 커밋 방법 |
@@ -375,13 +372,8 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 **agent_mode 확인** (config.json에서 읽기 — Phase 3/4 분기에 필요):
 
 ```bash
-python3 -c "
-import json, os
-_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
-_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
-cfg = json.load(open(_cfg_file)) if _cfg_file else {}
-print(cfg.get('agent_mode', 'team'))
-"
+_BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+bash "$_BCFG/bouncer-config.sh" agent_mode team
 ```
 
 #### 3-1. Lead 에이전트 스폰
@@ -471,13 +463,10 @@ Lead가 수행:
 `.claude/ai-bouncer/config.json`에서 커밋 전략 확인 (프로젝트 로컬 경로):
 
 ```bash
-python3 -c "
-import json, os
-_cfg_paths = ['.claude/ai-bouncer/config.json', os.path.expanduser('~/.claude/ai-bouncer/config.json')]
-_cfg_file = next((p for p in _cfg_paths if os.path.exists(p)), None)
-cfg = json.load(open(_cfg_file)) if _cfg_file else {}
-print(cfg.get('commit_strategy','per-step'), cfg.get('commit_skill', False))
-"
+_BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+COMMIT_STRATEGY=$(bash "$_BCFG/bouncer-config.sh" commit_strategy per-step)
+COMMIT_SKILL=$(bash "$_BCFG/bouncer-config.sh" commit_skill false)
+echo "$COMMIT_STRATEGY $COMMIT_SKILL"
 ```
 
 | commit_strategy | 커밋 시점 | commit_skill | 커밋 방법 |
