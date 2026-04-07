@@ -88,15 +88,24 @@ f = task_dir + '/state.json'
 with open(f) as fp: s = json.load(fp)
 s['dev_phases'] = {
     '1': {
-        'name': '<feature>',
-        'folder': 'phase-1-<feature>',
+        'name': '<feature-a>',
+        'folder': 'phase-1-<feature-a>',
         'steps': {
-            '1': {'title': '...', 'doc_path': task_dir + '/phase-1-<feature>/step-1.md'}
+            '1': {'title': '...', 'doc_path': task_dir + '/phase-1-<feature-a>/step-1.md'},
+            '2': {'title': '...', 'doc_path': task_dir + '/phase-1-<feature-a>/step-2.md'}
+        }
+    },
+    '2': {
+        'name': '<feature-b>',
+        'folder': 'phase-2-<feature-b>',
+        'steps': {
+            '1': {'title': '...', 'doc_path': task_dir + '/phase-2-<feature-b>/step-1.md'}
         }
     }
 }
 s['team_name'] = team_name
 s['current_dev_phase'] = 1
+s['current_step'] = 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 print('dev_phases initialized, team_name:', team_name)
 " "<TASK_DIR>" "<팀이름>"
@@ -135,6 +144,20 @@ EOF
 1. **검증 명령어**: 이 Step을 어떻게 테스트하는지 실행 가능한 명령어
 2. **기대 출력**: 명령어 실행 시 예상되는 출력
 3. **구현 내용**: 변경한 파일 + diff 요약 (체크박스만 찍기 금지)
+
+### Step 분해 기준
+
+**1 Step = 독립적으로 검증 가능한 최소 변경 단위.**
+
+| 조건 | 처리 |
+|---|---|
+| 변경 파일 2개 이상 | 파일별 또는 기능 단위로 Step 분리 |
+| TC 1개로 전체 검증 불가 | TC 단위로 Step 분리 |
+| 빌드 없이 다음 작업 불가 | Step 경계 |
+
+- 한 Step에서 변경 파일은 보통 1~2개
+- 여러 기능을 묶어서 1 Step으로 만들지 않는다
+- 애매하면 2 Step으로 나눈다 (합치는 건 나중에 가능, 쪼개는 건 어려움)
 
 6. `[TEAM:duo|team]` + `[DEV_PHASES:확정]` 출력 후 **Main Claude에게 보고하고 대기**한다.
    Dev/QA 스폰은 Main Claude가 담당. Lead가 직접 스폰하지 않는다.
