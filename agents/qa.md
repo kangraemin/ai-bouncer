@@ -40,9 +40,7 @@ Lead가 생성한 `{TASK_DIR}/phase-N-<name>/step-M.md`의 TC 테이블을 채�
 
 `[STEP:N:테스트정의완료]` 출력 후 Lead에게 보고.
 
-### 커밋
-
-테스트 정의 완료 후 즉시 커밋 + 푸시 (`~/.claude/rules/git-rules.md` 준수).
+커밋은 Main Claude/Lead가 commit_strategy에 따라 처리한다. QA는 커밋하지 않는다.
 
 ---
 
@@ -80,9 +78,10 @@ state.json `current_step` 증가:
 
 ```bash
 python3 << 'PYEOF'
-import json, os
-task_dir = os.environ.get('TASK_DIR', '.ai-bouncer-tasks/current')
-f = os.path.join(task_dir, 'state.json')
+import json
+# ⚠️ TASK_DIR는 반드시 메시지에서 받은 실제 경로를 사용한다. os.environ 사용 금지.
+task_dir = '<메시지에서 받은 TASK_DIR 절대경로>'
+f = task_dir + '/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_step'] = s['current_step'] + 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)

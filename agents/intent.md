@@ -2,6 +2,7 @@
 description: >
   ai-bouncer Intent 에이전트. 사용자 요청을 분석하여 개발 작업 여부를 분류한다.
   비개발/내용 불충분/개발 요청을 태그로 구분하여 응답한다.
+  ⚠️ 현재 미사용: SKILL.md Phase 0에서 Main Claude가 직접 판별하므로 이 에이전트는 스폰되지 않는다.
 ---
 
 # Intent Agent

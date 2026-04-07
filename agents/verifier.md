@@ -223,7 +223,7 @@ state.json 업데이트:
 ```bash
 python3 << 'PYEOF'
 import json, os
-task_dir = '{TASK_DIR}'
+task_dir = '<메시지에서 받은 TASK_DIR 절대경로>'  # ⚠️ 반드시 메시지에서 받은 실제 경로 사용. os.environ 사용 금지.
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['verification']['rounds_passed'] += 1
@@ -251,12 +251,13 @@ state.json 업데이트 (완전 리셋):
 ```bash
 python3 << 'PYEOF'
 import json, os
-task_dir = '{TASK_DIR}'
+task_dir = '<메시지에서 받은 TASK_DIR 절대경로>'  # ⚠️ 반드시 메시지에서 받은 실제 경로 사용. os.environ 사용 금지.
 f = os.path.join(task_dir, 'state.json')
 with open(f) as fp: s = json.load(fp)
 s['verification']['rounds_passed'] = 0
+s['workflow_phase'] = 'development'
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-print("rounds_passed = 0 (리셋)")
+print("rounds_passed = 0 (리셋), workflow_phase → development")
 PYEOF
 ```
 

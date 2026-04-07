@@ -23,9 +23,8 @@ cat {TASK_DIR}/state.json
 cat {TASK_DIR}/phase-N-*/phase.md  # 현재 Phase 파악
 ```
 
-`steps.N.test_defined`가 `false`이면 **구현 금지**. QA의 테스트 정의를 기다린다.
-
-(plan-gate.sh가 Write/Edit을 차단하므로, 테스트 미정의 상태에서 코드 수정은 hook에 의해 차단된다.)
+현재 Step의 step-M.md에 TC(테스트 정의)가 작성되기 전까지 **구현 금지**.
+plan-gate.sh가 TC 없는 상태에서 Write/Edit을 자동 차단한다.
 
 ### 구현 원칙
 
@@ -46,23 +45,24 @@ cat {TASK_DIR}/phase-N-*/phase.md  # 현재 Phase 파악
 
 ### Step 문서화 (구현 완료 후 필수)
 
-`{TASK_DIR}/phase-N-<name>/step-M.md`의 "구현 내용", "변경 파일", "빌드" 섹션 업데이트:
+Write 도구로 `{TASK_DIR}/phase-N-<name>/step-M.md`의 `## 구현 내용` 섹션을 직접 업데이트:
 
-```bash
-python3 << 'PYEOF'
-# step-M.md의 해당 섹션 업데이트
-# 구현 내용, 변경 파일, 빌드 결과를 TC 섹션 아래에 추가
-PYEOF
-```
+- 변경한 파일 목록 (파일 경로 명시)
+- 각 파일에서 변경한 내용 요약 (함수명, 변경 이유)
+- 빌드 명령어와 결과
 
 ### 커밋
 
-`~/.claude/rules/git-rules.md` 규칙을 따른다.
+커밋은 commit_strategy에 따라 Main Claude/Lead가 처리한다. Dev는 커밋하지 않는다.
 
-**Step 구현 완료 = 즉시 커밋 + 푸시.** 커밋 없이 완료 보고로 넘어가지 않는다.
+- `per-step`: 이 Step 완료 후 Main Claude가 커밋
+- `per-phase`: Phase 마지막 Step 완료 후 Main Claude가 커밋
+- `none`: 커밋 스킵
+
+`[STEP:N:개발완료]` 보고 후 대기한다.
 
 ## 하지 말 것
-- test_defined = false 상태에서 코드 수정 금지.
+- step-M.md에 TC 정의 전 코드 수정 금지 (plan-gate.sh가 자동 차단).
 - 빌드 실패 상태로 완료 보고 금지.
 - Lead 지시 범위 밖 구현 금지.
 - 빌드 결과 없이 `[STEP:N:개발완료]` 출력 금지.
