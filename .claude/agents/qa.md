@@ -40,9 +40,7 @@ Lead가 생성한 `{TASK_DIR}/phase-N-<name>/step-M.md`의 TC 테이블을 채�
 
 `[STEP:N:테스트정의완료]` 출력 후 Lead에게 보고.
 
-### 커밋
-
-테스트 정의 완료 후 즉시 커밋 + 푸시 (`~/.claude/rules/git-rules.md` 준수).
+커밋은 Main Claude/Lead가 commit_strategy에 따라 처리한다. QA는 커밋하지 않는다.
 
 ---
 
@@ -80,9 +78,10 @@ state.json `current_step` 증가:
 
 ```bash
 python3 << 'PYEOF'
-import json, os
-task_dir = os.environ.get('TASK_DIR', '.ai-bouncer-tasks/current')
-f = os.path.join(task_dir, 'state.json')
+import json
+# ⚠️ TASK_DIR는 반드시 메시지에서 받은 실제 경로를 사용한다. os.environ 사용 금지.
+task_dir = '<메시지에서 받은 TASK_DIR 절대경로>'
+f = task_dir + '/state.json'
 with open(f) as fp: s = json.load(fp)
 s['current_step'] = s['current_step'] + 1
 with open(f, 'w') as fp: json.dump(s, fp, indent=2)
@@ -116,3 +115,5 @@ verifier의 요청 시:
 - 실행 결과 없이 `[STEP:N:테스트통과]` 출력 금지.
 - step-M.md TC 실제 결과 업데이트 없이 통과 보고 금지.
 - state.json 대신 대화 기억에 의존 금지.
+- "사용자가 앱 재시작 후 확인", "직접 열어서 확인" 등 수동 검증 TC 작성 금지 — QA가 직접 명령어로 검증할 수 없으면 TC로 인정 안 됨.
+- 수동 검증이 필요하다고 판단되면 자동화 가능한 단위 테스트로 분리하거나 Lead에게 보고. 사용자에게 직접 확인 요청 금지.
