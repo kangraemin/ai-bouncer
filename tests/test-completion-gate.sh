@@ -133,13 +133,13 @@ tc_c4() {
 }
 
 # ---------------------------------------------------------------------------
-# TC-C5: non-verification phase → ALLOW
+# TC-C5: development + mode 미설정(simple 기본값) → ALLOW
 # ---------------------------------------------------------------------------
 tc_c5() {
   local dir="$TMPDIR_ROOT/tc_c5"
   setup_env "$dir" "my-task" "development" "true"
   local out; out=$(run_hook "$dir")
-  assert_allow "TC-C5: non-verification phase → ALLOW" "$out"
+  assert_allow "TC-C5: development + simple 모드(기본값) → ALLOW" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -176,6 +176,133 @@ with open(f, 'w') as fp: json.dump(s, fp, indent=2)
 "
   local out; out=$(run_hook "$dir")
   assert_allow "TC-C7: normal + development + 완료된 phase → ALLOW" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD1: normal + development + phase 디렉토리 없음 → BLOCK
+# ---------------------------------------------------------------------------
+tc_cd1() {
+  local dir="$TMPDIR_ROOT/tc_cd1"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['current_dev_phase'] = 1
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  # phase-1 디렉토리 생성 안 함
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-CD1: normal + development + phase 디렉토리 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD2: normal + development + step 파일에 ✅ 없음 → BLOCK
+# ---------------------------------------------------------------------------
+tc_cd2() {
+  local dir="$TMPDIR_ROOT/tc_cd2"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['current_dev_phase'] = 1
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task/phase-1"
+  echo "# Step 1\n미완료" > "$dir/.ai-bouncer-tasks/my-task/phase-1/step-1.md"
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-CD2: normal + development + step ✅ 없음 → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD3: normal + development + 모든 step ✅ + current_dev_phase ≤ count → BLOCK (verification 전환 안내)
+# ---------------------------------------------------------------------------
+tc_cd3() {
+  local dir="$TMPDIR_ROOT/tc_cd3"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['current_dev_phase'] = 1
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task/phase-1"
+  echo "# Step 1\n완료 ✅" > "$dir/.ai-bouncer-tasks/my-task/phase-1/step-1.md"
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-CD3: normal + development + 모든 step ✅ + current_dev_phase≤count → BLOCK" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD4: normal + development + 모든 step ✅ + current_dev_phase > count → ALLOW
+# ---------------------------------------------------------------------------
+tc_cd4() {
+  local dir="$TMPDIR_ROOT/tc_cd4"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['current_dev_phase'] = 2  # count(1) 초과 → 모든 phase 완료
+s['dev_phases'] = {'1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1}}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task/phase-1"
+  echo "# Step 1\n완료 ✅" > "$dir/.ai-bouncer-tasks/my-task/phase-1/step-1.md"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-CD4: normal + development + 모든 step ✅ + current_dev_phase>count → ALLOW" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD5: normal + development + dev_phases 없음(빈 객체) → ALLOW
+# ---------------------------------------------------------------------------
+tc_cd5() {
+  local dir="$TMPDIR_ROOT/tc_cd5"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['dev_phases'] = {}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  local out; out=$(run_hook "$dir")
+  assert_allow "TC-CD5: normal + development + dev_phases 없음 → ALLOW" "$out"
+}
+
+# ---------------------------------------------------------------------------
+# TC-CD6: normal + development + 2개 phase 중 phase-2 step ✅ 없음 → BLOCK
+# ---------------------------------------------------------------------------
+tc_cd6() {
+  local dir="$TMPDIR_ROOT/tc_cd6"
+  setup_env "$dir" "my-task" "development" "true"
+  python3 -c "
+import json
+f = '$dir/.ai-bouncer-tasks/my-task/state.json'
+with open(f) as fp: s = json.load(fp)
+s['mode'] = 'normal'
+s['current_dev_phase'] = 2
+s['dev_phases'] = {
+  '1': {'name': 'p1', 'folder': 'phase-1', 'steps': 1},
+  '2': {'name': 'p2', 'folder': 'phase-2', 'steps': 1}
+}
+with open(f, 'w') as fp: json.dump(s, fp, indent=2)
+"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task/phase-1"
+  echo "# Step 1\n완료 ✅" > "$dir/.ai-bouncer-tasks/my-task/phase-1/step-1.md"
+  mkdir -p "$dir/.ai-bouncer-tasks/my-task/phase-2"
+  echo "# Step 1\n미완료" > "$dir/.ai-bouncer-tasks/my-task/phase-2/step-1.md"
+  local out; out=$(run_hook "$dir")
+  assert_block "TC-CD6: normal + development + phase-2 미완료 → BLOCK" "$out"
 }
 
 # ---------------------------------------------------------------------------
@@ -242,6 +369,7 @@ echo -e "${YELLOW}=== completion-gate.sh E2E Tests (Artifact-based) ===${NC}"
 echo ""
 
 tc_c1; tc_c2; tc_c3; tc_c4; tc_c5; tc_c6; tc_c7
+tc_cd1; tc_cd2; tc_cd3; tc_cd4; tc_cd5; tc_cd6
 tc_cs1; tc_cs2; tc_cs3; tc_cs4
 
 echo ""

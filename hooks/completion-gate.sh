@@ -26,12 +26,70 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 
-# cancelled/done/development 상태 → 통과
-# development: plan-gate가 step 단위 강제, context restore가 재개 담당
-# 어떤 모드/팀 구성이든 development에서는 block하지 않음 (다른 stop hook과 충돌 방지)
+# cancelled/done/planning/pending 상태 → 통과
+# development는 별도 체크 (NORMAL 모드에서 step ✅ 완료 여부 확인)
 case "$WORKFLOW_PHASE" in
-  cancelled|done|development|planning|pending) exit 0 ;;
+  cancelled|done|planning|pending) exit 0 ;;
 esac
+
+# development 상태에서 NORMAL 모드: 모든 phase/step ✅ 체크
+if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
+  MODE=$(jq -r '.mode // "simple"' "$STATE_FILE" 2>/dev/null)
+  if [ "$MODE" = "normal" ]; then
+    PHASE_COUNT=$(jq 'if .dev_phases | type == "object" then .dev_phases | keys | length else 0 end' "$STATE_FILE" 2>/dev/null || echo 0)
+    if [ "$PHASE_COUNT" -gt 0 ]; then
+      ALL_DONE=true
+      BLOCK_REASON=""
+
+      for i in $(seq 1 "$PHASE_COUNT"); do
+        PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$i")
+        PHASE_PATH="${TASK_DIR}/${PHASE_FOLDER}"
+
+        if [ ! -d "$PHASE_PATH" ]; then
+          ALL_DONE=false
+          BLOCK_REASON="Phase ${i} (${PHASE_FOLDER}) 디렉토리가 없습니다"
+          break
+        fi
+
+        STEP_FILES=$(ls "${PHASE_PATH}"/step-*.md 2>/dev/null)
+        if [ -z "$STEP_FILES" ]; then
+          ALL_DONE=false
+          BLOCK_REASON="Phase ${i} (${PHASE_FOLDER}) step 파일이 없습니다"
+          break
+        fi
+
+        for step_file in $STEP_FILES; do
+          if ! grep -q "✅" "$step_file" 2>/dev/null; then
+            ALL_DONE=false
+            STEP_NAME=$(basename "$step_file")
+            BLOCK_REASON="Phase ${i} / ${STEP_NAME} 미완료 (✅ 없음)"
+            break 2
+          fi
+        done
+      done
+
+      if [ "$ALL_DONE" = "false" ]; then
+        jq -n --arg reason "$BLOCK_REASON" --arg task "$TASK_NAME" '{
+          decision: "block",
+          reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+        }'
+        exit 0
+      fi
+
+      # 모든 step ✅ 완료 — verification 전환 필요 여부 확인
+      CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 1' "$STATE_FILE" 2>/dev/null)
+      if [ "$CURRENT_DEV_PHASE" -le "$PHASE_COUNT" ]; then
+        jq -n --arg task "$TASK_NAME" '{
+          decision: "block",
+          reason: ("모든 Phase/Step이 완료되었습니다. [" + $task + "] state.json의 workflow_phase를 \"verification\"으로 전환하고 verifier 에이전트를 실행하세요.")
+        }'
+        exit 0
+      fi
+    fi
+  fi
+  # SIMPLE 모드 또는 dev_phases 없음 → 통과
+  exit 0
+fi
 
 # 검증 단계에서만 체크 (NORMAL 모드)
 if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
