@@ -31,10 +31,8 @@ if [ -n "$SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
 fi
 
 # .active 파일 스캔: base 디렉토리 아래 */.active 찾아 session_id 매칭
-# no_pending=1 이면 PENDING claim 없이 SESSION_ID 매칭만 수행
 _resolve_from_base() {
   local base="$1"
-  local no_pending="${2:-0}"
   [ -d "$base" ] || return 1
 
   local found_unclaimed_task=""
@@ -66,28 +64,16 @@ _resolve_from_base() {
     fi
 
     # 다른 세션의 태스크: session_id 불일치 시 skip (삭제 금지)
-    # /clear 후 session_id가 바뀌어도 .active를 임의로 삭제하지 않는다.
-    # 태스크 생애주기는 Context Restore + 사용자 상호작용이 담당.
     if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ] && [ "$stored_sid" != "PENDING" ]; then
       continue
     fi
 
-    # 미클레임 태스크 (PENDING 마커) 기록 — 가장 최근 수정된 것을 선택
-    # 빈 .active는 레거시/stale로 간주하여 claim 안 함 — 다른 세션이 stealing하는 버그 방지
-    if [ "$stored_sid" = "PENDING" ] && [ "$no_pending" = "0" ]; then
-      if [ -z "$found_unclaimed_task" ]; then
-        found_unclaimed_task="$task_folder"
-        found_unclaimed_base="$base"
-      else
-        # 더 최근에 수정된 .active를 우선 (같은 날짜 폴더에 PENDING 여러 개일 때)
-        local cur_time new_time
-        cur_time=$(stat -f %m "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null || stat -c %Y "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null || echo 0)
-        new_time=$(stat -f %m "${base}/${task_folder}/.active" 2>/dev/null || stat -c %Y "${base}/${task_folder}/.active" 2>/dev/null || echo 0)
-        if [ "$new_time" -gt "$cur_time" ] 2>/dev/null; then
-          found_unclaimed_task="$task_folder"
-          found_unclaimed_base="$base"
-        fi
-      fi
+    # 미클레임 태스크 (PENDING 마커) 기록
+    # bash-gate+bash-audit hook 연계로 task 생성 즉시 SESSION_ID로 교체되므로
+    # 정상 흐름에서는 PENDING이 여기까지 오지 않음 (fallback용)
+    if [ "$stored_sid" = "PENDING" ] && [ -z "$found_unclaimed_task" ]; then
+      found_unclaimed_task="$task_folder"
+      found_unclaimed_base="$base"
     fi
   done
 
@@ -103,26 +89,13 @@ _resolve_from_base() {
 }
 
 # 날짜별 구조 스캔: .ai-bouncer-tasks/YYYY-MM-DD/ 하위 각 디렉토리에서 _resolve_from_base 호출
-# 2-pass: SESSION_ID 매칭 전체 먼저(최신→구버), 그 다음 PENDING claim(최신만)
-# → 오래된 PENDING 태스크가 현재 세션의 신규 태스크를 가로채는 버그 방지
 _resolve_date_dirs() {
   local root="$1"
   [ -d "$root" ] || return 1
 
-  # 날짜 디렉토리 목록 (최신 먼저)
-  local date_dirs
-  mapfile -t date_dirs < <(ls -1d "$root"/*/ 2>/dev/null | sort -r)
-
-  # Pass 1: SESSION_ID 매칭만 (PENDING claim 없음)
-  for date_dir in "${date_dirs[@]}"; do
+  for date_dir in "$root"/*/; do
     [ -d "$date_dir" ] || continue
-    _resolve_from_base "$date_dir" 1 && return 0
-  done
-
-  # Pass 2: SESSION_ID 매칭 실패 → 최신 날짜에서 PENDING claim
-  for date_dir in "${date_dirs[@]}"; do
-    [ -d "$date_dir" ] || continue
-    _resolve_from_base "$date_dir" 0 && return 0
+    _resolve_from_base "$date_dir" && return 0
   done
 
   return 1

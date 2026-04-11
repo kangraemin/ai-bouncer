@@ -12,6 +12,24 @@ TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
 # 세션 격리: session_id 추출 (bash-gate.sh와 동일 경로 사용)
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+
+# PENDING CLAIM: bash-gate.sh가 신호를 남겼으면 PENDING .active를 SESSION_ID로 교체
+# task 생성 즉시 SESSION_ID claim → 다른 세션이 PENDING을 가로채는 버그 방지
+PENDING_CLAIM_FILE="/tmp/.ai-bouncer-pending-claim-${SESSION_ID:-}"
+if [ -n "$SESSION_ID" ] && [ -f "$PENDING_CLAIM_FILE" ]; then
+  REPO_ROOT_PC=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+  for af in "$REPO_ROOT_PC"/.ai-bouncer-tasks/*/*/.active \
+             "$HOME/.claude/ai-bouncer/sessions/"*/.ai-bouncer-tasks/*/.active; do
+    [ -f "$af" ] || continue
+    stored_pc=$(cat "$af" 2>/dev/null | tr -d '[:space:]')
+    [ "$stored_pc" = "PENDING" ] || continue
+    [ -f "$(dirname "$af")/state.json" ] || continue
+    echo "$SESSION_ID" > "$af"
+    break
+  done
+  rm -f "$PENDING_CLAIM_FILE"
+fi
+
 SNAPSHOT_FILE="/tmp/.ai-bouncer-snapshot-${SESSION_ID:-default}"
 
 # 스냅샷 없으면 → gate 비활성 판단 (bash-gate가 스냅샷 미생성) → 스킵

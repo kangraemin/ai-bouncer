@@ -620,6 +620,16 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 fi
 
 # 모든 검증 통과 — 스냅샷 불필요 (gate 조건 충족)
+
+# PENDING CLAIM SIGNAL: task 생성 명령 감지 → SESSION_ID를 temp 파일로 전달
+# bash-audit.sh(PostToolUse)가 이 신호를 받아 .active를 SESSION_ID로 즉시 교체
+# 다중 세션 안전: SESSION_ID로 키잉된 파일이라 세션 간 충돌 없음
+if [ -n "$SESSION_ID" ]; then
+  if echo "$CMD" | grep -q '\.active' && echo "$CMD" | grep -q 'PENDING'; then
+    echo "$SESSION_ID" > "/tmp/.ai-bouncer-pending-claim-${SESSION_ID}"
+  fi
+fi
+
 # --- ai-bouncer end ---
 
 exit 0
