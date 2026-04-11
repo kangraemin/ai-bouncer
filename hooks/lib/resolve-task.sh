@@ -77,14 +77,23 @@ _resolve_from_base() {
     fi
   done
 
-  # 매칭 실패 + 미클레임 태스크 있음 → claim
+  # 매칭 실패 + 미클레임 태스크 있음 → atomic claim (mkdir 락 — POSIX atomic, bash 3.2 호환)
   if [ -n "$found_unclaimed_task" ] && [ -n "$SESSION_ID" ]; then
-    echo "$SESSION_ID" > "${found_unclaimed_base}/${found_unclaimed_task}/.active"
-    TASK_NAME="$found_unclaimed_task"
-    DOCS_BASE="$found_unclaimed_base"
-    return 0
+    _CLAIM_LOCK="/tmp/.ai-bouncer-claim-$(echo "${found_unclaimed_base}/${found_unclaimed_task}" | tr '/' '-')"
+    if mkdir "$_CLAIM_LOCK" 2>/dev/null; then
+      # 락 획득 — 재확인 후 claim (double-check: 다른 세션이 먼저 썼을 경우 포기)
+      _re_check=$(cat "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null | tr -d '[:space:]')
+      if [ "$_re_check" = "PENDING" ]; then
+        echo "$SESSION_ID" > "${found_unclaimed_base}/${found_unclaimed_task}/.active"
+        TASK_NAME="$found_unclaimed_task"
+        DOCS_BASE="$found_unclaimed_base"
+      fi
+      rmdir "$_CLAIM_LOCK" 2>/dev/null
+    fi
+    # 락 실패 또는 double-check 실패 = 다른 세션이 이미 claim → TASK_NAME 미설정
   fi
 
+  [ -n "$TASK_NAME" ] && return 0
   return 1
 }
 

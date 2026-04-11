@@ -1324,6 +1324,61 @@ assert_block "PG-TASK-10: plan_approved=false + Write state.json(development) �
 rm -rf "$INSTALL_REPO/.ai-bouncer-tasks/2099-01-01" "$INSTALL_REPO/src"
 
 echo ""
+echo "─── 다중 세션 시나리오 ──────────────────────"
+
+# MS-1: 다른 세션의 task가 있을 때 현재 세션 bash-gate 통과
+MS_OTHER_SID="other-session-$(date +%s)"
+MS_OTHER_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/other-session-task"
+mkdir -p "$MS_OTHER_TASK"
+python3 -c "
+import json
+s = {'workflow_phase': 'development', 'mode': 'simple', 'plan_approved': True,
+     'team_name': '', 'current_dev_phase': 0, 'current_step': 0, 'dev_phases': {},
+     'verification': {'rounds_passed': 0}}
+open('$MS_OTHER_TASK/state.json', 'w').write(json.dumps(s, indent=2))
+"
+echo "$MS_OTHER_SID" > "$MS_OTHER_TASK/.active"
+# 현재 세션(TEST_SID)에는 task 없음 — .active 제거
+rm -f "$ACTIVE_FILE"
+MS1_INPUT=$(jq -n --arg sid "$TEST_SID" '{tool_name:"Bash",tool_input:{command:"ls"},session_id:$sid}')
+R=$(run_hook bash-gate.sh "$MS1_INPUT")
+assert_pass "MS-1: 다른 세션 task 있을 때 현재 세션 bash-gate 통과" "$R"
+# 복구
+echo "$TEST_SID" > "$ACTIVE_FILE"
+rm -rf "$MS_OTHER_TASK"
+
+# MS-2: PENDING claim atomic — 두 세션 중 하나만 claim 성공
+MS_PENDING_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/pending-claim-test"
+mkdir -p "$MS_PENDING_TASK"
+python3 -c "
+import json
+s = {'workflow_phase': 'planning', 'mode': 'pending', 'plan_approved': False,
+     'team_name': '', 'current_dev_phase': 0, 'current_step': 0, 'dev_phases': {},
+     'verification': {'rounds_passed': 0}}
+open('$MS_PENDING_TASK/state.json', 'w').write(json.dumps(s, indent=2))
+"
+echo "PENDING" > "$MS_PENDING_TASK/.active"
+MS_SID_A="ms-session-a-$(date +%s)"
+MS_SID_B="ms-session-b-$(date +%s)"
+# 두 세션이 연속으로 resolve-task 실행 (실제 레이스를 직렬로 시뮬레이션)
+(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_A" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
+(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_B" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
+MS2_FINAL=$(cat "$MS_PENDING_TASK/.active" 2>/dev/null | tr -d '[:space:]')
+if [ "$MS2_FINAL" = "$MS_SID_A" ] || [ "$MS2_FINAL" = "$MS_SID_B" ]; then
+  if [ "$MS2_FINAL" != "PENDING" ]; then
+    echo "  ✅ MS-2: PENDING claim — 단일 세션($MS2_FINAL)이 claim 성공"
+    PASS=$((PASS + 1))
+  else
+    echo "  ❌ MS-2: PENDING claim — 여전히 PENDING (claim 실패)"
+    FAIL=$((FAIL + 1))
+  fi
+else
+  echo "  ❌ MS-2: PENDING claim — 예상 외 값: $MS2_FINAL"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$MS_PENDING_TASK"
+
+echo ""
 
 # ─── 정리 ─────────────────────────────────
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot-*
