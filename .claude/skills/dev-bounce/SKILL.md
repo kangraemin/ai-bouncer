@@ -138,8 +138,8 @@ print(json.dumps(results, ensure_ascii=False))
 
 사용자가 선택하면:
 - **번호 선택**: 선택한 task_dir에 `.active` 파일을 `PENDING` 마커로 재생성 + `state.json`의 `workflow_phase`부터 재개.
-  나머지 incomplete 태스크는 모두 `workflow_phase = "cancelled"` 처리 (재등장 방지).
-- **"새로" 선택**: 모든 incomplete 태스크의 `workflow_phase = "cancelled"` 처리 → Case C 진행.
+  나머지 incomplete 태스크는 그대로 둔다 (다른 세션이 병렬 작업 중일 수 있음).
+- **"새로" 선택**: cancel 없이 그냥 Case C 진행. 다른 incomplete 태스크는 건드리지 않는다.
 
 **Case C: `active`도 `incomplete`도 없음**
 → 새 작업 시작. **즉시 Phase 0-A (TASK_DIR 초기화)** 진행.
