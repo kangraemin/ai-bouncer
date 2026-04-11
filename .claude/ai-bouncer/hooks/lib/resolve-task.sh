@@ -72,11 +72,22 @@ _resolve_from_base() {
       continue
     fi
 
-    # 미클레임 태스크 (PENDING 마커) 기록
+    # 미클레임 태스크 (PENDING 마커) 기록 — 가장 최근 수정된 것을 선택
     # 빈 .active는 레거시/stale로 간주하여 claim 안 함 — 다른 세션이 stealing하는 버그 방지
-    if [ "$stored_sid" = "PENDING" ] && [ -z "$found_unclaimed_task" ] && [ "$no_pending" = "0" ]; then
-      found_unclaimed_task="$task_folder"
-      found_unclaimed_base="$base"
+    if [ "$stored_sid" = "PENDING" ] && [ "$no_pending" = "0" ]; then
+      if [ -z "$found_unclaimed_task" ]; then
+        found_unclaimed_task="$task_folder"
+        found_unclaimed_base="$base"
+      else
+        # 더 최근에 수정된 .active를 우선 (같은 날짜 폴더에 PENDING 여러 개일 때)
+        local cur_time new_time
+        cur_time=$(stat -f %m "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null || stat -c %Y "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null || echo 0)
+        new_time=$(stat -f %m "${base}/${task_folder}/.active" 2>/dev/null || stat -c %Y "${base}/${task_folder}/.active" 2>/dev/null || echo 0)
+        if [ "$new_time" -gt "$cur_time" ] 2>/dev/null; then
+          found_unclaimed_task="$task_folder"
+          found_unclaimed_base="$base"
+        fi
+      fi
     fi
   done
 
