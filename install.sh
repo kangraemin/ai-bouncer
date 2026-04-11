@@ -776,8 +776,12 @@ END   = "# --- ai-bouncer-rule end ---"
 
 block = """\
 # --- ai-bouncer-rule start ---
-## ai-bouncer
-코드 수정 / 기능 구현 / 파일 변경 / 버그 수정 등 개발 작업 시 반드시 `/dev-bounce` 스킬을 먼저 호출할 것.
+## ai-bouncer 필수 규칙
+
+**절대 금지**: `/dev-bounce` 스킬 호출 없이 Edit / Write / Bash로 소스 파일을 수정하는 것.
+
+- 코드 수정 / 기능 구현 / 버그 수정 / 파일 변경 등 **모든 개발 작업** 전에 반드시 `Skill("dev-bounce")`를 호출한다.
+- 사용자 메시지에 `/dev-bounce`가 포함되어 있으면 **가장 먼저** Skill 도구로 실행한다. 다른 어떤 행동보다 우선.
 # --- ai-bouncer-rule end ---"""
 
 if os.path.exists(claude_file):
