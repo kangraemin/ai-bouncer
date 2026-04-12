@@ -1352,60 +1352,177 @@ assert_pass "MS-1: 다른 세션 task 있을 때 현재 세션 bash-gate 통과"
 echo "$TEST_SID" > "$ACTIVE_FILE"
 rm -rf "$MS_OTHER_TASK"
 
-# MS-2: PENDING claim — temp 파일 있는 세션만 claim 성공
-MS_PENDING_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/pending-claim-test"
-mkdir -p "$MS_PENDING_TASK"
-python3 -c "
-import json
-s = {'workflow_phase': 'planning', 'mode': 'pending', 'plan_approved': False,
-     'team_name': '', 'current_dev_phase': 0, 'current_step': 0, 'dev_phases': {},
-     'verification': {'rounds_passed': 0}}
-open('$MS_PENDING_TASK/state.json', 'w').write(json.dumps(s, indent=2))
-"
-echo "PENDING" > "$MS_PENDING_TASK/.active"
-MS_SID_A="ms-session-a-$(date +%s)"
-MS_SID_B="ms-session-b-$(date +%s)"
-# SID_A는 pending-claim temp 파일 있음 (task 생성 세션), SID_B는 없음 (다른 세션)
-touch "/tmp/.ai-bouncer-pending-claim-${MS_SID_A}"
-(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_A" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
-(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_B" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
-MS2_FINAL=$(cat "$MS_PENDING_TASK/.active" 2>/dev/null | tr -d '[:space:]')
-if [ "$MS2_FINAL" = "$MS_SID_A" ]; then
-  echo "  ✅ MS-2: PENDING claim — temp 파일 있는 세션($MS_SID_A)이 claim 성공"
-  PASS=$((PASS + 1))
-elif [ "$MS2_FINAL" = "PENDING" ]; then
-  echo "  ❌ MS-2: PENDING claim — claim 실패 (여전히 PENDING)"
-  FAIL=$((FAIL + 1))
-else
-  echo "  ❌ MS-2: PENDING claim — 예상 외 값: $MS2_FINAL"
-  FAIL=$((FAIL + 1))
-fi
-rm -f "/tmp/.ai-bouncer-pending-claim-${MS_SID_A}"
-rm -rf "$MS_PENDING_TASK"
+echo ""
+echo "─── SESSION_ID 직접 기록 / 빈 .active 동작 ────────────────────"
 
-# MS-3: PENDING claim — temp 파일 없는 세션은 claim 못 함 (다른 세션 task 강탈 방지)
-MS3_PENDING_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/pending-claim-test2"
-mkdir -p "$MS3_PENDING_TASK"
-python3 -c "
-import json
-s = {'workflow_phase': 'planning', 'mode': 'pending', 'plan_approved': False,
-     'team_name': '', 'current_dev_phase': 0, 'current_step': 0, 'dev_phases': {},
-     'verification': {'rounds_passed': 0}}
-open('$MS3_PENDING_TASK/state.json', 'w').write(json.dumps(s, indent=2))
-"
-echo "PENDING" > "$MS3_PENDING_TASK/.active"
-MS3_SID="ms-session-c-$(date +%s)"
-# temp 파일 없음 — 다른 세션이 만든 task
-(cd "$INSTALL_REPO" && SESSION_ID="$MS3_SID" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
-MS3_FINAL=$(cat "$MS3_PENDING_TASK/.active" 2>/dev/null | tr -d '[:space:]')
-if [ "$MS3_FINAL" = "PENDING" ]; then
-  echo "  ✅ MS-3: PENDING no-claim — temp 파일 없는 세션은 claim 안 함"
+# MS-NEW-1: doc-reminder — .active Write 즉시 SESSION_ID 기록
+_active_new="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/sid-write-test/.active"
+mkdir -p "$(dirname "$_active_new")"
+python3 -c "import json; open('$(dirname "$_active_new")/state.json','w').write(json.dumps({'workflow_phase':'planning','mode':'pending','plan_approved':False,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}}))"
+echo "" > "$_active_new"
+MS_NEW1_SID="ms-new1-$(date +%s)"
+R=$(run_hook doc-reminder.sh "$(jq -n --arg sid "$MS_NEW1_SID" --arg fp "$_active_new" '{tool_name:"Write",tool_input:{file_path:$fp},session_id:$sid}')")
+MS_NEW1_CONTENT=$(cat "$_active_new" 2>/dev/null | tr -d '[:space:]')
+if [ "$MS_NEW1_CONTENT" = "$MS_NEW1_SID" ]; then
+  echo "  ✅ MS-NEW-1: doc-reminder Write .active → SESSION_ID 즉시 기록"
   PASS=$((PASS + 1))
 else
-  echo "  ❌ MS-3: PENDING no-claim — 예상 외 claim: $MS3_FINAL"
+  echo "  ❌ MS-NEW-1: .active에 SESSION_ID 없음 (got: $MS_NEW1_CONTENT)"
   FAIL=$((FAIL + 1))
 fi
-rm -rf "$MS3_PENDING_TASK"
+rm -rf "$(dirname "$_active_new")"
+
+# MS-NEW-2: doc-reminder — SESSION_ID 이미 다른 .active에 있으면 중복 기록 안 함
+_dup_task_a="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/dup-check-a"
+_dup_task_b="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/dup-check-b"
+mkdir -p "$_dup_task_a" "$_dup_task_b"
+MS_DUP_SID="ms-dup-$(date +%s)"
+echo "$MS_DUP_SID" > "$_dup_task_a/.active"
+echo "" > "$_dup_task_b/.active"
+python3 -c "import json; [open(f'{d}/state.json','w').write(json.dumps({'workflow_phase':'planning','mode':'pending','plan_approved':False,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}})) for d in ['$_dup_task_a','$_dup_task_b']]"
+R=$(run_hook doc-reminder.sh "$(jq -n --arg sid "$MS_DUP_SID" --arg fp "$_dup_task_b/.active" '{tool_name:"Write",tool_input:{file_path:$fp},session_id:$sid}')")
+MS_NEW2_CONTENT=$(cat "$_dup_task_b/.active" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$MS_NEW2_CONTENT" ]; then
+  echo "  ✅ MS-NEW-2: doc-reminder 중복 SESSION_ID → 쓰기 안 함"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-2: 중복임에도 .active에 SESSION_ID 기록됨 (got: $MS_NEW2_CONTENT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_dup_task_a" "$_dup_task_b"
+
+# MS-NEW-3: doc-reminder — SESSION_ID 없으면 .active 쓰지 않음
+_no_sid_task="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/no-sid-test"
+mkdir -p "$_no_sid_task"
+echo "" > "$_no_sid_task/.active"
+python3 -c "import json; open('$_no_sid_task/state.json','w').write(json.dumps({'workflow_phase':'planning','mode':'pending','plan_approved':False,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}}))"
+R=$(run_hook doc-reminder.sh "$(jq -n --arg fp "$_no_sid_task/.active" '{tool_name:"Write",tool_input:{file_path:$fp},session_id:""}')")
+MS_NEW3_CONTENT=$(cat "$_no_sid_task/.active" 2>/dev/null | tr -d '[:space:]')
+if [ -z "$MS_NEW3_CONTENT" ]; then
+  echo "  ✅ MS-NEW-3: doc-reminder SESSION_ID 없음 → .active 유지"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-3: SESSION_ID 없는데 .active에 뭔가 기록됨 (got: $MS_NEW3_CONTENT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_no_sid_task"
+
+# MS-NEW-4: resolve-task.sh — 빈 .active는 어느 세션에도 매칭 안 됨
+_empty_active_task="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/empty-active-test"
+mkdir -p "$_empty_active_task"
+echo "" > "$_empty_active_task/.active"
+python3 -c "import json; open('$_empty_active_task/state.json','w').write(json.dumps({'workflow_phase':'development','mode':'simple','plan_approved':True,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}}))"
+MS_NEW4_SID="ms-new4-$(date +%s)"
+MS_NEW4_TASK=$(cd "$INSTALL_REPO" && SESSION_ID="$MS_NEW4_SID" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh; echo "$TASK_NAME"' 2>/dev/null)
+if [ -z "$MS_NEW4_TASK" ]; then
+  echo "  ✅ MS-NEW-4: 빈 .active → 어느 세션에도 매칭 안 됨"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-4: 빈 .active가 session에 매칭됨 (got: $MS_NEW4_TASK)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_empty_active_task"
+
+# MS-NEW-5: resolve-task.sh — 두 task, 각 SESSION_ID로 올바르게 분리 매칭
+_task_a5="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/multi-resolve-a"
+_task_b5="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/multi-resolve-b"
+mkdir -p "$_task_a5" "$_task_b5"
+MS_SID_A5="ms5-sid-a-$(date +%s)"
+MS_SID_B5="ms5-sid-b-$(($(date +%s) + 1))"
+echo "$MS_SID_A5" > "$_task_a5/.active"
+echo "$MS_SID_B5" > "$_task_b5/.active"
+python3 -c "import json; [open(f'{d}/state.json','w').write(json.dumps({'workflow_phase':'development','mode':'simple','plan_approved':True,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}})) for d in ['$_task_a5','$_task_b5']]"
+MS5_RESULT_A=$(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_A5" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh; echo "$TASK_NAME"' 2>/dev/null)
+MS5_RESULT_B=$(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_B5" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh; echo "$TASK_NAME"' 2>/dev/null)
+if [ "$MS5_RESULT_A" = "multi-resolve-a" ] && [ "$MS5_RESULT_B" = "multi-resolve-b" ]; then
+  echo "  ✅ MS-NEW-5: 두 task 각 SESSION_ID로 올바르게 분리 resolve"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-5: resolve 오류 (A=$MS5_RESULT_A, B=$MS5_RESULT_B)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_task_a5" "$_task_b5"
+
+# MS-NEW-6: resolve-task.sh — 빈 .active task와 유효 task 공존 시 유효 task만 매칭
+_valid_task6="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/coexist-valid"
+_empty_task6="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/coexist-empty"
+mkdir -p "$_valid_task6" "$_empty_task6"
+MS_SID6="ms6-sid-$(date +%s)"
+echo "$MS_SID6" > "$_valid_task6/.active"
+echo "" > "$_empty_task6/.active"
+python3 -c "import json; [open(f'{d}/state.json','w').write(json.dumps({'workflow_phase':'development','mode':'simple','plan_approved':True,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}})) for d in ['$_valid_task6','$_empty_task6']]"
+MS6_RESULT=$(cd "$INSTALL_REPO" && SESSION_ID="$MS_SID6" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh; echo "$TASK_NAME"' 2>/dev/null)
+if [ "$MS6_RESULT" = "coexist-valid" ]; then
+  echo "  ✅ MS-NEW-6: 빈 .active task와 공존 시 유효 task만 매칭"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-6: 잘못된 task 매칭 (got: $MS6_RESULT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_valid_task6" "$_empty_task6"
+
+# MS-NEW-7: bash-gate — .active 쓰기 명령 EXCEPTION 통과 (기존 동작 유지)
+_task7="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/bash-gate-active-test"
+mkdir -p "$_task7"
+python3 -c "import json; open('$_task7/state.json','w').write(json.dumps({'workflow_phase':'planning','mode':'pending','plan_approved':False,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}}))"
+echo "" > "$_task7/.active"
+MS7_CMD="python3 -c \"open('$_task7/.active', 'w').write('')\""
+R=$(run_hook bash-gate.sh "$(jq -n --arg sid "$TEST_SID" --arg cmd "$MS7_CMD" '{tool_name:"Bash",tool_input:{command:$cmd},session_id:$sid}')")
+assert_pass "MS-NEW-7: bash-gate .active 쓰기 명령 EXCEPTION 통과" "$R"
+rm -rf "$_task7"
+
+# MS-NEW-8: subagent-track — 빈 .active task는 등록 안 됨
+_sub_task8="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/subagent-empty-test"
+mkdir -p "$_sub_task8"
+echo "" > "$_sub_task8/.active"
+python3 -c "import json; open('$_sub_task8/state.json','w').write(json.dumps({'workflow_phase':'development','mode':'normal','plan_approved':True,'team_name':'','current_dev_phase':1,'current_step':1,'dev_phases':{'1':{'folder':'phase-1','steps':{'1':{'doc_path':'x.md'}}}},'verification':{'rounds_passed':0}}))"
+MS8_SID="ms8-$(date +%s)"
+# subagent-track은 TeamCreate 이벤트에 반응하므로 직접 FOUND_TASK_DIR 확인
+MS8_RESULT=$(cd "$INSTALL_REPO" && SESSION_ID="$MS8_SID" bash -c '
+  REPO_ROOT=.
+  _CANDIDATE_COUNT=0
+  for date_dir in ".ai-bouncer-tasks"/*/; do
+    [ -d "$date_dir" ] || continue
+    for active_file in "${date_dir}"*/.active; do
+      [ -f "$active_file" ] || continue
+      stored_sid=$(cat "$active_file" 2>/dev/null | tr -d "[:space:]")
+      [ -z "$stored_sid" ] && continue
+      task_dir=$(dirname "$active_file")
+      state_file="${task_dir}/state.json"
+      [ -f "$state_file" ] || continue
+      phase=$(jq -r ".workflow_phase // \"\"" "$state_file" 2>/dev/null)
+      case "$phase" in
+        development|verification) _CANDIDATE_COUNT=$((_CANDIDATE_COUNT+1)) ;;
+      esac
+    done
+  done
+  echo "$_CANDIDATE_COUNT"
+' 2>/dev/null)
+if [ "${MS8_RESULT:-0}" = "0" ]; then
+  echo "  ✅ MS-NEW-8: subagent-track 빈 .active task 등록 안 됨"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-NEW-8: 빈 .active task가 candidate로 감지됨 (count=$MS8_RESULT)"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$_sub_task8"
+
+# MS-NEW-9: MS-1 유지 — 다른 세션 task 있을 때 현재 세션 bash-gate 통과
+MS_OTHER9_SID="other9-$(date +%s)"
+MS_OTHER9_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/other9-task"
+mkdir -p "$MS_OTHER9_TASK"
+python3 -c "import json; open('$MS_OTHER9_TASK/state.json','w').write(json.dumps({'workflow_phase':'development','mode':'simple','plan_approved':True,'team_name':'','current_dev_phase':0,'current_step':0,'dev_phases':{},'verification':{'rounds_passed':0}}))"
+echo "$MS_OTHER9_SID" > "$MS_OTHER9_TASK/.active"
+rm -f "$ACTIVE_FILE"
+R=$(run_hook bash-gate.sh "$(jq -n --arg sid "$TEST_SID" '{tool_name:"Bash",tool_input:{command:"ls"},session_id:$sid}')")
+assert_pass "MS-NEW-9: 다른 세션 task 있어도 현재 세션 bash-gate 통과" "$R"
+echo "$TEST_SID" > "$ACTIVE_FILE"
+rm -rf "$MS_OTHER9_TASK"
+
+# MS-NEW-10: doc-reminder — .active 파일이 아닌 일반 파일 Write 시 정상 진행
+setup "simple" "development" "true"
+R=$(run_hook doc-reminder.sh "$(jq -n --arg sid "$TEST_SID" '{tool_name:"Write",tool_input:{file_path:"/tmp/regular-file.py"},session_id:$sid}')")
+assert_pass "MS-NEW-10: doc-reminder 일반 파일 Write → .active 처리 없이 정상 진행" "$R"
 
 echo ""
 

@@ -100,8 +100,8 @@ print(json.dumps(results, ensure_ascii=False))
 **A-1/A-2: stale 아님** (`workflow_phase != "done"`) — 사용자의 요청이 해당 active 작업과 관련된 것인지 판별한다.
 
 - **A-1: 사용자 요청이 active 작업의 연장/이어하기인 경우**
-  → 1. `.active` 파일을 PENDING으로 초기화 (hook이 다음 tool call 시 새 session_id 자동 기록):
-       `open(active_file, 'w').write('PENDING')`
+  → 1. `.active` 파일 초기화 — **반드시 Write tool 사용** (doc-reminder hook이 session_id 즉시 기록):
+       Write tool로 `{active_file}` 에 빈 파일 생성 (content: `""`)
   → 2. 해당 `state.json` 읽어 `workflow_phase` 확인 후 해당 Phase부터 재개.
 
   **A-1 특수 케이스: planning 단계인데 plan.md 없음**
@@ -137,7 +137,7 @@ print(json.dumps(results, ensure_ascii=False))
 ```
 
 사용자가 선택하면:
-- **번호 선택**: 선택한 task_dir에 `.active` 파일을 `PENDING` 마커로 재생성 + `state.json`의 `workflow_phase`부터 재개.
+- **번호 선택**: 선택한 task_dir에 `.active` 파일을 Write tool로 빈 파일로 재생성 (doc-reminder hook이 session_id 즉시 기록) + `state.json`의 `workflow_phase`부터 재개.
   나머지 incomplete 태스크는 그대로 둔다 (다른 세션이 병렬 작업 중일 수 있음).
 - **"새로" 선택**: cancel 없이 그냥 Case C 진행. 다른 incomplete 태스크는 건드리지 않는다.
 
@@ -151,13 +151,15 @@ print(json.dumps(results, ensure_ascii=False))
 ⚠️ **/dev-bounce가 호출되면 인텐트 판별 전에 반드시 `.active`를 먼저 생성한다.**
 이래야 hook이 이 세션의 Edit/Write/Bash를 감시할 수 있다. 인텐트 판별을 먼저 하면 Claude가 워크플로우를 건너뛰고 직접 수정할 수 있다.
 
-TASK_DIR 초기화 (Python으로 실행):
+TASK_DIR 초기화:
 
 1. `TASK_NAME`: 요청에서 핵심 키워드 추출 (예: `user-auth`)
 2. `docs_base`: `.ai-bouncer-tasks/YYYY-MM-DD/` (프로젝트 로컬)
 3. `task_dir`: `{docs_base}/{TASK_NAME}`
-4. `.active` 파일 생성 (`PENDING` 마커 작성 — hook이 session_id를 자동 claim, 빈 파일로 만들면 다른 세션이 stealing하므로 반드시 `PENDING` 사용)
-5. `state.json` 생성:
+4. `state.json` 생성 (Python/Bash):
+5. `.active` 파일 생성 — **반드시 Write tool 사용** (doc-reminder hook이 session_id 즉시 기록, 빈 파일로 생성)
+
+state.json 내용:
 
 ```json
 {

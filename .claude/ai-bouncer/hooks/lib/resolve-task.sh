@@ -35,9 +35,6 @@ _resolve_from_base() {
   local base="$1"
   [ -d "$base" ] || return 1
 
-  local found_unclaimed_task=""
-  local found_unclaimed_base=""
-
   for active_file in "$base"/*/.active; do
     [ -f "$active_file" ] || continue
     local stored_sid
@@ -63,35 +60,11 @@ _resolve_from_base() {
       return 0
     fi
 
-    # 다른 세션의 태스크: session_id 불일치 시 skip (삭제 금지)
-    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ] && [ "$stored_sid" != "PENDING" ]; then
+    # 다른 세션의 태스크: skip
+    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
       continue
     fi
-
-    # 미클레임 태스크 (PENDING 마커) 기록
-    # bash-gate+bash-audit hook 연계로 task 생성 즉시 SESSION_ID로 교체되므로
-    # 정상 흐름에서는 PENDING이 여기까지 오지 않음 (fallback용)
-    if [ "$stored_sid" = "PENDING" ] && [ -z "$found_unclaimed_task" ]; then
-      found_unclaimed_task="$task_folder"
-      found_unclaimed_base="$base"
-    fi
   done
-
-  # 매칭 실패 + 미클레임 태스크 있음 → atomic claim (mkdir 락 — POSIX atomic, bash 3.2 호환)
-  if [ -n "$found_unclaimed_task" ] && [ -n "$SESSION_ID" ]; then
-    _CLAIM_LOCK="/tmp/.ai-bouncer-claim-$(echo "${found_unclaimed_base}/${found_unclaimed_task}" | tr '/' '-')"
-    if mkdir "$_CLAIM_LOCK" 2>/dev/null; then
-      # 락 획득 — 재확인 후 claim (double-check: 다른 세션이 먼저 썼을 경우 포기)
-      _re_check=$(cat "${found_unclaimed_base}/${found_unclaimed_task}/.active" 2>/dev/null | tr -d '[:space:]')
-      if [ "$_re_check" = "PENDING" ]; then
-        echo "$SESSION_ID" > "${found_unclaimed_base}/${found_unclaimed_task}/.active"
-        TASK_NAME="$found_unclaimed_task"
-        DOCS_BASE="$found_unclaimed_base"
-      fi
-      rmdir "$_CLAIM_LOCK" 2>/dev/null
-    fi
-    # 락 실패 또는 double-check 실패 = 다른 세션이 이미 claim → TASK_NAME 미설정
-  fi
 
   [ -n "$TASK_NAME" ] && return 0
   return 1
@@ -145,7 +118,7 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
       # 다른 세션이 claim한 태스크는 fallback 대상에서 제외
       # (다른 사용자 세션의 gate 규칙이 현재 세션에 영향을 주지 않도록)
       stored_sid=$(cat "$af" 2>/dev/null | tr -d '[:space:]')
-      if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ] && [ "$stored_sid" != "PENDING" ]; then
+      if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
         continue
       fi
       phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)

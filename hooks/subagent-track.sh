@@ -24,9 +24,7 @@ if [ -d "$REPO_ROOT/.ai-bouncer-tasks" ]; then
     for active_file in "${date_dir}"*/.active; do
       [ -f "$active_file" ] || continue
       stored_sid=$(cat "$active_file" 2>/dev/null | tr -d '[:space:]')
-      # 비어있거나 PENDING인 task는 아직 claim 안 된 상태 — 스킵
-      [ -z "$stored_sid" ] && continue
-      [ "$stored_sid" = "PENDING" ] && continue
+      [ -z "$stored_sid" ] && continue  # 아직 claim 안 된 .active는 스킵
       task_dir=$(dirname "$active_file")
       state_file="${task_dir}/state.json"
       [ -f "$state_file" ] || continue
@@ -54,8 +52,7 @@ if [ -z "$FOUND_TASK_DIR" ] && [ "$_CANDIDATE_COUNT" -eq 0 ]; then
     for active_file in "$PERSISTENT_BASE"/*/.active; do
       [ -f "$active_file" ] || continue
       stored_sid=$(cat "$active_file" 2>/dev/null | tr -d '[:space:]')
-      [ -z "$stored_sid" ] && continue
-      [ "$stored_sid" = "PENDING" ] && continue
+      [ -z "$stored_sid" ] && continue  # 아직 claim 안 된 .active는 스킵
       task_dir=$(dirname "$active_file")
       state_file="${task_dir}/state.json"
       [ -f "$state_file" ] || continue
