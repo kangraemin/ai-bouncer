@@ -14,6 +14,10 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 FOUND_TASK_DIR=""
 
 # 날짜별 구조 스캔
+# 다중 세션 안전: development/verification task가 정확히 1개일 때만 등록.
+# 여러 개이면 어느 세션의 task인지 알 수 없으므로 등록 안 함
+# (잘못된 task 규칙 적용보다 gate 비적용이 안전)
+_CANDIDATE_COUNT=0
 if [ -d "$REPO_ROOT/.ai-bouncer-tasks" ]; then
   for date_dir in "$REPO_ROOT/.ai-bouncer-tasks"/*/; do
     [ -d "$date_dir" ] || continue
@@ -29,17 +33,23 @@ if [ -d "$REPO_ROOT/.ai-bouncer-tasks" ]; then
       phase=$(jq -r '.workflow_phase // ""' "$state_file" 2>/dev/null)
       case "$phase" in
         development|verification)
-          FOUND_TASK_DIR="$task_dir"
-          break 2 ;;
+          _CANDIDATE_COUNT=$((_CANDIDATE_COUNT + 1))
+          FOUND_TASK_DIR="$task_dir" ;;
       esac
     done
   done
 fi
 
-# persistent 경로도 확인
-if [ -z "$FOUND_TASK_DIR" ]; then
+# 다중 세션 감지 시 등록 안 함
+if [ "$_CANDIDATE_COUNT" -gt 1 ]; then
+  FOUND_TASK_DIR=""
+fi
+
+# persistent 경로도 확인 (local에서 못 찾은 경우만)
+if [ -z "$FOUND_TASK_DIR" ] && [ "$_CANDIDATE_COUNT" -eq 0 ]; then
   REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
   PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
+  _PERSIST_COUNT=0
   if [ -d "$PERSISTENT_BASE" ]; then
     for active_file in "$PERSISTENT_BASE"/*/.active; do
       [ -f "$active_file" ] || continue
@@ -52,10 +62,11 @@ if [ -z "$FOUND_TASK_DIR" ]; then
       phase=$(jq -r '.workflow_phase // ""' "$state_file" 2>/dev/null)
       case "$phase" in
         development|verification)
-          FOUND_TASK_DIR="$task_dir"
-          break ;;
+          _PERSIST_COUNT=$((_PERSIST_COUNT + 1))
+          FOUND_TASK_DIR="$task_dir" ;;
       esac
     done
+    [ "$_PERSIST_COUNT" -gt 1 ] && FOUND_TASK_DIR=""
   fi
 fi
 

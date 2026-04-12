@@ -280,17 +280,22 @@ assert_pass "SIMPLE + development → 통과 (development 차단 제거)" "$R"
 setup "normal" "development" "true"
 python3 -c "
 import json; s=json.load(open('$STATE_FILE'))
-s['current_dev_phase']=1; s['dev_phases']={'1':{'name':'test','folder':'phase-1-test','steps':{'1':{}}}}
+# current_dev_phase > total phases → 모든 phase 완료, completion-gate 통과
+s['current_dev_phase']=2; s['dev_phases']={'1':{'name':'test','folder':'phase-1-test','steps':{'1':{}}}}
 json.dump(s,open('$STATE_FILE','w'),indent=2)"
+mkdir -p "$(dirname "$STATE_FILE")/phase-1-test"
+echo "| TC-1 | 검증 | 통과 | ✅ |" > "$(dirname "$STATE_FILE")/phase-1-test/step-1.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_pass "NORMAL + development + team_name 없음 → 통과" "$R"
 
 setup "normal" "development" "true"
 python3 -c "
 import json; s=json.load(open('$STATE_FILE'))
-s['team_name']='test-team'; s['current_dev_phase']=1
+s['team_name']='test-team'; s['current_dev_phase']=2
 s['dev_phases']={'1':{'name':'test','folder':'phase-1-test','steps':{'1':{}}}}
 json.dump(s,open('$STATE_FILE','w'),indent=2)"
+mkdir -p "$(dirname "$STATE_FILE")/phase-1-test"
+echo "| TC-1 | 검증 | 통과 | ✅ |" > "$(dirname "$STATE_FILE")/phase-1-test/step-1.md"
 R=$(run_hook completion-gate.sh "{\"session_id\":\"$TEST_SID\"}")
 assert_pass "NORMAL + development + team_name 있음 → 통과" "$R"
 
@@ -1347,7 +1352,7 @@ assert_pass "MS-1: 다른 세션 task 있을 때 현재 세션 bash-gate 통과"
 echo "$TEST_SID" > "$ACTIVE_FILE"
 rm -rf "$MS_OTHER_TASK"
 
-# MS-2: PENDING claim atomic — 두 세션 중 하나만 claim 성공
+# MS-2: PENDING claim — temp 파일 있는 세션만 claim 성공
 MS_PENDING_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/pending-claim-test"
 mkdir -p "$MS_PENDING_TASK"
 python3 -c "
@@ -1360,23 +1365,47 @@ open('$MS_PENDING_TASK/state.json', 'w').write(json.dumps(s, indent=2))
 echo "PENDING" > "$MS_PENDING_TASK/.active"
 MS_SID_A="ms-session-a-$(date +%s)"
 MS_SID_B="ms-session-b-$(date +%s)"
-# 두 세션이 연속으로 resolve-task 실행 (실제 레이스를 직렬로 시뮬레이션)
+# SID_A는 pending-claim temp 파일 있음 (task 생성 세션), SID_B는 없음 (다른 세션)
+touch "/tmp/.ai-bouncer-pending-claim-${MS_SID_A}"
 (cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_A" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
 (cd "$INSTALL_REPO" && SESSION_ID="$MS_SID_B" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
 MS2_FINAL=$(cat "$MS_PENDING_TASK/.active" 2>/dev/null | tr -d '[:space:]')
-if [ "$MS2_FINAL" = "$MS_SID_A" ] || [ "$MS2_FINAL" = "$MS_SID_B" ]; then
-  if [ "$MS2_FINAL" != "PENDING" ]; then
-    echo "  ✅ MS-2: PENDING claim — 단일 세션($MS2_FINAL)이 claim 성공"
-    PASS=$((PASS + 1))
-  else
-    echo "  ❌ MS-2: PENDING claim — 여전히 PENDING (claim 실패)"
-    FAIL=$((FAIL + 1))
-  fi
+if [ "$MS2_FINAL" = "$MS_SID_A" ]; then
+  echo "  ✅ MS-2: PENDING claim — temp 파일 있는 세션($MS_SID_A)이 claim 성공"
+  PASS=$((PASS + 1))
+elif [ "$MS2_FINAL" = "PENDING" ]; then
+  echo "  ❌ MS-2: PENDING claim — claim 실패 (여전히 PENDING)"
+  FAIL=$((FAIL + 1))
 else
   echo "  ❌ MS-2: PENDING claim — 예상 외 값: $MS2_FINAL"
   FAIL=$((FAIL + 1))
 fi
+rm -f "/tmp/.ai-bouncer-pending-claim-${MS_SID_A}"
 rm -rf "$MS_PENDING_TASK"
+
+# MS-3: PENDING claim — temp 파일 없는 세션은 claim 못 함 (다른 세션 task 강탈 방지)
+MS3_PENDING_TASK="$INSTALL_REPO/.ai-bouncer-tasks/$TODAY/pending-claim-test2"
+mkdir -p "$MS3_PENDING_TASK"
+python3 -c "
+import json
+s = {'workflow_phase': 'planning', 'mode': 'pending', 'plan_approved': False,
+     'team_name': '', 'current_dev_phase': 0, 'current_step': 0, 'dev_phases': {},
+     'verification': {'rounds_passed': 0}}
+open('$MS3_PENDING_TASK/state.json', 'w').write(json.dumps(s, indent=2))
+"
+echo "PENDING" > "$MS3_PENDING_TASK/.active"
+MS3_SID="ms-session-c-$(date +%s)"
+# temp 파일 없음 — 다른 세션이 만든 task
+(cd "$INSTALL_REPO" && SESSION_ID="$MS3_SID" bash -c 'source .claude/ai-bouncer/hooks/lib/resolve-task.sh' 2>/dev/null || true)
+MS3_FINAL=$(cat "$MS3_PENDING_TASK/.active" 2>/dev/null | tr -d '[:space:]')
+if [ "$MS3_FINAL" = "PENDING" ]; then
+  echo "  ✅ MS-3: PENDING no-claim — temp 파일 없는 세션은 claim 안 함"
+  PASS=$((PASS + 1))
+else
+  echo "  ❌ MS-3: PENDING no-claim — 예상 외 claim: $MS3_FINAL"
+  FAIL=$((FAIL + 1))
+fi
+rm -rf "$MS3_PENDING_TASK"
 
 echo ""
 

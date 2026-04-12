@@ -72,8 +72,12 @@ _resolve_from_base() {
     # bash-gate+bash-audit hook 연계로 task 생성 즉시 SESSION_ID로 교체되므로
     # 정상 흐름에서는 PENDING이 여기까지 오지 않음 (fallback용)
     if [ "$stored_sid" = "PENDING" ] && [ -z "$found_unclaimed_task" ]; then
-      found_unclaimed_task="$task_folder"
-      found_unclaimed_base="$base"
+      # 이 세션이 PENDING을 만든 세션인지 확인 (bash-gate가 생성한 temp 파일)
+      _pending_signal="/tmp/.ai-bouncer-pending-claim-${SESSION_ID}"
+      if [ -f "$_pending_signal" ]; then
+        found_unclaimed_task="$task_folder"
+        found_unclaimed_base="$base"
+      fi
     fi
   done
 
