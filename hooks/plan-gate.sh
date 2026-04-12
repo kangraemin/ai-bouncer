@@ -107,9 +107,9 @@ PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
-CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
+CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
-CURRENT_STEP=${CURRENT_STEP:-0}; CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
+CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
 
 # CHECK 1.5: workflow_phase 화이트리스트
 case "$WORKFLOW_PHASE" in
@@ -147,6 +147,18 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
   exit 0
 fi
 
+# .active 파일: 이미 다른 세션이 claim한 경우 덮어쓰기 방지
+if [[ "$FILE_PATH" == */.active ]]; then
+  _existing_sid=$(cat "$FILE_PATH" 2>/dev/null | tr -d '[:space:]')
+  if [ -n "$_existing_sid" ] && [ "$_existing_sid" != "$SESSION_ID" ]; then
+    jq -n --arg sid "$_existing_sid" '{
+      decision: "block",
+      reason: ("⛔ 이 .active 파일은 다른 세션(" + $sid + ")이 claim 중입니다. 강제로 덮어쓸 수 없습니다.")
+    }'
+    exit 0
+  fi
+fi
+
 # .ai-bouncer-tasks/ 하위 파일은 태스크 관리 파일 → plan_approved 무관 허용
 if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
   exit 0
@@ -177,7 +189,6 @@ fi
 # --- 이하 NORMAL 모드 전용 ---
 
 # agent_mode 읽기 (config.json에서)
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 AGENT_MODE=$(jq -r '.agent_mode // "team"' "$BOUNCER_CONFIG" 2>/dev/null || echo "team")
 
 # agent_mode별 검증 분기
@@ -205,7 +216,7 @@ case "$AGENT_MODE" in
 
       # CHECK 6: team members < 1 → BLOCK
       MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-      MEMBER_COUNT=${MEMBER_COUNT:-0}; MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
+      MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
       if [ "$MEMBER_COUNT" -lt 1 ]; then
         jq -n '{
           decision: "block",
@@ -216,7 +227,7 @@ case "$AGENT_MODE" in
 
       # CHECK 6-DEV: Lead만 있고 Dev/QA 없으면 소스 파일 쓰기 차단
       NON_LEAD_COUNT=$(jq -r '[.members[] | select(.name | ascii_downcase | test("lead") | not)] | length' "$TEAM_CONFIG" 2>/dev/null)
-      NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}; NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
+      NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
       if [ "$NON_LEAD_COUNT" -lt 1 ]; then
         _PG_REPO6=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
         if [ -n "$_PG_REPO6" ]; then
