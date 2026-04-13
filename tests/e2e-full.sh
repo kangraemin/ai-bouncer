@@ -463,7 +463,51 @@ fi
 rm -f "$TARGET/agents/dev.md.pre-update"
 
 # ═══════════════════════════════════════════════════════════════
-echo -e "\n${BOLD}─── 12. 정리 ───${NC}"
+echo -e "\n${BOLD}─── 12. 전역 gitignore ───${NC}"
+
+# GG-1: --global 설치 시 전역 gitignore에 .ai-bouncer-tasks/ 추가
+GLOBAL_REPO_DIR="$TEST_DIR/global-test-repo"
+git init "$GLOBAL_REPO_DIR" -q
+FAKE_HOME="$TEST_DIR/fake-home"
+mkdir -p "$FAKE_HOME"
+# 전역 설치 시뮬레이션 (HOME 오버라이드, TARGET_DIR 오버라이드)
+(cd "$GLOBAL_REPO_DIR" && HOME="$FAKE_HOME" TARGET_DIR="$FAKE_HOME/.claude" \
+   bash "$SRC_DIR/install.sh" --global --ci) 2>&1 | tail -3
+
+GLOBAL_GI=$(HOME="$FAKE_HOME" git config --global core.excludesfile 2>/dev/null || echo "")
+GLOBAL_GI="${GLOBAL_GI/#\~/$FAKE_HOME}"
+if [ -z "$GLOBAL_GI" ]; then
+  GLOBAL_GI="$FAKE_HOME/.gitignore_global"
+fi
+
+if grep -qF ".ai-bouncer-tasks/" "$GLOBAL_GI" 2>/dev/null; then
+  pass "GG-1: 전역 설치 시 .ai-bouncer-tasks/ → 전역 gitignore 추가됨"
+else
+  fail "GG-1: 전역 설치 시 .ai-bouncer-tasks/ 전역 gitignore 미추가 (file: $GLOBAL_GI)"
+fi
+
+# GG-2: 중복 실행 시 .ai-bouncer-tasks/ 중복 추가 안 됨
+(cd "$GLOBAL_REPO_DIR" && HOME="$FAKE_HOME" TARGET_DIR="$FAKE_HOME/.claude" \
+   bash "$SRC_DIR/install.sh" --global --ci) 2>&1 | tail -1
+COUNT=$(grep -c "\.ai-bouncer-tasks/" "$GLOBAL_GI" 2>/dev/null || echo 0)
+if [ "$COUNT" -eq 1 ]; then
+  pass "GG-2: 중복 설치 시 .ai-bouncer-tasks/ 중복 없음"
+else
+  fail "GG-2: .ai-bouncer-tasks/ 중복 추가됨 (count: $COUNT)"
+fi
+
+# GG-3: 로컬 설치 시 전역 gitignore 건드리지 않음
+# (로컬 설치는 이미 위에서 완료됨 — FAKE_HOME 전역 gi와 무관해야 함)
+LOCAL_FAKE_HOME="$TEST_DIR/local-fake-home"
+mkdir -p "$LOCAL_FAKE_HOME"
+if grep -qF ".ai-bouncer-tasks/" "$LOCAL_FAKE_HOME/.gitignore_global" 2>/dev/null; then
+  fail "GG-3: 로컬 설치가 전역 gitignore를 수정함"
+else
+  pass "GG-3: 로컬 설치는 전역 gitignore 미수정"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+echo -e "\n${BOLD}─── 13. 정리 ───${NC}"
 
 rm -f /tmp/.ai-bouncer-approved-agents /tmp/.ai-bouncer-snapshot
 # TEST_DIR은 trap이 정리

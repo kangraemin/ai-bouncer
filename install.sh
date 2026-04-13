@@ -584,6 +584,24 @@ else
   fi
 fi
 
+# ── 전역 gitignore에 .ai-bouncer-tasks/ 추가 (전역 설치 전용) ──
+if [ "$SCOPE" = "global" ]; then
+  header "전역 .gitignore 설정"
+  GLOBAL_GITIGNORE=$(git config --global core.excludesfile 2>/dev/null || true)
+  if [ -z "$GLOBAL_GITIGNORE" ]; then
+    GLOBAL_GITIGNORE="$HOME/.gitignore_global"
+    git config --global core.excludesfile "$GLOBAL_GITIGNORE"
+    ok "core.excludesfile → $GLOBAL_GITIGNORE"
+  fi
+  GLOBAL_GITIGNORE="${GLOBAL_GITIGNORE/#\~/$HOME}"
+  if grep -qF ".ai-bouncer-tasks/" "$GLOBAL_GITIGNORE" 2>/dev/null; then
+    ok ".ai-bouncer-tasks/ 이미 전역 gitignore에 존재"
+  else
+    printf '\n# ai-bouncer\n.ai-bouncer-tasks/\n' >> "$GLOBAL_GITIGNORE"
+    ok ".ai-bouncer-tasks/ → $GLOBAL_GITIGNORE"
+  fi
+fi
+
 # ── .gitignore managed block 주입 (로컬 전용) ─────────────────
 if [ "$SCOPE" = "local" ]; then
 header ".gitignore 설정"
