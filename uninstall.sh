@@ -251,5 +251,22 @@ if [ -n "$REPO_ROOT" ]; then
   rm -f "$REPO_ROOT/uninstall.sh"
 fi
 
+# 전역 gitignore에서 ai-bouncer 블록 제거 (전역 설치)
+if [ -z "$REPO_ROOT" ]; then
+  GLOBAL_GITIGNORE=$(git config --global core.excludesfile 2>/dev/null || true)
+  GLOBAL_GITIGNORE="${GLOBAL_GITIGNORE/#\~/$HOME}"
+  if [ -n "$GLOBAL_GITIGNORE" ] && [ -f "$GLOBAL_GITIGNORE" ]; then
+    python3 - "$GLOBAL_GITIGNORE" <<'PYEOF'
+import sys, re
+f = sys.argv[1]
+content = open(f, encoding='utf-8').read()
+new = re.sub(r'\n# ai-bouncer\n\.ai-bouncer-tasks/\n?', '', content)
+if new != content:
+    open(f, 'w', encoding='utf-8').write(new)
+    print("  전역 gitignore에서 .ai-bouncer-tasks/ 제거됨")
+PYEOF
+  fi
+fi
+
 echo ""
 ok "ai-bouncer 제거 완료"

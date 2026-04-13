@@ -449,6 +449,22 @@ if [ -n "$REPO_ROOT" ] && [ -d "$REPO_ROOT/docs" ]; then
   fi
 fi
 
+# ── 전역 gitignore .ai-bouncer-tasks/ 동기화 (전역 설치) ──────
+if [ -z "$REPO_ROOT" ]; then
+  GLOBAL_GITIGNORE=$(git config --global core.excludesfile 2>/dev/null || true)
+  if [ -z "$GLOBAL_GITIGNORE" ]; then
+    GLOBAL_GITIGNORE="$HOME/.gitignore_global"
+    git config --global core.excludesfile "$GLOBAL_GITIGNORE"
+  fi
+  GLOBAL_GITIGNORE="${GLOBAL_GITIGNORE/#\~/$HOME}"
+  if grep -qF ".ai-bouncer-tasks/" "$GLOBAL_GITIGNORE" 2>/dev/null; then
+    skip ".ai-bouncer-tasks/ 전역 gitignore (변경 없음)"
+  else
+    printf '\n# ai-bouncer\n.ai-bouncer-tasks/\n' >> "$GLOBAL_GITIGNORE"
+    ok ".ai-bouncer-tasks/ → $GLOBAL_GITIGNORE"
+  fi
+fi
+
 # ── .gitignore managed block 동기화 ──────────────────────────
 if [ -n "$REPO_ROOT" ]; then
   DOCS_GIT_TRACK=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('docs_git_track', False))" "$CONFIG_FILE" 2>/dev/null || echo "False")
