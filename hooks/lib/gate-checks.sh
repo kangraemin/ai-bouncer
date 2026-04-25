@@ -203,7 +203,7 @@ _run_gate_checks() {
   # CHECK 7a-2: phase.md 필수 섹션 검증
   if [ "$_IS_PHASE_BOOTSTRAP" = false ]; then
     local _sec
-    for _sec in "## 목표" "## Steps"; do
+    for _sec in "## 목표" "## 기술 접근" "## Steps"; do
       if ! LC_ALL=en_US.UTF-8 grep -q "$_sec" "${PHASE_DIR}/phase.md" 2>/dev/null; then
         jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$_sec" --arg r "${_P}" \
            '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)}'
@@ -289,7 +289,12 @@ import sys
 shallow = 0
 for line in sys.stdin:
     cols = [c.strip() for c in line.strip().strip('|').split('|')]
-    if len(cols) >= 3:
+    if len(cols) >= 4:
+        # 신형 5컬럼: cols[1]=유형, cols[2]=시나리오, cols[3]=기대결과
+        if len(cols[2].strip()) < 5 or len(cols[3].strip()) < 5:
+            shallow += 1
+    elif len(cols) == 3:
+        # 구형 4컬럼: cols[1]=시나리오, cols[2]=기대결과
         if len(cols[1].strip()) < 5 or len(cols[2].strip()) < 5:
             shallow += 1
 print(shallow)
