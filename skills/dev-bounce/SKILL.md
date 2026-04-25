@@ -294,44 +294,67 @@ TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
-2. 팀 규모 종합 판단 → `[TEAM:duo|team]` 출력
-3. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]`
-4. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
-5. **(신규) 3-1b: 모든 phase 디렉토리 + phase.md + step stub 일괄 생성**
-   - TDD 루프 시작 전에 전체 phase/step 문서 골격을 한 번에 완성
-   - Lead가 `[DOCS:완료]` 출력 후 Main Claude에게 보고
-   - Main Claude가 QA에게 "Phase 1 Step 1 TC 작성 시작" 지시
+2. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]` 출력
+3. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
+4. **3-1b: 모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
+
+   Phase N마다 아래 순서를 반드시 지킨다:
+
+   ```
+   Phase 1:
+     → phase-1-<이름>/ 디렉토리 생성
+     → phase-1-<이름>/phase.md 작성 (## 목표, ## Steps 포함)
+     → phase-1-<이름>/step-1.md stub 작성  ← 반드시 phase.md 직후
+     → phase-1-<이름>/step-2.md stub 작성  ← step 수만큼 반복
+   Phase 2:
+     → phase-2-<이름>/ 디렉토리 생성
+     → phase-2-<이름>/phase.md 작성
+     → phase-2-<이름>/step-1.md stub 작성
+     ... (모든 Phase 완료까지)
+   ```
+
+   step stub 형식 (TC는 비워둠 — QA가 채움):
+   ```markdown
+   ## 테스트 기준
+
+   | TC-ID | 시나리오 | 기대 결과 | 실제 결과 |
+   |-------|----------|-----------|-----------|
+   | TC-1  |          |           |           |
+   ```
+
+   모든 Phase/Step 파일 생성 완료 후 → `[DOCS:완료]` 출력
+
+5. `[DOCS:완료]` 출력 → Main Claude에게 보고
 
 > **중요: Lead에게 스폰 시 반드시 다음을 명시할 것:**
 > "Lead는 오케스트레이터로서 코드 파일을 직접 Write/Edit/Bash로 수정하지 않는다.
 > 코드 구현은 반드시 Dev 에이전트를 스폰하여 위임한다.
 > git commit/push도 Lead가 직접 하지 않는다."
 
-**subagent/single 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
+**subagent 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
+Lead가 `[DOCS:완료]` 출력 후 → Lead가 직접 Agent tool로 Dev + QA를 각 1명씩 스폰한다.
 
 > **subagent/single 모드 state.json 업데이트 의무:**
 >
 > team 모드와 동일하게, 다음 시점에 state.json을 반드시 업데이트한다:
 > - **Lead**: `dev_phases` 초기화 후 `current_dev_phase = 1`, `current_step = 1` 설정
-> - **QA** (또는 Lead가 겸임 시 Lead): Step 테스트 통과 시 `current_step++`
+> - **QA**: Step 테스트 통과 시 `current_step++`
 > - **Lead**: Phase 완료 시 `current_dev_phase++`, `current_step = 1` 리셋
 >
 > plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
 > single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
-#### 3-2. 팀 구성 (Main Claude 담당)
+#### 3-2. 팀 구성 (Main Claude 담당, team 모드) / Lead 담당 (subagent 모드)
 
+**team 모드:**
 > **⚠️ Lead가 아닌 Main Claude가 직접 스폰한다.**
-> Lead로부터 `[TEAM:duo|team]` 응답을 받은 후, **Main Claude**가 Dev(+QA)를 스폰한다.
-> Lead가 Agent tool로 Dev를 스폰하는 것은 구조 위반이다.
+> Lead로부터 `[DOCS:완료]` 보고를 받은 후, **Main Claude**가 Dev + QA를 각 1명씩 스폰한다.
+> Lead가 Agent tool로 Dev/QA를 스폰하는 것은 구조 위반이다.
 
-| Lead 출력 | Main Claude 액션 |
-|---|---|
-| `[TEAM:duo]` | Dev 에이전트 1명 스폰. QA 역할(TC 작성·검증)은 **Main Claude**가 직접 수행. |
-| `[TEAM:team]` | Dev + QA 에이전트 각 1명 스폰 |
+**subagent 모드:**
+> Lead가 `[DOCS:완료]` 출력 직후 **Lead 스스로** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
 
-> duo가 최소 팀 구성이다 (QA 없는 solo 금지).
-> duo 모드에서 Lead는 TC를 직접 작성하지 않는다. Main Claude가 QA 역할을 담당한다.
+항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
