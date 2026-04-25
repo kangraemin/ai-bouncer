@@ -106,16 +106,12 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
     [ -d "$base" ] || return 1
     for af in "$base"/*/.active; do
       [ -f "$af" ] || continue
-      local td sf phase mode stored_sid
+      local td sf phase
       td=$(dirname "$af")
       sf="${td}/state.json"
       [ -f "$sf" ] || continue
-      # 다른 세션이 claim한 태스크는 fallback 대상에서 제외
-      # (다른 사용자 세션의 gate 규칙이 현재 세션에 영향을 주지 않도록)
-      stored_sid=$(cat "$af" 2>/dev/null | tr -d '[:space:]')
-      if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
-        continue
-      fi
+      # fallback은 모든 미등록 세션에 적용 — .active 소유자 무관
+      # 목적: 승인 목록(/tmp/) 유실 시에도 서브에이전트가 gate 우회 불가
       phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)
       case "$phase" in
         development|verification)

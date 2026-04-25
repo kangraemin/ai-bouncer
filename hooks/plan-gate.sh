@@ -99,6 +99,32 @@ except:
     }'
     exit 0
   fi
+
+  # CHECK 1.6c: plan_approved=true여도 verification 없이 done 직접 전환 차단
+  if [ "$_PLAN_APPROVED_16" = "true" ]; then
+    _NEW_CONTENT_16C=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+    _NEW_PHASE_16C=$(echo "$_NEW_CONTENT_16C" | python3 -c "
+import json, sys, re
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+    print(d.get('workflow_phase', ''))
+except:
+    m = re.search(r'\"workflow_phase\"\s*:\s*\"([^\"]+)\"', txt)
+    print(m.group(1) if m else '')
+" 2>/dev/null)
+    if [ "$_NEW_PHASE_16C" = "done" ]; then
+      _E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
+      _E2E_PASS=false
+      if [ -f "$_E2E_RESULT" ] && grep -A1 "^## 결론" "$_E2E_RESULT" 2>/dev/null | grep -q "^통과"; then
+        _E2E_PASS=true
+      fi
+      if [ "$_E2E_PASS" != "true" ]; then
+        jq -n '{decision:"block", reason:"⛔ verification 없이 workflow_phase=done으로 직접 전환할 수 없습니다. Phase 4에서 e2e-writer를 통해 검증을 완료하세요. 작업 취소 시 workflow_phase=cancelled 사용."}'
+        exit 0
+      fi
+    fi
+  fi
 fi
 
 # state.json 값 읽기

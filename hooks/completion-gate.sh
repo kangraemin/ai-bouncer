@@ -26,11 +26,31 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 
-# cancelled/done/planning/pending 상태 → 통과
-# development는 별도 체크 (NORMAL 모드에서 step ✅ 완료 여부 확인)
+# cancelled/planning/pending 상태 → 통과
 case "$WORKFLOW_PHASE" in
-  cancelled|done|planning|pending) exit 0 ;;
+  cancelled|planning|pending) exit 0 ;;
 esac
+
+# done 상태: e2e 검증 완료 여부 확인 (검증 없이 done 처리된 경우 차단)
+if [ "$WORKFLOW_PHASE" = "done" ] && [ "$PLAN_APPROVED" = "true" ]; then
+  E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
+  if [ ! -f "$E2E_RESULT" ]; then
+    jq -n --arg task "$TASK_NAME" '{
+      decision: "block",
+      reason: ("⛔ 검증 없이 done 처리됨. [" + $task + "] verifications/e2e-result.md가 없습니다. Phase 4에서 e2e-writer를 실행하거나 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+    }'
+    exit 0
+  fi
+  HAS_PASS=$(grep -A1 "^## 결론" "$E2E_RESULT" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
+  if [ "$HAS_PASS" != "1" ]; then
+    jq -n --arg task "$TASK_NAME" '{
+      decision: "block",
+      reason: ("⛔ 검증 미통과 상태로 done 처리됨. [" + $task + "] e2e-result.md의 \"## 결론\"이 통과여야 합니다.")
+    }'
+    exit 0
+  fi
+  exit 0
+fi
 
 # development 상태에서: 모든 phase/step ✅ 체크
 if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
