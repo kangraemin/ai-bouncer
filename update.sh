@@ -234,6 +234,26 @@ else
   ok "hook 복사 스킵 (enforcement_mode=prompt-only)"
 fi
 
+# 설치된 hook 파일 중 hooks.json에 없는 것 삭제 (소스에서 제거된 hook 정리)
+if [ -f "$HOOKS_MANIFEST" ] && [ "$ENFORCEMENT_MODE" = "hooks" ]; then
+  MANAGED_HOOK_FILES=$(python3 -c "
+import json, sys
+manifest = json.load(open(sys.argv[1]))
+for hooks in manifest.values():
+    for h in hooks:
+        print(h['file'])
+" "$HOOKS_MANIFEST" 2>/dev/null)
+  for installed in "$BOUNCER_DATA_DIR/hooks/"*.sh; do
+    [ -f "$installed" ] || continue
+    fname=$(basename "$installed")
+    if ! echo "$MANAGED_HOOK_FILES" | grep -qxF "$fname"; then
+      rm -f "$installed"
+      warn "$fname 삭제 (소스에서 제거됨)"
+      UPDATED=$((UPDATED + 1))
+    fi
+  done
+fi
+
 # hooks/lib/ 동적 복사
 if [ -d "$PACKAGE_DIR/hooks/lib" ]; then
   mkdir -p "$BOUNCER_DATA_DIR/hooks/lib"
@@ -379,6 +399,48 @@ MIGRATE_PY
 
 migrate_hook_paths "$HOME/.claude/settings.json"
 migrate_hook_paths "$TARGET_DIR/settings.json"
+
+# settings.json에서 삭제된 bouncer hook 엔트리 제거
+cleanup_stale_hook_entries() {
+  local sf="$1"
+  [ -f "$sf" ] || return 0
+  python3 - "$sf" "$BOUNCER_DATA_DIR/hooks" <<'CLEANUP_PY'
+import json, sys, os
+
+settings_file, hooks_dir = sys.argv[1], sys.argv[2]
+cfg = json.load(open(settings_file))
+hooks = cfg.get('hooks', {})
+removed = 0
+
+for ht in list(hooks.keys()):
+    new_groups = []
+    for group in hooks[ht]:
+        new_hooks = []
+        for h in group.get('hooks', []):
+            cmd = h.get('command', '')
+            if '/ai-bouncer/hooks/' in cmd and not os.path.exists(cmd):
+                removed += 1
+                continue
+            new_hooks.append(h)
+        if new_hooks:
+            group = dict(group)
+            group['hooks'] = new_hooks
+            new_groups.append(group)
+        elif removed:
+            pass  # 빈 그룹 제거
+    hooks[ht] = new_groups
+
+if removed:
+    cfg['hooks'] = hooks
+    with open(settings_file, 'w') as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+    print(f"  \033[0;32m✓\033[0m  {os.path.basename(settings_file)}: {removed}개 stale hook 엔트리 제거")
+CLEANUP_PY
+}
+
+cleanup_stale_hook_entries "$HOME/.claude/settings.json"
+cleanup_stale_hook_entries "$TARGET_DIR/settings.json"
 
 # update.sh / uninstall.sh → 프로젝트 루트
 if [ -n "$REPO_ROOT" ]; then
