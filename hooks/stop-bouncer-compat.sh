@@ -9,8 +9,6 @@ if [ -n "$_bouncer_cwd" ] && { [ -f "$_bouncer_cwd/.claude/ai-bouncer/config.jso
     [ -f "$_bouncer_active" ] || continue
     _bouncer_state="$(dirname "$_bouncer_active")/state.json"
     [ -f "$_bouncer_state" ] || continue
-    _bouncer_mode=$(jq -r '.mode // "simple"' "$_bouncer_state" 2>/dev/null)
-    [ "$_bouncer_mode" != "normal" ] && continue
     _bouncer_wf=$(jq -r '.workflow_phase // "done"' "$_bouncer_state" 2>/dev/null)
     case "$_bouncer_wf" in
       development|verification)

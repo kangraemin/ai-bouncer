@@ -126,8 +126,7 @@ if _os.path.exists(_hooks_json):
             BOUNCER_HOOKS.add(_e.get('file', ''))
 else:
     BOUNCER_HOOKS = {
-        'plan-gate.sh', 'bash-gate.sh', 'bash-audit.sh',
-        'doc-reminder.sh', 'completion-gate.sh',
+        'plan-gate.sh', 'bash-gate.sh', 'completion-gate.sh',
         'subagent-track.sh', 'subagent-cleanup.sh',
         'stop-active-cleanup.sh',
     }

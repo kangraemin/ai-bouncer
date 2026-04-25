@@ -104,7 +104,6 @@ fi
 # state.json 값 읽기
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
-MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
@@ -181,13 +180,6 @@ if [ ! -f "${TASK_DIR}/plan.md" ]; then
   exit 0
 fi
 
-# SIMPLE 모드: plan_approved + plan.md 존재만으로 통과
-if [ "$MODE" = "simple" ]; then
-  exit 0
-fi
-
-# --- 이하 NORMAL 모드 전용 ---
-
 # agent_mode 읽기 (config.json에서)
 AGENT_MODE=$(jq -r '.agent_mode // "team"' "$BOUNCER_CONFIG" 2>/dev/null || echo "team")
 
@@ -260,7 +252,7 @@ if [ "$WORKFLOW_PHASE" = "development" ]; then
 fi
 
 # CHECK 6.7: dev_phases 비어있는지 검증
-if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
+if [ "$WORKFLOW_PHASE" = "development" ]; then
   DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
   DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT//[^0-9]/}; DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
   if [ "$DEV_PHASES_COUNT" -le 0 ]; then
@@ -270,7 +262,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
 fi
 
 # CHECK 6.8: verification인데 모든 Phase가 완료되지 않았으면 → BLOCK
-if [ "$WORKFLOW_PHASE" = "verification" ] && [ "$MODE" = "normal" ]; then
+if [ "$WORKFLOW_PHASE" = "verification" ]; then
   DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
   DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
   if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
@@ -358,7 +350,7 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
   # CHECK 7a-2: phase.md 필수 섹션 검증 (부트스트랩 시 스킵 — 아직 파일이 없음)
   if [ "$_IS_PHASE_BOOTSTRAP" = false ]; then
-    for section in "## 목표" "## 범위" "## Steps"; do
+    for section in "## 목표" "## Steps"; do
       if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
         jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
           decision: "block",

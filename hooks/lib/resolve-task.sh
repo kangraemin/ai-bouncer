@@ -117,9 +117,6 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
         continue
       fi
       phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)
-      mode=$(jq -r '.mode // ""' "$sf" 2>/dev/null)
-      # SIMPLE 모드는 subagent를 사용하지 않으므로 fallback 대상에서 제외
-      [ "$mode" = "simple" ] && continue
       case "$phase" in
         development|verification)
           TASK_NAME=$(basename "$td")

@@ -14,6 +14,7 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
 # 세션 격리: session_id 추출
 export SESSION_ID
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+[ -n "$SESSION_ID" ] && echo "$SESSION_ID" > /tmp/.ai-bouncer-current-session
 
 # --- ai-bouncer start ---
 
@@ -68,13 +69,12 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   [ -f "$STATE_FILE" ] || exit 0
 
   CS_WORKFLOW=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
-  CS_MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 
   # done → 항상 허용
   [ "$CS_WORKFLOW" = "done" ] && exit 0
 
   # verification → 모든 Phase 완료 시만 허용 (plan-gate CHECK 6.8 동등)
-  if [ "$CS_WORKFLOW" = "verification" ] && [ "$CS_MODE" = "normal" ]; then
+  if [ "$CS_WORKFLOW" = "verification" ]; then
     DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
     DEV_PHASES_COUNT=${DEV_PHASES_COUNT:-0}
     if [ "$DEV_PHASES_COUNT" -gt 0 ]; then
@@ -107,18 +107,9 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     exit 0
   fi
 
-  # verification (simple) → 허용
-  [ "$CS_WORKFLOW" = "verification" ] && exit 0
-
   # planning → 커밋 허용 (bash-gate가 코드 수정을 이미 차단. 워크로그 등 커밋 가능)
   [ "$CS_WORKFLOW" = "planning" ] && exit 0
 
-  # simple 모드 → development이면 허용 (step 검증 없음)
-  if [ "$CS_MODE" = "simple" ]; then
-    exit 0
-  fi
-
-  # --- NORMAL 모드 + development ---
   CS_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
   CS_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
   CS_PHASE_FOLDER=$(_get_phase_folder "$STATE_FILE" "$CS_PHASE")
@@ -277,21 +268,17 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
         if echo "$CMD" | grep -qE "cancelled"; then
           :  # pass through
         else
-          # done 전환: 모드별 조건 검증
-          _MODE=$(jq -r '.mode // "pending"' "$_BG_STATE" 2>/dev/null)
+          # done 전환: e2e-result.md 통과 조건 검증
           _ALLOW=false
-          if [ "$_MODE" = "simple" ]; then
-            _TASK_DIR=$(dirname "$_BG_STATE")
-            _TESTS="$_TASK_DIR/tests.md"
-            if [ -f "$_TESTS" ] && grep -q "✅" "$_TESTS" && ! grep -q "❌" "$_TESTS"; then
+          _TASK_DIR=$(dirname "$_BG_STATE")
+          _E2E_RESULT="$_TASK_DIR/verifications/e2e-result.md"
+          if [ -f "$_E2E_RESULT" ]; then
+            if grep -A1 "^## 결론" "$_E2E_RESULT" 2>/dev/null | grep -q "^통과"; then
               _ALLOW=true
             fi
-          elif [ "$_MODE" = "normal" ]; then
-            _RP=$(jq -r '.verification.rounds_passed // 0' "$_BG_STATE" 2>/dev/null)
-            [ "$_RP" -ge 3 ] 2>/dev/null && _ALLOW=true
           fi
           if [ "$_ALLOW" = "false" ]; then
-            jq -n '{decision:"block", reason:"⛔ [bash-gate] done 조건 미충족. SIMPLE: tests.md ✅ 필요. NORMAL: verification 3라운드 통과 필요."}'
+            jq -n '{decision:"block", reason:"⛔ [bash-gate] done 조건 미충족. verifications/e2e-result.md 통과 필요."}'
             exit 0
           fi
         fi
@@ -301,8 +288,8 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
   EXCEPTION=true
 fi
 
-# plan.md, step-*.md, phase-*.md, round-*.md, tests.md
-if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|round-[0-9]+\.md|tests\.md'; then
+# plan.md, step-*.md, phase-*.md, e2e-result.md
+if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|e2e-result\.md'; then
   EXCEPTION=true
 fi
 
@@ -353,25 +340,17 @@ fi
 # state.json 값 읽기
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
-MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
 CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
 
-# 스냅샷 저장 함수 (Layer 2용) — 세션 격리
-save_snapshot() {
-  local snap="/tmp/.ai-bouncer-snapshot-${SESSION_ID:-default}"
-  { git diff --name-only 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | sort > "$snap" 2>/dev/null
-}
-
 # CHECK 1.5: workflow_phase 화이트리스트
 case "$WORKFLOW_PHASE" in
   planning|development|verification) ;;
   done|cancelled) exit 0 ;;  # 완료/취소 상태 — gate 비활성
   *)
-    save_snapshot
     jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 허용되지 않는 값입니다."}'
     exit 0 ;;
 esac
@@ -381,7 +360,6 @@ esac
 
 # CHECK 3: plan_approved + plan.md
 if [ "$PLAN_APPROVED" != "true" ]; then
-  save_snapshot
   jq -n '{
     decision: "block",
     reason: "⛔ [bash-gate] 계획 미승인 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다. /dev-bounce로 계획을 승인받으세요."
@@ -390,20 +368,12 @@ if [ "$PLAN_APPROVED" != "true" ]; then
 fi
 
 if [ ! -f "${TASK_DIR}/plan.md" ]; then
-  save_snapshot
   jq -n '{
     decision: "block",
     reason: "⛔ [bash-gate] plan.md가 없는 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
   }'
   exit 0
 fi
-
-# SIMPLE 모드: plan_approved + plan.md 존재만으로 통과
-if [ "$MODE" = "simple" ]; then
-  exit 0
-fi
-
-# --- 이하 NORMAL 모드 전용 ---
 
 # CHECK 6.8: verification + 미완료 Phase → BLOCK (plan-gate 동등)
 if [ "$WORKFLOW_PHASE" = "verification" ]; then
@@ -429,13 +399,11 @@ if [ "$WORKFLOW_PHASE" = "verification" ]; then
       fi
     done
     if [ "$ALL_PHASES_DONE" = false ]; then
-      save_snapshot
       jq -n '{decision:"block", reason:"⛔ [bash-gate] verification이지만 미완료 Phase 존재. 개발을 먼저 완료하세요."}'
       exit 0
     fi
   fi
   # verification + 모든 Phase 완료 → 통과
-  save_snapshot
   exit 0
 fi
 
@@ -447,7 +415,6 @@ case "$AGENT_MODE" in
   team)
     # CHECK 4: development + team_name
     if [ "$WORKFLOW_PHASE" = "development" ] && [ -z "$TEAM_NAME" ]; then
-      save_snapshot
       jq -n '{
         decision: "block",
         reason: "⛔ [bash-gate][team] 팀 미구성 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
@@ -459,7 +426,6 @@ case "$AGENT_MODE" in
     if [ "$WORKFLOW_PHASE" = "development" ]; then
       TEAM_CONFIG="$HOME/.claude/teams/${TEAM_NAME}/config.json"
       if [ ! -f "$TEAM_CONFIG" ]; then
-        save_snapshot
         jq -n '{
           decision: "block",
           reason: "⛔ [bash-gate][team] 팀 디렉토리 미존재 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
@@ -470,7 +436,6 @@ case "$AGENT_MODE" in
       MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
       MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
       if [ "$MEMBER_COUNT" -lt 1 ]; then
-        save_snapshot
         jq -n '{
           decision: "block",
           reason: "⛔ [bash-gate][team] 팀 멤버 부족 상태에서 Bash를 통한 파일 쓰기가 차단되었습니다."
@@ -482,7 +447,6 @@ case "$AGENT_MODE" in
       NON_LEAD_COUNT=$(jq -r '[.members[] | select(.name | ascii_downcase | test("lead") | not)] | length' "$TEAM_CONFIG" 2>/dev/null)
       NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
       if [ "$NON_LEAD_COUNT" -lt 1 ]; then
-        save_snapshot
         jq -n '{
           decision: "block",
           reason: "⛔ [bash-gate][team] Dev/QA 에이전트가 없습니다. Lead 응답([TEAM:duo|team]) 수신 후 Main Claude가 Dev/QA를 스폰하세요."
@@ -505,7 +469,6 @@ esac
 # CHECK 6.5: development + step=0 방어
 if [ "$WORKFLOW_PHASE" = "development" ]; then
   if [ "$CURRENT_DEV_PHASE" -le 0 ] || [ "$CURRENT_STEP" -le 0 ]; then
-    save_snapshot
     jq -n '{decision:"block", reason:"⛔ [bash-gate] development이지만 dev_phase/step 미설정"}'
     exit 0
   fi
@@ -515,7 +478,6 @@ fi
 if [ "$WORKFLOW_PHASE" = "development" ] && [ "$MODE" = "normal" ]; then
   DEV_PHASES_COUNT=$(jq '.dev_phases | length' "$STATE_FILE" 2>/dev/null)
   if [ "${DEV_PHASES_COUNT:-0}" -le 0 ] 2>/dev/null; then
-    save_snapshot
     jq -n '{decision:"block", reason:"⛔ [bash-gate] dev_phases가 비어있습니다. Lead가 phase 구조를 먼저 정의해야 합니다."}'
     exit 0
   fi
@@ -545,7 +507,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
       _CMD_EXEMPT=true
     fi
     if [ "$_CMD_EXEMPT" = "false" ]; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Lead가 phase.md를 먼저 생성해야 합니다.")
@@ -558,7 +519,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   if [ "$_IS_PHASE_BOOTSTRAP_BG" = false ]; then
     for section in "## 목표" "## 범위" "## Steps"; do
       if ! LC_ALL=en_US.UTF-8 grep -q "$section" "${PHASE_DIR}/phase.md" 2>/dev/null; then
-        save_snapshot
         jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$section" '{
           decision: "block",
           reason: ("⛔ [bash-gate] Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)
@@ -573,7 +533,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     PREV_STEP_FILE="${PHASE_DIR}/step-${PREV_STEP}.md"
 
     if [ ! -f "$PREV_STEP_FILE" ]; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " 문서 미존재. Bash 파일 쓰기 차단.")
@@ -582,7 +541,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
     fi
 
     if ! grep -q '✅' "$PREV_STEP_FILE" 2>/dev/null; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " 테스트 미통과. Bash 파일 쓰기 차단.")
@@ -592,7 +550,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
 
     # CHECK 7c-2: 이전 step의 TC 실행출력 검증
     if ! LC_ALL=en_US.UTF-8 grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + "의 TC에 실행출력이 없습니다. 테스트 실행 결과를 반드시 기록하세요.")
@@ -606,7 +563,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   # CHECK 7d: step.md 미존재 (bash 경유 step.md 생성은 부트스트랩 허용)
   if [ ! -f "$CURRENT_STEP_FILE" ]; then
     if ! echo "$CMD" | grep -qF "$CURRENT_STEP_FILE"; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " step.md 미존재. Bash 파일 쓰기 차단.")
@@ -618,7 +574,6 @@ if [ "$CURRENT_DEV_PHASE" -gt 0 ] && [ "$CURRENT_STEP" -gt 0 ]; then
   # CHECK 7e: TC 미정의 (bash 경유 step.md 생성/수정 중이면 스킵)
   if ! echo "$CMD" | grep -qF "$CURRENT_STEP_FILE"; then
     if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
-      save_snapshot
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" '{
         decision: "block",
         reason: ("⛔ [bash-gate] Dev Phase " + $phase + " Step " + $step + " TC 미정의. Bash 파일 쓰기 차단.")

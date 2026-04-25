@@ -142,7 +142,7 @@ hooks = settings.setdefault('hooks', {})
 env = settings.setdefault('env', {})
 
 # --- Hook 등록/제거 ---
-BOUNCER_HOOKS = ['plan-gate.sh', 'bash-gate.sh', 'doc-reminder.sh', 'bash-audit.sh',
+BOUNCER_HOOKS = ['plan-gate.sh', 'bash-gate.sh',
                  'completion-gate.sh', 'subagent-track.sh', 'subagent-cleanup.sh']
 
 def remove_bouncer_hooks():
@@ -209,8 +209,6 @@ if old_enforcement != enforcement_mode:
             # fallback: 하드코딩
             add_hook('PreToolUse', 'Write|Edit|MultiEdit', 'plan-gate.sh')
             add_hook('PreToolUse', 'Bash', 'bash-gate.sh')
-            add_hook('PostToolUse', 'Write|Edit|MultiEdit', 'doc-reminder.sh')
-            add_hook('PostToolUse', 'Bash', 'bash-audit.sh')
             add_hook('Stop', None, 'completion-gate.sh')
             add_hook('Stop', None, 'stop-active-cleanup.sh')
             add_hook('SubagentStart', None, 'subagent-track.sh')
@@ -1106,8 +1104,6 @@ echo "  ├─ agents: $(ls "$TARGET_DIR/agents/"*.md 2>/dev/null | xargs -I{} b
 echo "  ├─ skills: dev-bounce ($TARGET_DIR/skills/dev-bounce/)"
 echo "  ├─ hooks: plan-gate.sh (PreToolUse: Write/Edit)"
 echo "  │         bash-gate.sh (PreToolUse: Bash)"
-echo "  │         doc-reminder.sh (PostToolUse: Write/Edit)"
-echo "  │         bash-audit.sh (PostToolUse: Bash)"
 echo "  │         completion-gate.sh (Stop)"
 echo "  │         subagent-track.sh (SubagentStart)"
 echo "  │         subagent-cleanup.sh (SubagentStop)"

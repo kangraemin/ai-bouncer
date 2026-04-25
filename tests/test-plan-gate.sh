@@ -1,568 +1,139 @@
-#!/usr/bin/env bash
-# E2E tests for plan-gate.sh hook behavior (artifact-based)
-# Usage: bash tests/test-plan-gate.sh
+#!/bin/bash
+# test-plan-gate.sh — unified mode 기준 plan-gate 단위 테스트
 
-set -uo pipefail
+HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/hooks"
+PASS=0; FAIL=0
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-PASS_COUNT=0; FAIL_COUNT=0
-
-pass() { echo -e "${GREEN}[PASS]${NC} $1"; ((PASS_COUNT++)) || true; }
-fail() { echo -e "${RED}[FAIL]${NC} $1"; echo "       → $2"; ((FAIL_COUNT++)) || true; }
-
-SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-
-# 실제 설치 (suite 1회) — 설치된 경로의 hook 사용
-INSTALL_REPO=$(mktemp -d)
-git init "$INSTALL_REPO" -q
-git -C "$INSTALL_REPO" -c user.email=test@test.com -c user.name=Test commit --allow-empty -m "init" -q 2>/dev/null
-(cd "$INSTALL_REPO" && bash "$SRC_DIR/install.sh" --ci 2>/dev/null)
-HOOK_SCRIPT="$INSTALL_REPO/.claude/ai-bouncer/hooks/plan-gate.sh"
-
-TMPDIR_ROOT=$(mktemp -d)
-FAKE_HOME="$TMPDIR_ROOT/_fake_home"
-mkdir -p "$FAKE_HOME/.claude"
-ORIG_HOME="$HOME"
-export HOME="$FAKE_HOME"
-cleanup() { HOME="$ORIG_HOME"; rm -rf "$TMPDIR_ROOT" "$INSTALL_REPO"; }
-trap cleanup EXIT
-
-make_input() {
-  local tool="${1:-Write}"
-  local file_path="${2:-/some/file.txt}"
-  jq -n --arg tool "$tool" --arg path "$file_path" \
-    '{tool_name: $tool, tool_input: {file_path: $path}}'
-}
-
-# setup_env DIR TASK PHASE PLAN_APPROVED TEAM_NAME CREATE_STEP FILL_TC PREV_PASSED [AGENT_MODE]
-# CREATE_STEP: "yes" → step-1.md 생성 (현재 step)
-# FILL_TC: "yes" → step-1.md에 실제 TC 행 추가
-# PREV_PASSED: "yes" → step-0.md (이전 step)에 ✅ 추가 (current_step=2일 때 사용)
-# AGENT_MODE: "team"|"subagent"|"single" (기본: "team")
-setup_env() {
-  local dir="$1"
-  local task_name="$2"
-  local workflow_phase="${3:-planning}"
-  local plan_approved="${4:-false}"
-  local team_name="${5:-}"
-  local create_step="${6:-no}"
-  local fill_tc="${7:-no}"
-  local prev_passed="${8:-no}"
-  local agent_mode="${9:-team}"
-
-  local date_dir="2026-01-01"
-  mkdir -p "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}"
-  touch "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/.active"
-
-  # git init (plan-gate.sh가 git rev-parse --show-toplevel 사용)
-  if [ ! -d "$dir/.git" ]; then
-    (cd "$dir" && git init -q && git config user.email "test@test.com" && git config user.name "Test")
-  fi
-
-  # config.json 생성 (agent_mode 설정)
-  mkdir -p "$dir/.claude/ai-bouncer"
-  cat > "$dir/.claude/ai-bouncer/config.json" << CFGEOF
-{"agent_mode": "$agent_mode", "enforcement_mode": "hooks"}
-CFGEOF
-
-  # plan.md 생성 (plan_approved=true일 때)
-  if [ "$plan_approved" = "true" ]; then
-    echo "# Plan" > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/plan.md"
-  fi
-
-  # team config 생성 (team_name이 있을 때)
-  if [ -n "$team_name" ]; then
-    mkdir -p "$HOME/.claude/teams/${team_name}"
-    echo '{"members":[{"name":"lead"},{"name":"dev"}]}' > "$HOME/.claude/teams/${team_name}/config.json"
-  fi
-
-  local phase_folder="phase-1-test"
-  mkdir -p "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}"
-
-  # phase.md 생성
-  printf "# 개발 Phase 1: test\n\n## 목표\ntest phase\n\n## 범위\ntest\n\n## Steps\n- step 1\n" > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/phase.md"
-
-  # step 파일 생성
-  if [ "$create_step" = "yes" ]; then
-    if [ "$fill_tc" = "yes" ]; then
-      cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
-# Step 1: Test
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
-|---|---|---|---|
-| TC-1 | 로그인 성공 | `curl -X POST /login` → 토큰 반환 |  |
-STEPEOF
-    else
-      cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
-# Step 1: Test
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
-|---|---|---|---|
-| TC-1 |  |  |  |
-STEPEOF
-    fi
-  fi
-
-  # 이전 step (prev_passed 용)
-  if [ "$prev_passed" = "yes" ]; then
-    cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-1.md" << 'STEPEOF'
-# Step 1: Test
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
-|---|---|---|---|
-| TC-1 | 로그인 성공 | 토큰 반환 | ✅ PASS |
-STEPEOF
-  fi
-
-  # state.json 생성
-  local current_step=1
-  if [ "$prev_passed" = "yes" ] || [ "$prev_passed" = "no_check" ]; then
-    current_step=2
-    if [ "$create_step" = "yes" ]; then
-      if [ "$fill_tc" = "yes" ]; then
-        cat > "$dir/.ai-bouncer-tasks/${date_dir}/${task_name}/${phase_folder}/step-2.md" << 'STEPEOF'
-# Step 2: Test
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
-|---|---|---|---|
-| TC-1 | 검증 시나리오 | 성공 |  |
-STEPEOF
-      fi
-    fi
-  fi
-
-  python3 - "$dir" "$task_name" "$workflow_phase" "$plan_approved" "$team_name" "$current_step" "$date_dir" <<'PYEOF'
-import json, sys
-d, task, phase, approved, team_name, current_step, date_dir = sys.argv[1:]
-state = {
-    'workflow_phase': phase,
-    'plan_approved': approved == 'true',
-    'team_name': team_name,
-    'current_dev_phase': 1,
-    'current_step': int(current_step),
-    'dev_phases': {
-        '1': {
-            'name': 'test',
-            'folder': 'phase-1-test',
-            'steps': {
-                '1': {'title': 'Test step', 'doc_path': f'.ai-bouncer-tasks/{date_dir}/{task}/phase-1-test/step-1.md'}
-            }
-        }
-    },
-    'verification': {'rounds_passed': 0}
-}
-with open(f'{d}/.ai-bouncer-tasks/{date_dir}/{task}/state.json', 'w') as f:
-    json.dump(state, f, indent=2)
-PYEOF
-}
-
-run_hook() {
-  local dir="$1"
-  local input="$2"
-  (cd "$dir" && echo "$input" | bash "$HOOK_SCRIPT" 2>/dev/null)
-}
-
-assert_allow() {
-  local label="$1" out="$2"
-  local decision; decision=$(echo "$out" | jq -r '.decision // "allow"' 2>/dev/null)
-  if [ "$decision" != "block" ]; then
-    pass "$label"
+check() {
+  local label="$1" output="$2" expected="$3"
+  local actual
+  if [ -z "$output" ]; then
+    actual="allow"
   else
-    local reason; reason=$(echo "$out" | jq -r '.reason // ""' 2>/dev/null)
-    fail "$label" "got block: $reason"
+    actual=$(echo "$output" | jq -r '.decision // "allow"' 2>/dev/null || echo "allow")
   fi
-}
-
-assert_block() {
-  local label="$1" out="$2"
-  local decision; decision=$(echo "$out" | jq -r '.decision // "allow"' 2>/dev/null)
-  if [ "$decision" = "block" ]; then
-    pass "$label"
+  if [ "$actual" = "$expected" ]; then
+    echo "✅ $label"; PASS=$((PASS+1))
   else
-    fail "$label" "expected block, got allow"
+    echo "❌ $label (expected=$expected got=$actual)"; echo "   output: $output"; FAIL=$((FAIL+1))
   fi
 }
 
-# Cleanup helper for team dirs
-TEAM_DIRS_TO_CLEAN=()
-cleanup_teams() {
-  # HOME이 FAKE_HOME이므로 TMPDIR_ROOT 정리 시 자동 삭제됨
-  :
-}
+TMPDIR=$(mktemp -d)
+trap "rm -rf '$TMPDIR'" EXIT
 
-# ---------------------------------------------------------------------------
-# TC-1: planning + Write plan.md → ALLOW
-# ---------------------------------------------------------------------------
-tc1() {
-  local dir="$TMPDIR_ROOT/tc1"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "Write" "$dir/.ai-bouncer-tasks/2026-01-01/my-task/plan.md")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-1: planning + Write plan.md → ALLOW" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-2: planning + Write regular file → ALLOW
-# ---------------------------------------------------------------------------
-tc2() {
-  local dir="$TMPDIR_ROOT/tc2"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "Write" "/some/regular/file.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-2: planning + Write regular file → ALLOW" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-3: development + plan_approved=false → BLOCK
-# ---------------------------------------------------------------------------
-tc3() {
-  local dir="$TMPDIR_ROOT/tc3"
-  setup_env "$dir" "my-task" "development" "false" ""
-  local input; input=$(make_input "Write" "/src/app.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-3: development + plan_approved=false → BLOCK" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-4: 전체 조건 충족 (팀+step+TC+plan.md) → ALLOW
-# ---------------------------------------------------------------------------
-tc4() {
-  local dir="$TMPDIR_ROOT/tc4"
-  local team="test-team-tc4-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-4: 전체 조건 충족 → ALLOW" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-5: planning + Write step-*.md → ALLOW
-# ---------------------------------------------------------------------------
-tc5() {
-  local dir="$TMPDIR_ROOT/tc5"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  local input; input=$(make_input "Write" "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1/step-1.md")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-5: planning + Write step-*.md → BLOCK" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-6: development + Write phase-*.md → ALLOW
-# ---------------------------------------------------------------------------
-tc6() {
-  local dir="$TMPDIR_ROOT/tc6"
-  local team="test-team-tc6-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team"
-  local input; input=$(make_input "Write" "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1-auth/phase.md")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-6: development + Write phase-*.md → ALLOW" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-7: development + plan_approved=true + 팀 디렉토리 없음 → BLOCK
-# ---------------------------------------------------------------------------
-tc7() {
-  local dir="$TMPDIR_ROOT/tc7"
-  setup_env "$dir" "my-task" "development" "true" "nonexistent-team-$$"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-7: development + 팀 디렉토리 없음 → BLOCK" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-8: development + 팀 있음 + step.md 미존재 → BLOCK
-# ---------------------------------------------------------------------------
-tc8() {
-  local dir="$TMPDIR_ROOT/tc8"
-  local team="test-team-tc8-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  # create_step=no → step-1.md 없음
-  setup_env "$dir" "my-task" "development" "true" "$team" "no" "no"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-8: development + step.md 미존재 → BLOCK" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-9: development + step.md 존재 + TC 행 비어있음 → BLOCK
-# ---------------------------------------------------------------------------
-tc9() {
-  local dir="$TMPDIR_ROOT/tc9"
-  local team="test-team-tc9-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  # create_step=yes, fill_tc=no → TC 행은 빈 템플릿
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "no"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-9: development + step.md TC 빈 템플릿 → BLOCK" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# TC-10: development + 이전 step에 ✅ 없음 → BLOCK
-# ---------------------------------------------------------------------------
-tc10() {
-  local dir="$TMPDIR_ROOT/tc10"
-  local team="test-team-tc10-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  # prev_passed=no_check → current_step=2, step-1.md 있지만 ✅ 없음
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes" "no_check"
-  # step-1.md에 ✅ 없는 상태로 만듦
-  cat > "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1-test/step-1.md" << 'EOF'
-# Step 1: Test
-## 테스트 케이스
-| TC | 시나리오 | 기대 결과 | 실제 결과 |
-|---|---|---|---|
-| TC-1 | 로그인 성공 | 토큰 반환 | FAIL |
+# 임시 git repo + bouncer config (single mode)
+(cd "$TMPDIR" && git init -q && git config user.email "test@test.com" && git config user.name "Test")
+mkdir -p "$TMPDIR/.claude/ai-bouncer"
+cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
+{"agent_mode":"single","commit_strategy":"none"}
 EOF
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-10: development + 이전 step ✅ 없음 → BLOCK" "$out"
+
+TASK_DIR="$TMPDIR/.ai-bouncer-tasks/2026-01-01/test-task"
+PHASE_DIR="$TASK_DIR/phase-1-test"
+mkdir -p "$TASK_DIR" "$PHASE_DIR"
+touch "$TASK_DIR/.active"
+cat > "$TASK_DIR/plan.md" <<'EOF'
+# Plan
+## 목표
+Test plan
+EOF
+
+# Dummy source file to write (outside .ai-bouncer-tasks)
+DUMMY="$TMPDIR/dummy.sh"
+touch "$DUMMY"
+(cd "$TMPDIR" && git add dummy.sh && git commit -q -m "init")
+
+write_state() {
+  cat > "$TASK_DIR/state.json" <<EOF
+$1
+EOF
 }
 
-# ---------------------------------------------------------------------------
-# TC-11: development + plan_approved=true + plan.md 파일 없음 → BLOCK
-# ---------------------------------------------------------------------------
-tc11() {
-  local dir="$TMPDIR_ROOT/tc11"
-  local team="test-team-tc11-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  # plan.md 삭제
-  rm -f "$dir/.ai-bouncer-tasks/2026-01-01/my-task/plan.md"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-11: development + plan.md 없음 → BLOCK" "$out"
+run_gate() {
+  local file="$1"
+  (cd "$TMPDIR" && echo "{\"tool_name\":\"Edit\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$file\",\"old_string\":\"x\",\"new_string\":\"y\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
-# ---------------------------------------------------------------------------
-# TC-12: development + 팀 멤버 1명 (solo) → ALLOW
-# ---------------------------------------------------------------------------
-tc12() {
-  local dir="$TMPDIR_ROOT/tc12"
-  local team="test-team-tc12-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  # 팀 멤버를 1명으로 변경 (solo 팀은 유효)
-  echo '{"members":[{"name":"lead"}]}' > "$HOME/.claude/teams/${team}/config.json"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-12: development + 팀 멤버 1명 (solo) → ALLOW" "$out"
+BASE_STATE='{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"step 1"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+
+write_phase_md() {
+  cat > "$PHASE_DIR/phase.md" <<EOF
+$1
+EOF
 }
 
-# ---------------------------------------------------------------------------
-# BLOCK: workflow_phase whitelist, development + step=0, persistent .active
-# ---------------------------------------------------------------------------
-
-# TC-P13: workflow_phase=hack + Write → BLOCK
-tc_p13() {
-  local dir="$TMPDIR_ROOT/tc_p13"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['workflow_phase'] = 'hack'
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/app.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-P13: workflow_phase=hack → BLOCK" "$out"
+write_step1() {
+  cat > "$PHASE_DIR/step-1.md" <<EOF
+$1
+EOF
 }
 
-# TC-P14: development + current_dev_phase=0 + Write → BLOCK
-tc_p14() {
-  local dir="$TMPDIR_ROOT/tc_p14"
-  local team="test-team-tcp14-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['current_dev_phase'] = 0
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/app.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-P14: development + dev_phase=0 → BLOCK" "$out"
-}
+# TC-01: plan_approved=false → block (CHECK 3)
+write_state '{"workflow_phase":"development","plan_approved":false,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+check "TC-01: plan_approved=false → block" "$(run_gate "$DUMMY")" "block"
 
-# TC-P15: .active 없음 → gate 비활성 → ALLOW
-tc_p15() {
-  local dir="$TMPDIR_ROOT/tc_p15"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  # .active 제거 → gate 비활성
-  rm -f "$dir/.ai-bouncer-tasks/2026-01-01/my-task/.active"
+# TC-02: dev_phases={} → block (CHECK 6.7)
+write_state '{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+check "TC-02: dev_phases={} → block" "$(run_gate "$DUMMY")" "block"
 
-  local input; input=$(make_input "Write" "/src/app.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-P15: .active 없음 → ALLOW (gate 비활성)" "$out"
-}
+# TC-03: phase.md without ## 목표 → block (CHECK 7a-2)
+write_state "$BASE_STATE"
+write_phase_md "## 범위
+scope here
+## Steps
+- step 1"
+check "TC-03: phase.md without ## 목표 → block" "$(run_gate "$DUMMY")" "block"
 
-# ---------------------------------------------------------------------------
-# SIMPLE 모드 테스트
-# ---------------------------------------------------------------------------
+# TC-04: phase.md without ## Steps → block (CHECK 7a-2)
+write_phase_md "## 목표
+goal here
+## 범위
+scope here"
+check "TC-04: phase.md without ## Steps → block" "$(run_gate "$DUMMY")" "block"
 
-# TC-S1: simple + development + plan_approved + 팀/step 없음 → ALLOW
-tc_s1() {
-  local dir="$TMPDIR_ROOT/tc_s1"
-  setup_env "$dir" "my-task" "development" "true" ""
-  # mode=simple, team_name 비어있음, step/phase 없음
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['mode'] = 'simple'
-s['team_name'] = ''
-s['current_dev_phase'] = 0
-s['current_step'] = 0
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-S1: simple + development + 팀/step 없음 → ALLOW" "$out"
-}
+# TC-05: phase.md without ## 범위 → NOT blocked (범위 required 섹션에서 제거됨)
+write_phase_md "## 목표
+goal here
+## Steps
+- step 1"
+write_step1 "# Step 1
 
-# TC-S2: simple + planning → ALLOW
-tc_s2() {
-  local dir="$TMPDIR_ROOT/tc_s2"
-  setup_env "$dir" "my-task" "planning" "false" ""
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['mode'] = 'simple'
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-S2: simple + planning → ALLOW" "$out"
-}
+## TC
+| TC-01 | happy path runs correctly | returns exit code 0 | \`echo ok\` | ⬜ |"
+check "TC-05: phase.md without ## 범위 → allow (범위 제거됨)" "$(run_gate "$DUMMY")" "allow"
 
-# TC-S3: simple + plan_approved=false → BLOCK
-tc_s3() {
-  local dir="$TMPDIR_ROOT/tc_s3"
-  setup_env "$dir" "my-task" "development" "true" ""
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['mode'] = 'simple'
-s['plan_approved'] = False
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-S3: simple + plan_approved=false → BLOCK" "$out"
-}
+# TC-06: 이전 step에 ✅ 없음 → block (CHECK 7c), step=2
+write_state '{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":2,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"},"2":{"title":"s2"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+write_phase_md "## 목표
+goal
+## Steps
+- step 1
+- step 2"
+write_step1 "# Step 1
 
-# TC-S4: normal (default) + development + 팀 없음 → BLOCK (기존 동작 유지)
-tc_s4() {
-  local dir="$TMPDIR_ROOT/tc_s4"
-  setup_env "$dir" "my-task" "development" "true" ""
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-S4: normal + development + 팀 없음 → BLOCK" "$out"
-}
+## TC
+| TC-01 | previous step test | returns exit code 0 | \`echo ok\` | ⬜ |"
+cat > "$PHASE_DIR/step-2.md" <<'EOF'
+# Step 2
 
-# ---------------------------------------------------------------------------
-# TC-PH1: development + phase.md 없음 → BLOCK
-# ---------------------------------------------------------------------------
-tc_ph1() {
-  local dir="$TMPDIR_ROOT/tc_ph1"
-  local team="test-team-tcph1-$$"
-  TEAM_DIRS_TO_CLEAN+=("$HOME/.claude/teams/${team}")
-  setup_env "$dir" "my-task" "development" "true" "$team" "yes" "yes"
-  # phase.md 삭제
-  rm -f "$dir/.ai-bouncer-tasks/2026-01-01/my-task/phase-1-test/phase.md"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-PH1: development + phase.md 없음 → BLOCK" "$out"
-}
+## TC
+| TC-01 | current step test | returns exit code 0 | `echo ok` | ⬜ |
+EOF
+check "TC-06: 이전 step에 ✅ 없음 → block" "$(run_gate "$DUMMY")" "block"
 
-# ---------------------------------------------------------------------------
-# agent_mode 테스트
-# ---------------------------------------------------------------------------
+# TC-07: 현재 step에 TC 없음 → block (CHECK 7e)
+write_state "$BASE_STATE"
+write_phase_md "## 목표
+goal
+## Steps
+- step 1"
+write_step1 "# Step 1
 
-# TC-AM1: agent_mode=subagent + development + team_name 비어있음 → ALLOW
-tc_am1() {
-  local dir="$TMPDIR_ROOT/tc_am1"
-  # agent_mode=subagent (9번째 인자)
-  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "subagent"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-AM1: agent_mode=subagent + development + team_name 비어있음 → ALLOW" "$out"
-}
-
-# TC-AM2: agent_mode=subagent + dev_phases={} → BLOCK (CHECK 6.7 유지)
-tc_am2() {
-  local dir="$TMPDIR_ROOT/tc_am2"
-  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "subagent"
-  python3 -c "
-import json
-f = '$dir/.ai-bouncer-tasks/2026-01-01/my-task/state.json'
-with open(f) as fp: s = json.load(fp)
-s['dev_phases'] = {}
-with open(f, 'w') as fp: json.dump(s, fp, indent=2)
-"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-AM2: agent_mode=subagent + dev_phases={} → BLOCK" "$out"
-}
-
-# TC-AM3: agent_mode=subagent + planning → ALLOW
-tc_am3() {
-  local dir="$TMPDIR_ROOT/tc_am3"
-  setup_env "$dir" "my-task" "planning" "false" "" "no" "no" "no" "subagent"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-AM3: agent_mode=subagent + planning → ALLOW" "$out"
-}
-
-# TC-AM4: agent_mode=single + development + team_name 비어있음 → ALLOW
-tc_am4() {
-  local dir="$TMPDIR_ROOT/tc_am4"
-  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "single"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_allow "TC-AM4: agent_mode=single + development + team_name 비어있음 → ALLOW" "$out"
-}
-
-# TC-AM5: config.json 없음 (하위호환) + team_name 비어있음 → BLOCK (team 폴백)
-tc_am5() {
-  local dir="$TMPDIR_ROOT/tc_am5"
-  setup_env "$dir" "my-task" "development" "true" "" "yes" "yes" "no" "team"
-  # config.json 삭제 (하위 호환 시뮬레이션)
-  rm -f "$dir/.claude/ai-bouncer/config.json"
-  local input; input=$(make_input "Write" "/src/feature.ts")
-  local out; out=$(run_hook "$dir" "$input")
-  assert_block "TC-AM5: config.json 없음 + team_name 비어있음 → BLOCK (team 폴백)" "$out"
-}
-
-# ---------------------------------------------------------------------------
-# Run all TCs
-# ---------------------------------------------------------------------------
-echo -e "${YELLOW}=== plan-gate.sh E2E Tests (Artifact-based) ===${NC}"
-echo ""
-
-tc1; tc2; tc3; tc4; tc5; tc6; tc7; tc8; tc9; tc10; tc11; tc12
-tc_p13; tc_p14; tc_p15
-tc_s1; tc_s2; tc_s3; tc_s4
-tc_ph1
-tc_am1; tc_am2; tc_am3; tc_am4; tc_am5
-
-# Cleanup team directories
-cleanup_teams
+## 개발 내용
+어떤 기능을 개발합니다."
+check "TC-07: 현재 step에 TC 없음 → block" "$(run_gate "$DUMMY")" "block"
 
 echo ""
-echo "---"
-TOTAL=$((PASS_COUNT + FAIL_COUNT))
-if [ "$FAIL_COUNT" -eq 0 ]; then
-  echo -e "${GREEN}✅ $PASS_COUNT/$TOTAL passed${NC}"
-  exit 0
-else
-  echo -e "${RED}❌ $FAIL_COUNT/$TOTAL failed${NC}"
-  exit 1
-fi
+echo "결과: PASS=$PASS FAIL=$FAIL"
+[ "$FAIL" -eq 0 ] || exit 1

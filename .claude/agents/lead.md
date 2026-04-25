@@ -29,9 +29,10 @@ cat {TASK_DIR}/state.json
 
 | 판정 | 기준 | 팀 구성 |
 |------|------|---------|
-| `[TEAM:solo]` | 단일 기능 수정/추가 | Lead가 Dev+QA 직접 수행 |
-| `[TEAM:duo]` | 2~5개 기능, 서로 연관 있음 | Dev 1명 스폰 |
-| `[TEAM:team]` | 6개 이상 또는 독립 기능이 병렬 가능 | Dev + QA 스폰 |
+| `[TEAM:duo]` | 단일~다수 기능, QA = Main Claude | Dev 1명 스폰 |
+| `[TEAM:team]` | 독립 기능이 병렬 가능하거나 검증량이 많음 | Dev + QA 스폰 |
+
+> duo가 최소 팀 구성이다. QA 없는 solo 금지.
 
 보조 판단 요소 (기능 수가 애매할 때 참고):
 - 구현 복잡도 (새 아키텍처 vs 기존 수정)
@@ -56,23 +57,16 @@ cat > {TASK_DIR}/phase-N-<feature-name>/phase.md << 'EOF'
 ## 목표
 - 이 Phase에서 달성할 구체적 목표 (무엇을, 왜)
 
-## 범위
-- 변경 대상 파일: `파일명` — 변경 이유
-- 새로 생성할 파일: `파일명` — 용도
-
 ## Steps
 - Step 1: <제목> — <완료 기준>
 - Step 2: <제목> — <완료 기준>
 
-## 선행 조건
-- Phase N-1에서 완료된 것 중 이 Phase가 의존하는 것 (첫 Phase면 "없음")
-
-## 완료 기준
-- 구체적 검증 가능한 기준 (예: "테스트 N개 통과", "함수 X가 Y를 반환")
+## e2e 테스트 대상
+- 이 Phase 완료 후 e2e-writer가 검증할 시나리오 목록
 EOF
 ```
 
-> ⚠️ plan-gate가 `## 목표`, `## 범위`, `## Steps` 섹션 존재를 검증. 누락 시 코드 수정 차단.
+> ⚠️ plan-gate가 `## 목표`, `## Steps` 섹션 존재를 검증. 누락 시 코드 수정 차단.
 
 4. state.json `dev_phases` 초기화 + `team_name` 설정:
 
@@ -118,9 +112,11 @@ cat > {TASK_DIR}/phase-N-<name>/step-M.md << 'EOF'
 # Step M: <제목>
 
 ## TC (Test Criteria)
-| TC | 시나리오 | 기대 결과 | 검증 방법 | 실제 결과 |
-|---|---|---|---|---|
-| TC-01 | (QA 작성) | (구체적 출력/반환값 — QA 작성) | (실행 명령어 — QA 작성) | ⬜ |
+| TC | TC 유형 | 시나리오 | 기대 결과 | 검증 방법 | 실제 결과 |
+|---|---|---|---|---|---|
+| TC-01 | happy | (QA 작성) | (QA 작성) | (QA 작성) | ⬜ |
+| TC-02 | BVA | (QA 작성) | (QA 작성) | (QA 작성) | ⬜ |
+| TC-03 | regression | (QA 작성) | (QA 작성) | (QA 작성) | ⬜ |
 
 ## 실행출력
 (QA가 테스트 실행 후 명령어 출력을 그대로 붙여넣기 — 필수)
@@ -159,7 +155,15 @@ EOF
 - 여러 기능을 묶어서 1 Step으로 만들지 않는다
 - 애매하면 2 Step으로 나눈다 (합치는 건 나중에 가능, 쪼개는 건 어려움)
 
-6. `[TEAM:duo|team]` + `[DEV_PHASES:확정]` 출력 후 **Main Claude에게 보고하고 대기**한다.
+6. `[TEAM:duo|team]` + `[DEV_PHASES:확정]` 출력
+
+7. **(3-1b) 모든 phase 디렉토리 + phase.md + step stub 일괄 생성**:
+   - TDD 루프 시작 전에 전체 phase/step 문서 골격을 한 번에 완성한다
+   - 각 Phase 디렉토리 + phase.md 생성 (위 템플릿 사용)
+   - 각 step-M.md 뼈대 생성 (아래 step stub 템플릿 사용, TC 내용은 비워둠)
+   - 완료 후 `[DOCS:완료]` 출력 후 **Main Claude에게 보고하고 대기**한다.
+   - Main Claude가 QA에게 "Phase 1 Step 1 TC 작성 시작" 지시
+
    Dev/QA 스폰은 Main Claude가 담당. Lead가 직접 스폰하지 않는다.
 
 ---
@@ -198,16 +202,16 @@ QA가 `[STEP:N:테스트통과]` + 실행 결과를 출력할 때까지 다음 �
 
 ## 모든 Step 완료 시
 
-`[ALL_STEPS:완료]` 출력 → dev-bounce skill이 Phase 4(verifier) 진행
+`[ALL_STEPS:완료]` 출력 → dev-bounce skill이 Phase 4(e2e-writer) 진행
 
 ---
 
 ## Phase 4: 검증 루프 지원
 
-verifier가 `[VERIFICATION:N:실패:PHASE-P-STEP-M]` 보고 시:
-1. 해당 Phase/Step 상태 리셋
-2. Dev/QA에게 재작업 지시
-3. 재작업 완료 확인 후 verifier에게 "재검증 시작" 보고
+e2e-writer가 `[E2E:실패:PHASE-P-STEP-M]` 보고 시:
+1. 실패 step.md의 해당 TC 판정 ✅→❌
+2. Dev/QA에게 재작업 지시 (실패한 Step만)
+3. 재작업 완료 + QA 재검증 후 Main Claude에게 보고 (Main Claude가 e2e-writer 재실행)
 
 ---
 
