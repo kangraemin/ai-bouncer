@@ -636,7 +636,7 @@ print('\n'.join('.claude/' + f for f in valid))
   fi
 fi
 
-# 매니페스트 업데이트 (로컬 우선)
+# 매니페스트 업데이트 — files 배열도 실제 설치 파일 기준으로 재빌드
 MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
 mkdir -p "$BOUNCER_DATA_DIR"
 SHA=$(git -C "$PACKAGE_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
@@ -645,16 +645,69 @@ import json, sys, os
 m = json.load(open(sys.argv[1])) if os.path.exists(sys.argv[1]) else {}
 print(m.get('version', 'unknown'))
 " "$MANIFEST" 2>/dev/null || echo "unknown")
-if [ "$SHA" != "$INSTALLED_SHA" ]; then
-  python3 -c "
+
+# files 배열: PACKAGE_DIR(소스)에서 설치하는 파일 목록으로 재빌드
+_MANIFEST_FILES=$(python3 -c "
+import os, sys, json
+pkg = sys.argv[1]   # 소스 PACKAGE_DIR
+bouncer_rel = 'ai-bouncer'
+files = []
+# agents/*.md
+agents_dir = os.path.join(pkg, 'agents')
+if os.path.isdir(agents_dir):
+    for f in sorted(os.listdir(agents_dir)):
+        if f.endswith('.md') and os.path.isfile(os.path.join(agents_dir, f)):
+            files.append('agents/' + f)
+    for sd in sorted(os.listdir(agents_dir)):
+        sdpath = os.path.join(agents_dir, sd)
+        if os.path.isdir(sdpath):
+            for f in sorted(os.listdir(sdpath)):
+                if f.endswith('.md') and os.path.isfile(os.path.join(sdpath, f)):
+                    files.append('agents/' + sd + '/' + f)
+# skills (소스에 있는 것만)
+skills_dir = os.path.join(pkg, 'skills')
+if os.path.isdir(skills_dir):
+    for sk in sorted(os.listdir(skills_dir)):
+        skpath = os.path.join(skills_dir, sk)
+        if os.path.isdir(skpath):
+            for f in sorted(os.listdir(skpath)):
+                fpath = os.path.join(skpath, f)
+                if os.path.isfile(fpath):
+                    files.append('skills/' + sk + '/' + f)
+# hooks (소스에 있는 것만)
+hooks_dir = os.path.join(pkg, 'hooks')
+if os.path.isdir(hooks_dir):
+    for f in sorted(os.listdir(hooks_dir)):
+        if (f.endswith('.sh') or f.endswith('.json')) and os.path.isfile(os.path.join(hooks_dir, f)):
+            files.append(bouncer_rel + '/hooks/' + f)
+    lib_dir = os.path.join(hooks_dir, 'lib')
+    if os.path.isdir(lib_dir):
+        for f in sorted(os.listdir(lib_dir)):
+            if f.endswith('.sh') and os.path.isfile(os.path.join(lib_dir, f)):
+                files.append(bouncer_rel + '/hooks/lib/' + f)
+# scripts (소스에 있는 것만)
+scripts_dir = os.path.join(pkg, 'scripts')
+if os.path.isdir(scripts_dir):
+    for f in sorted(os.listdir(scripts_dir)):
+        if f.endswith('.sh') and os.path.isfile(os.path.join(scripts_dir, f)):
+            files.append(bouncer_rel + '/scripts/' + f)
+print(json.dumps(files))
+" "$PACKAGE_DIR" 2>/dev/null || echo "[]")
+
+python3 -c "
 import json, datetime, os, sys
-manifest_path = sys.argv[1]
-sha = sys.argv[2]
+manifest_path, sha, files_json = sys.argv[1], sys.argv[2], sys.argv[3]
 m = json.load(open(manifest_path)) if os.path.exists(manifest_path) else {}
 m['version'] = sha
+m['files'] = json.loads(files_json)
 m['updated_at'] = datetime.datetime.now().isoformat()
+if 'installed_at' not in m:
+    m['installed_at'] = m['updated_at']
 json.dump(m, open(manifest_path,'w'), indent=2)
-" "$MANIFEST" "$SHA"
+open(manifest_path,'a').write('\n')
+" "$MANIFEST" "$SHA" "$_MANIFEST_FILES"
+
+if [ "$SHA" != "$INSTALLED_SHA" ]; then
   ok "매니페스트 ($INSTALLED_SHA → $SHA)"
   UPDATED=$((UPDATED + 1))
 else
