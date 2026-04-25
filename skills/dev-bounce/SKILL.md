@@ -416,6 +416,46 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 
 항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
+> **에이전트 수명 — 병렬성 기반 스폰 전략:**
+>
+> Lead가 [DOCS:완료] 전에 각 Phase의 병렬 실행 가능 여부를 판단하고 state.json에 기록한다.
+>
+> **병렬성 판단 기준 (Lead가 plan.md Before/After를 읽고 직접 판단):**
+> - Phase B가 Phase A의 결과물(함수, 타입, 컴포넌트)을 사용 → 순차
+> - Phase A의 변경이 Phase B 구현의 정확성에 영향 → 순차
+> - 두 Phase가 서로 완전히 독립적으로 구현 가능 → 병렬
+> (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
+>
+> Lead가 state.json dev_phases에 `parallel_group` 필드로 기록:
+> ```json
+> "dev_phases": {
+>   "1": {"name": "...", "steps": {...}, "parallel_group": "A"},
+>   "2": {"name": "...", "steps": {...}, "parallel_group": "A"},
+>   "3": {"name": "...", "steps": {...}, "parallel_group": "B"}
+> }
+> ```
+> 같은 parallel_group = 동시 실행 가능. 다른 group = 이전 group 완료 후 순차 실행.
+>
+> **순차 Phases (parallel_group이 모두 다른 경우):**
+> QA + Dev를 최초 1회만 스폰한다. 모든 Phase에 걸쳐 SendMessage로 재활용한다.
+> Phase가 바뀌어도 에이전트를 재스폰하지 않는다.
+> ```
+> QA_AGENT_ID = Agent(QA 프롬프트)로 받은 agentId  # 최초 1회
+> DEV_AGENT_ID = Agent(Dev 프롬프트)로 받은 agentId  # 최초 1회
+> # 이후 모든 Step/Phase → SendMessage(to=QA_AGENT_ID) / SendMessage(to=DEV_AGENT_ID)
+> ```
+>
+> **병렬 Phase 그룹이 있는 경우:**
+> 같은 parallel_group의 Phase들은 각각 QA+Dev 쌍을 스폰하여 동시 실행.
+> 그룹 내 Step 간에는 SendMessage로 재활용.
+>
+> ⚠️ "새 Phase가 시작됐다"는 이유만으로 에이전트를 재스폰하지 않는다.
+> ⚠️ Phase N 완료 후 Phase N+1 시작 시 같은 에이전트에 SendMessage한다.
+
+> **Dev/QA 스폰 시 반드시 프롬프트에 포함:**
+> `IS_DELEGATED_AGENT=true`
+> 이 값이 있어야 ai-bouncer hook이 에이전트의 파일 수정을 허용한다.
+
 ## QA 스폰 프롬프트
 
 > **QA 스폰 프롬프트 (Main Claude가 아래 내용을 그대로 QA에게 전달한다):**
@@ -427,6 +467,8 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > **[역할]**
 > - step.md의 ## 구현 목표를 읽고 TC를 작성합니다 (Dev 구현 전)
 > - Dev 구현 완료 후 TC를 실행하고 결과를 기록합니다
+> ⚠️ 절대로 사용자에게 질문하지 않는다. 모호한 부분은 step.md → plan.md → TC 순으로 참조해 자체 판단한다. 해결 불가 시 [STEP:N:블로킹:기획질문]으로 보고한다.
+> ⚠️ 모든 파일 Read/Write/Edit/Bash 도구 사용이 사전 허가되어 있다. 권한 확인 없이 즉시 실행한다.
 >
 > **[TC 유형]** — TC마다 아래 유형 중 하나를 반드시 지정합니다:
 >
@@ -483,6 +525,8 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > **[역할]**
 > step.md의 ## 구현 목표와 TC를 읽고 최소 코드로 구현합니다.
 > plan.md의 Before/After 코드를 기준으로 정확히 구현합니다.
+> ⚠️ 절대로 사용자에게 질문하지 않는다. 모호한 부분은 ## 구현 목표 → plan.md → TC 순으로 참조해 자체 판단한다. 해결 불가 시 [STEP:N:블로킹:기술불가]로 보고한다.
+> ⚠️ 모든 파일 Read/Write/Edit/Bash 도구 사용이 사전 허가되어 있다. 권한 확인 없이 즉시 실행한다.
 >
 > **[구현 시작 전 반드시 수행]**
 > 1. step.md의 ## 구현 목표를 읽어 변경 대상 파일과 핵심 변경을 파악
@@ -538,17 +582,18 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 각 개발 Phase의 각 Step마다:
 
 ```
-5-1. QA: .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md에 TC 먼저 작성
-     → [STEP:N:테스트정의완료] 출력
+# QA_AGENT_ID / DEV_AGENT_ID: 3-2에서 스폰 시 받은 agentId. Phase가 바뀌어도 그대로 사용.
 
-5-2. Dev: TC 통과할 최소 코드 구현
-          .ai-bouncer-tasks/<task>/phase-N-<이름>/step-M.md 구현 내용 업데이트
-     → [STEP:N:개발완료]
+5-1. SendMessage(to=QA_AGENT_ID): "Phase N Step M TC 작성" 지시
+     → [STEP:N:테스트정의완료] 수신
+
+5-2. SendMessage(to=DEV_AGENT_ID): "Phase N Step M 구현" 지시
+     → [STEP:N:개발완료] 수신
        빌드 명령: <명령어>
        결과: ✅ 성공
 
-5-3. QA: 테스트 실행
-     → [STEP:N:테스트통과]
+5-3. SendMessage(to=QA_AGENT_ID): "Phase N Step M 검증" 지시
+     → [STEP:N:테스트통과] 수신
        명령어: <명령어>
        결과: N/N 통과
      → step-M.md TC 테이블 "실제 결과" 컬럼에 ✅ 기록
@@ -556,7 +601,12 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
      → state.json current_step++
      ⚠️ plan-gate가 이전 step의 실행출력 존재를 검증함. 없으면 다음 step 차단.
 
-     실패 시 → Dev에 반려 → 5-2 반복
+     실패 시 → SendMessage(to=DEV_AGENT_ID): 재작업 지시
+             → SendMessage(to=QA_AGENT_ID): 재검증 지시
+
+Phase N 완료 → Phase N+1 시작:
+  SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ← 재스폰 없음
+  SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ← 재스폰 없음
 ```
 
 > **phase.md 필수 섹션**: `## 목표`, `## Steps` — plan-gate가 검증하며 누락 시 코드 수정 차단.
