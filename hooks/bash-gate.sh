@@ -334,6 +334,11 @@ if [ -z "$TASK_NAME" ]; then
   exit 0
 fi
 
+# 승인된 sub-agent → gate 스킵
+if [ "${IS_DELEGATED_AGENT:-false}" = "true" ]; then
+  exit 0
+fi
+
 # state.json 없으면 통과
 [ -f "$STATE_FILE" ] || exit 0
 

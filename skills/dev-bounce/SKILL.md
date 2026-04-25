@@ -359,7 +359,15 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 
 항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
+> **에이전트 수명**: QA + Dev는 Phase 시작 시 **한 번만 스폰**한다.
+> Step이 바뀌어도 새로 스폰하지 않는다 — **SendMessage로 재활용**한다.
+> Phase가 끝나면 에이전트를 종료하고 다음 Phase에서 새로 스폰한다.
+
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
+
+> ⚠️ **QA와 Dev를 절대 병렬 스폰하지 않는다.**
+> QA가 `[STEP:N:테스트정의완료]`를 출력한 후에만 Dev에게 SendMessage로 구현을 지시한다.
+> Dev가 `[STEP:N:개발완료]`를 출력한 후에만 QA에게 SendMessage로 검증을 지시한다.
 
 각 개발 Phase의 각 Step마다:
 

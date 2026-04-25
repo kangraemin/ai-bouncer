@@ -32,6 +32,11 @@ _gate_is_bootstrap_for() {
 _run_gate_checks() {
   local _P="${1:-}"
 
+  # 승인된 sub-agent: Main Claude가 plan 승인 후 스폰한 에이전트 → gate 전체 스킵
+  if [ "${IS_DELEGATED_AGENT:-false}" = "true" ]; then
+    return 0
+  fi
+
   # CHECK 3: plan_approved + plan.md 실존
   if [ "${PLAN_APPROVED}" != "true" ]; then
     jq -n --arg r "⛔ ${_P}계획이 승인되지 않았습니다. /dev-bounce로 계획을 수립하고 승인 후 개발을 시작하세요." \
