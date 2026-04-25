@@ -301,6 +301,10 @@ Lead가 수행:
 3. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
 4. **3-1b: 모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
 
+   > ⚠️ **개발 시작 전 필수**: `[DOCS:완료]`를 출력하기 전까지 Dev/QA 스폰 절대 금지.
+   > Phase 1 docs가 완료됐다고 개발을 시작하지 않는다.
+   > **모든 Phase의 모든 Step 문서**를 전부 만든 후에야 `[DOCS:완료]`를 출력한다.
+
    Phase N마다 아래 순서를 반드시 지킨다:
 
    ```
@@ -325,14 +329,16 @@ Lead가 수행:
    | TC-1  |          |           |           |
    ```
 
-   모든 Phase/Step 파일 생성 완료 후 → `[DOCS:완료]` 출력
+   **전체 Phase의 전체 Step 파일이 모두 생성된 후** → `[DOCS:완료]` 출력
+   ⚠️ Phase 1만 완료된 상태에서 `[DOCS:완료]` 출력 금지.
 
 5. `[DOCS:완료]` 출력 → Main Claude에게 보고
 
 > **중요: Lead에게 스폰 시 반드시 다음을 명시할 것:**
 > "Lead는 오케스트레이터로서 코드 파일을 직접 Write/Edit/Bash로 수정하지 않는다.
 > 코드 구현은 반드시 Dev 에이전트를 스폰하여 위임한다.
-> git commit/push도 Lead가 직접 하지 않는다."
+> git commit/push도 Lead가 직접 하지 않는다.
+> **[DOCS:완료] 전에는 Dev/QA를 스폰하지 않는다. 모든 Phase/Step 문서를 전부 만들고 나서야 [DOCS:완료]를 출력한다.**"
 
 **subagent 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
 Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다.
