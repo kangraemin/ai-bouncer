@@ -189,6 +189,13 @@ if [[ "$FILE_PATH" == */.active ]]; then
   fi
 fi
 
+# CHECK verifications-in-development: development 상태에서 verifications/ 쓰기 차단
+# Phase 4 시작 전 state를 verification으로 먼저 변경해야 함
+if { [[ "$FILE_PATH" == */.ai-bouncer-tasks/*/verifications/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/*/verifications/* ]]; } && [ "$WORKFLOW_PHASE" = "development" ]; then
+  jq -n '{decision:"block", reason:"⛔ development 상태에서 verifications/ 파일 작성 불가. Phase 4 시작 전 state.json workflow_phase를 \"verification\"으로 먼저 변경하세요."}'
+  exit 0
+fi
+
 # .ai-bouncer-tasks/ 하위 파일은 태스크 관리 파일 → plan_approved 무관 허용
 if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
   exit 0

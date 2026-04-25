@@ -698,6 +698,10 @@ else:
 
 ### Phase 4: 검증
 
+⚠️ **Phase 4의 첫 번째 액션은 state.json을 `"verification"`으로 변경하는 것이다. 예외 없음.**
+e2e 스크립트 실행, verifications/ 파일 쓰기, e2e-writer 스폰 — 모두 state 변경 이후에만 가능.
+development 상태에서 verifications/ 쓰기는 hook이 차단한다.
+
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
 (completion-gate.sh가 verification 상태에서 검증 통과 전 응답 종료를 차단)
 

@@ -288,8 +288,8 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
   EXCEPTION=true
 fi
 
-# plan.md, step-*.md, phase-*.md, e2e-result.md
-if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|e2e-result\.md'; then
+# plan.md, step-*.md, phase-*.md
+if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md'; then
   EXCEPTION=true
 fi
 
@@ -359,6 +359,12 @@ case "$WORKFLOW_PHASE" in
     jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 허용되지 않는 값입니다."}'
     exit 0 ;;
 esac
+
+# CHECK verifications-in-development: development 상태에서 verifications/ 쓰기 차단
+if echo "$CMD" | grep -qE '\.ai-bouncer-tasks[/\\].*/verifications[/\\]' && [ "$WORKFLOW_PHASE" = "development" ]; then
+  jq -n '{decision:"block", reason:"⛔ [bash-gate] development 상태에서 verifications/ 파일 작성 불가. state.json workflow_phase를 \"verification\"으로 먼저 변경하세요."}'
+  exit 0
+fi
 
 # 공통 게이트 검증 (CHECK 3-7)
 GATE_CMD="$CMD"
