@@ -1,13 +1,12 @@
 ---
 name: dev-bounce
-description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 변경 등 모든 개발 작업에 반드시 사용해야 하는 구조화된 워크플로우. 사용자가 코드 변경을 요청하면 항상 이 스킬을 먼저 호출할 것. 복잡도에 따라 SIMPLE/NORMAL 모드 자동 분기. 이 스킬을 건너뛰고 직접 Edit/Write하면 dev-bounce 워크플로우 없이 진행하는 것이다. 반드시 호출할 것.
+description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 변경 등 모든 개발 작업에 반드시 사용해야 하는 구조화된 워크플로우. 사용자가 코드 변경을 요청하면 항상 이 스킬을 먼저 호출할 것. 모든 작업을 phase/step 구조로 처리하는 통일 워크플로우. 이 스킬을 건너뛰고 직접 Edit/Write하면 dev-bounce 워크플로우 없이 진행하는 것이다. 반드시 호출할 것.
 ---
 
 # dev-bounce
 
-복잡도에 따라 두 가지 모드로 분기:
-- **SIMPLE**: Main Claude가 직접 계획·개발·검증 (팀/phase/step 없음)
-- **NORMAL**: Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 → 검증
+모든 개발 작업을 **단일 phase/step 구조**로 처리한다:
+- Main Claude 계획 수립 → 승인 → Dev Team → TDD 개발 (phase/step) → e2e 검증
 
 계획 승인 없이는 코드를 수정하지 않는다.
 
@@ -71,12 +70,11 @@ if not results['active']:
         task_dir = os.path.dirname(state_file)
         task_name = os.path.basename(task_dir)
         date_dir = os.path.basename(os.path.dirname(task_dir))
-        mode = state.get('mode', '?')
         dev_phase = state.get('current_dev_phase', 0)
         total_phases = len(state.get('dev_phases', {}))
         results['incomplete'].append({
             'label': f'{date_dir}/{task_name}',
-            'phase': phase, 'mode': mode,
+            'phase': phase,
             'dev_phase': dev_phase, 'total_phases': total_phases,
             'task_dir': task_dir
         })
@@ -130,8 +128,8 @@ print(json.dumps(results, ensure_ascii=False))
 ```
 미완료 작업이 발견되었습니다:
 
-1. [2026-03-12/ai-tycoon-reskin] — development (Phase 2/3, NORMAL)
-2. [2026-03-10/auth-refactor] — verification (SIMPLE)
+1. [2026-03-12/ai-tycoon-reskin] — development (Phase 2/3)
+2. [2026-03-10/auth-refactor] — verification
 
 이어서 진행할 작업 번호를 선택하세요. 새 작업은 "새로":
 ```
@@ -191,7 +189,7 @@ Main Claude가 직접 판별한다 (에이전트 스폰 없음):
 
 ---
 
-## Phase 1: 계획 수립 (SIMPLE/NORMAL 공통)
+## Phase 1: 계획 수립
 
 Main Claude가 직접 수행 (팀 스폰 없음):
 
@@ -253,7 +251,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 ├── state.json                 # 워크플로우 상태
 ├── plan.md                    # 승인된 계획
 ├── phase-1-<이름>/            # 디렉토리 (flat file 금지)
-│   ├── phase.md               # 필수: ## 목표, ## 범위, ## Steps
+│   ├── phase.md               # 필수: ## 목표, ## Steps
 │   ├── step-1.md              # TC + 실행출력
 │   └── step-2.md
 ├── phase-2-<이름>/
@@ -465,8 +463,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 ## 주의사항
 
 - plan-gate.sh는 아티팩트(파일/팀 디렉토리)를 직접 검증합니다. state.json 플래그 조작으로 gate를 우회할 수 없습니다.
-- 2-layer Bash 방어: bash-gate.sh(PreToolUse)가 쓰기 패턴을 감지하여 사전 차단하고,
-  bash-audit.sh(PostToolUse)가 git diff로 모든 파일 변경을 감지하여 무단 변경을 자동 복원합니다.
+- Bash 방어: bash-gate.sh(PreToolUse)가 쓰기 패턴을 감지하여 사전 차단합니다.
   어떤 방법으로든 Bash를 통한 gate 우회는 100% 차단됩니다.
 - `[PLAN:승인됨]` 없이 코드 수정 시도 → plan-gate.sh / bash-gate.sh가 차단
 - 이전 Step의 step-M.md에 ✅가 없으면 다음 Step 코드 수정 → plan-gate.sh / bash-gate.sh가 차단
