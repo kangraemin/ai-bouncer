@@ -59,15 +59,21 @@ fi
 # 설치 경로 감지: 로컬(.claude/) 우선, 글로벌(~/.claude/) fallback
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 
+# 소스 레포 감지: 소스 레포에서는 로컬 설치 우선순위를 무시하고 전역 설치로 업데이트
+IS_SOURCE_REPO=false
+if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/install.sh" ] && [ -f "$REPO_ROOT/agents/intent.md" ]; then
+  IS_SOURCE_REPO=true
+fi
+
 TARGET_DIR=""
 
-# 1. 로컬 설치 확인
-if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/config.json" ]; then
+# 1. 로컬 설치 확인 — 소스 레포에서 실행 중이면 스킵 (전역으로 직행)
+if [ "$IS_SOURCE_REPO" = false ] && [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/config.json" ]; then
   CONFIG_FILE="$REPO_ROOT/.claude/ai-bouncer/config.json"
   TARGET_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('target_dir',sys.argv[2]))" "$CONFIG_FILE" "$REPO_ROOT/.claude")
 fi
 
-# 2. 글로벌 설치 확인 (하위 호환)
+# 2. 글로벌 설치 확인 (소스 레포에서 실행 시 항상 여기로)
 if [ -z "$TARGET_DIR" ] && [ -f "$HOME/.claude/ai-bouncer/config.json" ]; then
   CONFIG_FILE="$HOME/.claude/ai-bouncer/config.json"
   TARGET_DIR=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('target_dir',sys.argv[2]))" "$CONFIG_FILE" "$HOME/.claude")
@@ -79,12 +85,6 @@ if [ -z "$TARGET_DIR" ]; then
 fi
 
 BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
-
-# 소스 레포 감지: 소스 레포에서는 update.sh/uninstall.sh를 설치 아티팩트로 취급하지 않음
-IS_SOURCE_REPO=false
-if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/install.sh" ] && [ -f "$REPO_ROOT/agents/intent.md" ]; then
-  IS_SOURCE_REPO=true
-fi
 
 echo -e "${BOLD}ai-bouncer 업데이트${NC} → $TARGET_DIR"
 echo ""
