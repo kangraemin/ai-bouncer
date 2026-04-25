@@ -59,11 +59,6 @@ _resolve_from_base() {
       DOCS_BASE="$base"
       return 0
     fi
-
-    # 다른 세션의 태스크: skip
-    if [ -n "$stored_sid" ] && [ "$stored_sid" != "$SESSION_ID" ]; then
-      continue
-    fi
   done
 
   [ -n "$TASK_NAME" ] && return 0

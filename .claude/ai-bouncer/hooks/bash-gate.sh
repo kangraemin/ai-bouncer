@@ -307,8 +307,18 @@ if echo "$CMD" | grep -qE 'plan\.md|step-[0-9]+\.md|phase-[0-9]+.*\.md|round-[0-
 fi
 
 # .active 파일 조작 (삭제 포함 — dev-bounce 완료 시 필요)
+# 단, 다른 세션이 claim한 .active는 조작 불가
 if echo "$CMD" | grep -qE '\.active'; then
-  EXCEPTION=true
+  _active_safe=true
+  for _af_path in .ai-bouncer-tasks/*/*/.active .ai-bouncer-tasks/*/.active; do
+    [ -f "$_af_path" ] || continue
+    echo "$CMD" | grep -qF "$_af_path" || continue
+    _af_sid=$(cat "$_af_path" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$_af_sid" ] && [ -n "$SESSION_ID" ] && [ "$_af_sid" != "$SESSION_ID" ]; then
+      _active_safe=false; break
+    fi
+  done
+  [ "$_active_safe" = "true" ] && EXCEPTION=true
 fi
 
 # /tmp/ 임시 파일 조작 항상 허용 (worklog 중간 파일, mktemp 등)
@@ -346,9 +356,9 @@ PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 MODE=$(jq -r '.mode // "normal"' "$STATE_FILE" 2>/dev/null)
 TEAM_NAME=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
 CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
-CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
+CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE//[^0-9]/}; CURRENT_DEV_PHASE=${CURRENT_DEV_PHASE:-0}
 CURRENT_STEP=$(jq -r '.current_step // 0' "$STATE_FILE" 2>/dev/null)
-CURRENT_STEP=${CURRENT_STEP:-0}; CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
+CURRENT_STEP=${CURRENT_STEP//[^0-9]/}; CURRENT_STEP=${CURRENT_STEP:-0}
 
 # 스냅샷 저장 함수 (Layer 2용) — 세션 격리
 save_snapshot() {
@@ -430,7 +440,6 @@ if [ "$WORKFLOW_PHASE" = "verification" ]; then
 fi
 
 # agent_mode 읽기 (config.json에서)
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
 AGENT_MODE=$(jq -r '.agent_mode // "team"' "$BOUNCER_CONFIG" 2>/dev/null || echo "team")
 
 # agent_mode별 검증 분기
@@ -459,7 +468,7 @@ case "$AGENT_MODE" in
       fi
 
       MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
-      MEMBER_COUNT=${MEMBER_COUNT:-0}; MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
+      MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
       if [ "$MEMBER_COUNT" -lt 1 ]; then
         save_snapshot
         jq -n '{
@@ -471,7 +480,7 @@ case "$AGENT_MODE" in
 
       # CHECK 6-DEV: Lead만 있고 Dev/QA 없으면 차단
       NON_LEAD_COUNT=$(jq -r '[.members[] | select(.name | ascii_downcase | test("lead") | not)] | length' "$TEAM_CONFIG" 2>/dev/null)
-      NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}; NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
+      NON_LEAD_COUNT=${NON_LEAD_COUNT//[^0-9]/}; NON_LEAD_COUNT=${NON_LEAD_COUNT:-0}
       if [ "$NON_LEAD_COUNT" -lt 1 ]; then
         save_snapshot
         jq -n '{
