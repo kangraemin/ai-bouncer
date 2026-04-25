@@ -285,7 +285,7 @@ bash "$_BCFG/bouncer-config.sh" agent_mode team
 | agent_mode | 동작 |
 |---|---|
 | `team` | TeamCreate로 Dev Team 생성 후 Lead 스폰. state.json `team_name` = TeamCreate 팀 이름 |
-| `subagent` | Agent tool로 Lead 스폰. Lead가 Agent tool로 Dev/QA 스폰. state.json `team_name` = "" (빈 문자열) |
+| `subagent` | Agent tool로 Lead 스폰. Main Claude가 Agent tool로 Dev/QA 스폰. state.json `team_name` = "" (빈 문자열) |
 | `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). state.json `team_name` = "" |
 
 **team 모드 (기본):**
@@ -335,7 +335,7 @@ Lead가 수행:
 > git commit/push도 Lead가 직접 하지 않는다."
 
 **subagent 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
-Lead가 `[DOCS:완료]` 출력 후 → Lead가 직접 Agent tool로 Dev + QA를 각 1명씩 스폰한다.
+Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다.
 
 > **subagent/single 모드 state.json 업데이트 의무:**
 >
@@ -355,7 +355,7 @@ Lead가 `[DOCS:완료]` 출력 후 → Lead가 직접 Agent tool로 Dev + QA를 
 > Lead가 Agent tool로 Dev/QA를 스폰하는 것은 구조 위반이다.
 
 **subagent 모드:**
-> Lead가 `[DOCS:완료]` 출력 직후 **Lead 스스로** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
+> Lead가 `[DOCS:완료]` 출력 직후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
 
 항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
