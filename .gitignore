@@ -11,24 +11,25 @@ HANDOFF.md
 .ai-bouncer-tasks/
 # ai-bouncer installed files
 .claude/agents/dev.md
+.claude/agents/e2e-writer.md
 .claude/agents/intent.md
 .claude/agents/lead.md
 .claude/agents/qa.md
-.claude/agents/verifier.md
 .claude/agents/guides/tc-guide.md
 .claude/skills/bouncer-status/SKILL.md
 .claude/skills/dev-bounce/SKILL.md
 .claude/skills/update-bouncer/SKILL.md
+.claude/ai-bouncer/hooks/bash-gate.sh
+.claude/ai-bouncer/hooks/completion-gate.sh
 .claude/ai-bouncer/hooks/hooks.json
 .claude/ai-bouncer/hooks/plan-gate.sh
-.claude/ai-bouncer/hooks/bash-gate.sh
-.claude/ai-bouncer/hooks/doc-reminder.sh
-.claude/ai-bouncer/hooks/bash-audit.sh
-.claude/ai-bouncer/hooks/completion-gate.sh
 .claude/ai-bouncer/hooks/stop-active-cleanup.sh
-.claude/ai-bouncer/hooks/subagent-track.sh
+.claude/ai-bouncer/hooks/stop-bouncer-compat.sh
 .claude/ai-bouncer/hooks/subagent-cleanup.sh
+.claude/ai-bouncer/hooks/subagent-track.sh
+.claude/ai-bouncer/hooks/lib/gate-checks.sh
 .claude/ai-bouncer/hooks/lib/resolve-task.sh
 .claude/ai-bouncer/scripts/bouncer-config.sh
 .claude/ai-bouncer/scripts/bouncer-update-check.sh
+.claude/ai-bouncer/scripts/claim-active.sh
 # --- ai-bouncer end ---
