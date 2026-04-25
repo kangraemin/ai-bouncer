@@ -211,9 +211,6 @@ except:
   exit 0
 }
 
-# 체크 타임스탬프 갱신
-date +%s > "$CHECKED_FILE"
-
 # ── 설치된 버전 확인 ─────────────────────────────────────────────────────────
 INSTALLED_SHA=$($PYTHON -c "
 import json, sys
@@ -234,6 +231,9 @@ if [ "$CHECK_ONLY" = true ]; then
   fi
   exit 0
 fi
+
+# 체크 타임스탬프 갱신 (실제 업데이트 흐름에서만 — check-only는 throttle 건드리지 않음)
+date +%s > "$CHECKED_FILE"
 
 # ── 업데이트 필요 없으면 종료 ────────────────────────────────────────────────
 if [ "$LATEST_SHA" = "$INSTALLED_SHA" ]; then
