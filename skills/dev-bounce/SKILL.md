@@ -426,17 +426,18 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > - 두 Phase가 서로 완전히 독립적으로 구현 가능 → 병렬
 > (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
 >
-> Lead가 state.json dev_phases에 `parallel_group` 필드로 기록:
+> Lead가 state.json dev_phases에 `depends_on` 필드로 기록:
 > ```json
 > "dev_phases": {
->   "1": {"name": "...", "steps": {...}, "parallel_group": "A"},
->   "2": {"name": "...", "steps": {...}, "parallel_group": "A"},
->   "3": {"name": "...", "steps": {...}, "parallel_group": "B"}
+>   "1": {"name": "...", "steps": {...}, "depends_on": []},
+>   "2": {"name": "...", "steps": {...}, "depends_on": []},
+>   "3": {"name": "...", "steps": {...}, "depends_on": [1, 2]}
 > }
 > ```
-> 같은 parallel_group = 동시 실행 가능. 다른 group = 이전 group 완료 후 순차 실행.
+> `depends_on: []` = 의존 없음, 즉시 실행 가능.
+> `depends_on: [1, 2]` = Phase 1, 2가 모두 완료된 후 실행.
 >
-> **순차 Phases (parallel_group이 모두 다른 경우):**
+> **순차 Phases (각 Phase가 이전 Phase에 의존하는 경우):**
 > QA + Dev를 최초 1회만 스폰한다. 모든 Phase에 걸쳐 SendMessage로 재활용한다.
 > Phase가 바뀌어도 에이전트를 재스폰하지 않는다.
 > ```
@@ -445,9 +446,9 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > # 이후 모든 Step/Phase → SendMessage(to=QA_AGENT_ID) / SendMessage(to=DEV_AGENT_ID)
 > ```
 >
-> **병렬 Phase 그룹이 있는 경우:**
-> 같은 parallel_group의 Phase들은 각각 QA+Dev 쌍을 스폰하여 동시 실행.
-> 그룹 내 Step 간에는 SendMessage로 재활용.
+> **병렬 Phase가 있는 경우 (depends_on: []인 Phase가 여럿):**
+> 동시 실행 가능한 Phase마다 QA+Dev 쌍을 스폰하여 병렬 실행.
+> 각 쌍 내 Step 간에는 SendMessage로 재활용.
 >
 > ⚠️ "새 Phase가 시작됐다"는 이유만으로 에이전트를 재스폰하지 않는다.
 > ⚠️ Phase N 완료 후 Phase N+1 시작 시 같은 에이전트에 SendMessage한다.
