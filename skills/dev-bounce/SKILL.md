@@ -532,7 +532,7 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > **[구현 시작 전 반드시 수행]**
 > 1. step.md의 ## 구현 목표를 읽어 변경 대상 파일과 핵심 변경을 파악
 > 2. plan.md의 해당 Phase/Step 섹션에서 Before/After 코드를 확인
-> 3. TC 목록 전체를 읽어 각 기대결과를 어떻게 만족시킬지 사전 설계
+> 3. step.md의 TC 목록을 읽어 기대결과 파악 (QA와 병렬 진행 중이므로 TC가 아직 비어있을 수 있음 — 그 경우 구현 목표와 plan.md 기준으로 구현)
 > 4. 변경 대상 파일의 현재 코드를 Read 도구로 읽어 기존 패턴 파악
 >
 > **[구현 기준]**
@@ -576,24 +576,23 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
-> ⚠️ **QA와 Dev를 절대 병렬 스폰하지 않는다.**
-> QA가 `[STEP:N:테스트정의완료]`를 출력한 후에만 Dev에게 SendMessage로 구현을 지시한다.
-> Dev가 `[STEP:N:개발완료]`를 출력한 후에만 QA에게 SendMessage로 검증을 지시한다.
+> ⚠️ **TC 작성과 개발은 병렬 진행한다. 검증은 둘 다 완료된 후.**
+> QA TC 작성 + Dev 구현을 동시에 SendMessage로 지시한다.
+> QA `[STEP:N:테스트정의완료]` + Dev `[STEP:N:개발완료]` 모두 수신한 후에만 QA에게 검증을 지시한다.
 
 각 개발 Phase의 각 Step마다:
 
 ```
 # QA_AGENT_ID / DEV_AGENT_ID: 3-2에서 스폰 시 받은 agentId. Phase가 바뀌어도 그대로 사용.
 
-5-1. SendMessage(to=QA_AGENT_ID): "Phase N Step M TC 작성" 지시
-     → [STEP:N:테스트정의완료] 수신
-
-5-2. SendMessage(to=DEV_AGENT_ID): "Phase N Step M 구현" 지시
-     → [STEP:N:개발완료] 수신
+5-1. SendMessage(to=QA_AGENT_ID): "Phase N Step M TC 작성" 지시  ┐ 동시 발송
+     SendMessage(to=DEV_AGENT_ID): "Phase N Step M 구현" 지시    ┘
+     → [STEP:N:테스트정의완료] 수신 (QA)
+     → [STEP:N:개발완료] 수신 (Dev) — 둘 다 완료될 때까지 대기
        빌드 명령: <명령어>
        결과: ✅ 성공
 
-5-3. SendMessage(to=QA_AGENT_ID): "Phase N Step M 검증" 지시
+5-2. SendMessage(to=QA_AGENT_ID): "Phase N Step M 검증" 지시
      → [STEP:N:테스트통과] 수신
        명령어: <명령어>
        결과: N/N 통과
@@ -606,8 +605,8 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
              → SendMessage(to=QA_AGENT_ID): 재검증 지시
 
 Phase N 완료 → Phase N+1 시작:
-  SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ← 재스폰 없음
-  SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ← 재스폰 없음
+  SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ┐ 동시 발송, 재스폰 없음
+  SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ┘
 ```
 
 > **phase.md 필수 섹션**: `## 목표`, `## Steps` — plan-gate가 검증하며 누락 시 코드 수정 차단.
