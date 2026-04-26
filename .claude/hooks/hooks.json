@@ -3,10 +3,6 @@
     {"matcher": "Write|Edit|MultiEdit", "file": "plan-gate.sh", "type": "managed"},
     {"matcher": "Bash", "file": "bash-gate.sh", "type": "managed"}
   ],
-  "PostToolUse": [
-    {"matcher": "Write|Edit|MultiEdit", "file": "doc-reminder.sh", "type": "managed"},
-    {"matcher": "Bash", "file": "bash-audit.sh", "type": "managed"}
-  ],
   "Stop": [
     {"file": "completion-gate.sh", "type": "managed"},
     {"file": "stop-active-cleanup.sh", "type": "managed"}
