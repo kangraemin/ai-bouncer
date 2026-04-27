@@ -12,7 +12,7 @@ if [ -n "$_bouncer_cwd" ] && { [ -f "$_bouncer_cwd/.claude/ai-bouncer/config.jso
     _bouncer_wf=$(jq -r '.workflow_phase // "done"' "$_bouncer_state" 2>/dev/null)
     case "$_bouncer_wf" in
       development|verification)
-        exit 0 ;;
+        _BOUNCER_SKIP_DIRTY=true ;;
     esac
   done
 fi
