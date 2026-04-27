@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Bash(python3 -c \"import json; json.load\\(open\\('/Users/ram/.claude/settings.json'\\)\\)\")",
+      "Bash(cp hooks/plan-gate.sh .claude/ai-bouncer/hooks/plan-gate.sh)",
+      "Bash(cp hooks/bash-gate.sh .claude/ai-bouncer/hooks/bash-gate.sh)",
+      "Bash(cp skills/dev-bounce/SKILL.md .claude/skills/dev-bounce/SKILL.md)",
+      "Bash(bash -n hooks/bash-gate.sh)",
+      "Bash(rm -f .claude/ai-bouncer/hooks/bash-audit.sh .claude/ai-bouncer/hooks/bash-audit.sh.backup-*)",
+      "Bash(rm -f .claude/hooks/bash-audit.sh .claude/hooks/bash-audit.sh.backup-*)",
+      "Bash(cp hooks/hooks.json .claude/ai-bouncer/hooks/hooks.json)",
+      "Bash(cp hooks/hooks.json .claude/hooks/hooks.json)"
+    ]
+  }
+}
