@@ -10,7 +10,12 @@
       "Bash(rm -f .claude/ai-bouncer/hooks/bash-audit.sh .claude/ai-bouncer/hooks/bash-audit.sh.backup-*)",
       "Bash(rm -f .claude/hooks/bash-audit.sh .claude/hooks/bash-audit.sh.backup-*)",
       "Bash(cp hooks/hooks.json .claude/ai-bouncer/hooks/hooks.json)",
-      "Bash(cp hooks/hooks.json .claude/hooks/hooks.json)"
+      "Bash(cp hooks/hooks.json .claude/hooks/hooks.json)",
+      "Bash(cp hooks/subagent-track.sh ~/.claude/ai-bouncer/hooks/subagent-track.sh)",
+      "Bash(chmod +x ~/.claude/ai-bouncer/hooks/subagent-track.sh)",
+      "Bash(cp hooks/bash-gate.sh ~/.claude/ai-bouncer/hooks/bash-gate.sh)",
+      "Bash(chmod +x ~/.claude/ai-bouncer/hooks/bash-gate.sh)",
+      "Bash(cp hooks/plan-gate.sh ~/.claude/ai-bouncer/hooks/plan-gate.sh)"
     ]
   }
 }
