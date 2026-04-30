@@ -70,6 +70,102 @@ rm -f "$TASK_DIR/verifications/e2e-result.md"
 OUT=$(run_gate 'echo {"workflow_phase":"cancelled"} >> state.json' "")
 check "TC-04: cancelled 전환 → always allow" "$OUT" "allow"
 
+# ============================================================
+# TC-10~14: IS_DELEGATED_AGENT 경로 + team 모드 team_name 검증
+# (delegated subagent도 team_name="" 이면 gate에서 차단)
+# ============================================================
+
+# 글로벌 /tmp/.ai-bouncer-approved-agents 백업/복구 — 다른 세션 영향 방지
+APPROVED_GLOBAL="/tmp/.ai-bouncer-approved-agents"
+ORIG_APPROVED=""
+if [ -f "$APPROVED_GLOBAL" ]; then
+  ORIG_APPROVED=$(cat "$APPROVED_GLOBAL")
+fi
+restore_approved() {
+  if [ -z "$ORIG_APPROVED" ]; then
+    rm -f "$APPROVED_GLOBAL"
+  else
+    printf '%s\n' "$ORIG_APPROVED" > "$APPROVED_GLOBAL"
+  fi
+}
+trap "rm -rf '$TMPDIR'; restore_approved" EXIT
+
+# delegated 경로 진입을 위해 session_id를 approved-agents에 등록
+DELEGATED_SID="delegated-bash-gate-sid-$$"
+
+clear_and_register() {
+  : > "$APPROVED_GLOBAL"
+  echo "${DELEGATED_SID}|${TASK_DIR}" >> "$APPROVED_GLOBAL"
+}
+
+# delegated 경로용 write 명령어 — exception이 아닌 일반 파일에 write
+DUMMY_FILE="$TMPDIR/dummy.txt"
+touch "$DUMMY_FILE"
+
+run_gate_delegated() {
+  (cd "$TMPDIR" && jq -n --arg cmd "echo foo > $DUMMY_FILE" --arg sid "$DELEGATED_SID" \
+    '{"tool_name":"Bash","session_id":$sid,"tool_input":{"command":$cmd}}' \
+    | bash "$HOOKS_DIR/bash-gate.sh" 2>/dev/null) || true
+}
+
+# plan.md 생성 (gate-checks 우회 — delegated 경로에서는 사용되지 않지만 안전)
+mkdir -p "$TASK_DIR/phase-1-test"
+cat > "$TASK_DIR/plan.md" <<'EOF'
+# Plan
+## 목표
+delegated team_name validation
+EOF
+
+# TC-10: IS_DELEGATED_AGENT=true + development + team mode + top-level team_name="" → block
+cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
+{"agent_mode":"team","commit_strategy":"none"}
+EOF
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test"}}}
+EOF
+clear_and_register
+OUT=$(run_gate_delegated)
+check "TC-10: delegated + dev + team + team_name='' → block" "$OUT" "block"
+
+# TC-11: IS_DELEGATED_AGENT=true + development + team mode + team_name="my-team" → allow
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"team_name":"my-team","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test"}}}
+EOF
+clear_and_register
+OUT=$(run_gate_delegated)
+check "TC-11: delegated + dev + team + team_name='my-team' → allow" "$OUT" "allow"
+
+# TC-12: IS_DELEGATED_AGENT=true + development + team mode + dev_phase=2 + per-phase team_name="" → block
+mkdir -p "$TASK_DIR/phase-2-second"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":2,"current_step":1,"dev_phases":{"1":{"name":"first","folder":"phase-1-test","team_name":"team-1"},"2":{"name":"second","folder":"phase-2-second","team_name":""}}}
+EOF
+clear_and_register
+OUT=$(run_gate_delegated)
+check "TC-12: delegated + dev_phase=2 + per-phase team_name='' → block" "$OUT" "block"
+
+# TC-13: IS_DELEGATED_AGENT=true + development + subagent mode + team_name="" → allow
+cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
+{"agent_mode":"subagent","commit_strategy":"none"}
+EOF
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test"}}}
+EOF
+clear_and_register
+OUT=$(run_gate_delegated)
+check "TC-13: delegated + dev + subagent mode + team_name='' → allow" "$OUT" "allow"
+
+# TC-14: IS_DELEGATED_AGENT=true + planning phase → allow (검증은 development에서만)
+cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
+{"agent_mode":"team","commit_strategy":"none"}
+EOF
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"planning","plan_approved":false,"team_name":"","dev_phases":{}}
+EOF
+clear_and_register
+OUT=$(run_gate_delegated)
+check "TC-14: delegated + planning + team_name='' → allow" "$OUT" "allow"
+
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

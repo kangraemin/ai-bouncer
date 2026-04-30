@@ -334,8 +334,35 @@ if [ -z "$TASK_NAME" ]; then
   exit 0
 fi
 
-# 승인된 sub-agent → gate 스킵
+# 승인된 sub-agent → gate 스킵 (단, team 모드 + development + team_name="" 이면 차단)
 if [ "${IS_DELEGATED_AGENT:-false}" = "true" ]; then
+  if [ -f "$STATE_FILE" ]; then
+    _IDA_PHASE=$(jq -r '.workflow_phase // ""' "$STATE_FILE" 2>/dev/null)
+    if [ "$_IDA_PHASE" = "development" ]; then
+      _IDA_CFG="${BOUNCER_CONFIG:-}"
+      if [ -z "$_IDA_CFG" ] || [ ! -f "$_IDA_CFG" ]; then
+        _IDA_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+        _IDA_CFG="${_IDA_ROOT}/.claude/ai-bouncer/config.json"
+        [ -f "$_IDA_CFG" ] || _IDA_CFG="${HOME}/.claude/ai-bouncer/config.json"
+      fi
+      _IDA_MODE=$(jq -r '.agent_mode // "team"' "$_IDA_CFG" 2>/dev/null || echo "team")
+      if [ "$_IDA_MODE" = "team" ]; then
+        _IDA_DP=$(jq -r '.current_dev_phase // 0' "$STATE_FILE" 2>/dev/null)
+        _IDA_DP=${_IDA_DP//[^0-9]/}; _IDA_DP=${_IDA_DP:-0}
+        _IDA_TN=""
+        if [ "$_IDA_DP" -gt 0 ]; then
+          _IDA_TN=$(jq -r --argjson ph "$_IDA_DP" '.dev_phases[($ph|tostring)].team_name // ""' "$STATE_FILE" 2>/dev/null)
+        fi
+        # per-phase 미설정/빈값이면 top-level team_name 폴백
+        [ -z "$_IDA_TN" ] && _IDA_TN=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
+        if [ -z "$_IDA_TN" ]; then
+          jq -n --arg r "⛔ [delegated][team] development 페이즈에서 team_name이 없습니다. TeamCreate를 먼저 실행하세요." \
+             '{decision:"block", reason:$r}'
+          exit 0
+        fi
+      fi
+    fi
+  fi
   exit 0
 fi
 
