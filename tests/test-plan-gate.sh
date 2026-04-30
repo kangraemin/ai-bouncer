@@ -55,7 +55,7 @@ run_gate() {
   (cd "$TMPDIR" && echo "{\"tool_name\":\"Edit\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$file\",\"old_string\":\"x\",\"new_string\":\"y\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
-BASE_STATE='{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"step 1"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+BASE_STATE='{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"step 1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
 
 write_phase_md() {
   cat > "$PHASE_DIR/phase.md" <<EOF
@@ -70,11 +70,11 @@ EOF
 }
 
 # TC-01: plan_approved=false → block (CHECK 3)
-write_state '{"workflow_phase":"development","plan_approved":false,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+write_state '{"workflow_phase":"development","plan_approved":false,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
 check "TC-01: plan_approved=false → block" "$(run_gate "$DUMMY")" "block"
 
 # TC-02: dev_phases={} → block (CHECK 6.7)
-write_state '{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":1,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+write_state '{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
 check "TC-02: dev_phases={} → block" "$(run_gate "$DUMMY")" "block"
 
 # TC-03: phase.md without ## 목표 → block (CHECK 7a-2)
@@ -92,9 +92,11 @@ goal here
 scope here"
 check "TC-04: phase.md without ## Steps → block" "$(run_gate "$DUMMY")" "block"
 
-# TC-05: phase.md without ## 범위 → NOT blocked (범위 required 섹션에서 제거됨)
+# TC-05: phase.md without ## 범위 → NOT blocked (범위 required 섹션에서 제거됨; 기술 접근은 필수)
 write_phase_md "## 목표
 goal here
+## 기술 접근
+- 파일 A: 변경 전 → 변경 후
 ## Steps
 - step 1"
 write_step1 "# Step 1
@@ -104,7 +106,7 @@ write_step1 "# Step 1
 check "TC-05: phase.md without ## 범위 → allow (범위 제거됨)" "$(run_gate "$DUMMY")" "allow"
 
 # TC-06: 이전 step에 ✅ 없음 → block (CHECK 7c), step=2
-write_state '{"workflow_phase":"development","plan_approved":true,"team_name":"","current_dev_phase":1,"current_step":2,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"},"2":{"title":"s2"}}}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+write_state '{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"current_step":2,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"},"2":{"title":"s2"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
 write_phase_md "## 목표
 goal
 ## Steps

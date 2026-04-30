@@ -166,7 +166,6 @@ state.json 내용:
 {
   "workflow_phase": "planning",
   "plan_approved": false,
-  "team_name": "",
   "current_dev_phase": 0,
   "current_step": 0,
   "dev_phases": {},
@@ -262,7 +261,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 │   └── step-1.md
 └── verifications/             # 반드시 복수형
     ├── e2e-tests/             # e2e 스크립트 디렉토리
-    └── e2e-result.md          # e2e-writer 실행 결과
+    └── e2e-result.md          # critical-reviewer 검증 결과
 ```
 
 ⚠️ `phase-N.md` (flat 파일) 생성 금지 — 반드시 `phase-N-<이름>/phase.md` 디렉토리 구조 사용.
@@ -284,9 +283,9 @@ bash "$_BCFG/bouncer-config.sh" agent_mode team
 
 | agent_mode | 동작 |
 |---|---|
-| `team` | TeamCreate로 Dev Team 생성 후 Lead 스폰. state.json `team_name` = TeamCreate 팀 이름 |
-| `subagent` | Agent tool로 Lead 스폰. Main Claude가 Agent tool로 Dev/QA 스폰. state.json `team_name` = "" (빈 문자열) |
-| `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). state.json `team_name` = "" |
+| `team` | TeamCreate로 Lead 팀 생성 후 Lead 스폰. Dev+QA 팀은 Phase 시작 시 각각 생성 |
+| `subagent` | Agent tool로 Lead 스폰. Main Claude가 Agent tool로 Dev/QA 스폰. dev_phases[N].team_name = "" (빈 문자열) |
+| `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). dev_phases[N].team_name = "" |
 
 **team 모드 (기본):**
 
@@ -295,9 +294,8 @@ bash "$_BCFG/bouncer-config.sh" agent_mode team
 
 **team 모드 스폰 순서 (반드시 준수):**
 ```
-1. TeamCreate(team_name="{TASK_NAME}")
-2. state.json team_name = "{TASK_NAME}" 업데이트
-3. Agent(team_name="{TASK_NAME}", name="lead", prompt=...)  ← team_name + name 필수
+1. TeamCreate(team_name="{TASK_NAME}")   ← Lead 전용 팀 생성
+2. Agent(team_name="{TASK_NAME}", name="lead", prompt=...)  ← team_name + name 필수
 ```
 > ⚠️ Agent 스폰 시 `team_name`과 `name` 파라미터 없이 스폰하면 팀에 등록되지 않아 hook이 차단함.
 > team_name = TeamCreate에서 사용한 이름과 동일해야 함.
@@ -314,7 +312,7 @@ TeamCreate로 팀 생성 후 TASK_DIR 전달하여 Lead 스폰.
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
 2. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]` 출력
-3. state.json `dev_phases` 초기화 + `team_name = '<TeamCreate 팀 이름>'` 설정
+3. state.json `dev_phases` 초기화 (각 phase에 `team_name: ""` 포함)
 4. **3-1b: 모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
 
    > ⚠️ **개발 시작 전 필수**: `[DOCS:완료]`를 출력하기 전까지 Dev/QA 스폰 절대 금지.
@@ -456,29 +454,55 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > Lead가 state.json dev_phases에 `depends_on` 필드로 기록:
 > ```json
 > "dev_phases": {
->   "1": {"name": "...", "steps": {...}, "depends_on": []},
->   "2": {"name": "...", "steps": {...}, "depends_on": []},
->   "3": {"name": "...", "steps": {...}, "depends_on": [1, 2]}
+>   "1": {"name": "...", "steps": {...}, "depends_on": [], "team_name": ""},
+>   "2": {"name": "...", "steps": {...}, "depends_on": [], "team_name": ""},
+>   "3": {"name": "...", "steps": {...}, "depends_on": [1, 2], "team_name": ""}
 > }
 > ```
 > `depends_on: []` = 의존 없음, 즉시 실행 가능.
 > `depends_on: [1, 2]` = Phase 1, 2가 모두 완료된 후 실행.
 >
-> **순차 Phases (각 Phase가 이전 Phase에 의존하는 경우):**
-> QA + Dev를 최초 1회만 스폰한다. 모든 Phase에 걸쳐 SendMessage로 재활용한다.
-> Phase가 바뀌어도 에이전트를 재스폰하지 않는다.
+> **병렬 Phase가 있는 경우 (depends_on: []인 Phase N, M이 여럿):**
+>
+> 1단계 — 각 Phase마다 팀 생성 [단일 응답 병렬 발송]:
 > ```
-> QA_AGENT_ID = Agent(QA 프롬프트)로 받은 agentId  # 최초 1회
-> DEV_AGENT_ID = Agent(Dev 프롬프트)로 받은 agentId  # 최초 1회
-> # 이후 모든 Step/Phase → SendMessage(to=QA_AGENT_ID) / SendMessage(to=DEV_AGENT_ID)
+> TeamCreate("{TASK_NAME}-p{N}")  ┐ 병렬
+> TeamCreate("{TASK_NAME}-p{M}")  ┘ 병렬
+> → state.json dev_phases[N].team_name = "{TASK_NAME}-p{N}" 업데이트 (Write 도구)
+> → state.json dev_phases[M].team_name = "{TASK_NAME}-p{M}" 업데이트 (Write 도구)
 > ```
 >
-> **병렬 Phase가 있는 경우 (depends_on: []인 Phase가 여럿):**
-> 동시 실행 가능한 Phase마다 QA+Dev 쌍을 스폰하여 병렬 실행.
-> 각 쌍 내 Step 간에는 SendMessage로 재활용.
+> 2단계 — 각 Phase의 Dev+QA 스폰 [단일 응답 병렬 발송]:
+> ```
+> Agent(team_name="{TASK_NAME}-p{N}", name="dev", ...)  ┐
+> Agent(team_name="{TASK_NAME}-p{N}", name="qa", ...)   ┤ 병렬
+> Agent(team_name="{TASK_NAME}-p{M}", name="dev", ...)  ┤
+> Agent(team_name="{TASK_NAME}-p{M}", name="qa", ...)   ┘
+> ```
+> 각 Phase의 Dev+QA는 해당 Phase의 team_name으로 스폰. 각 쌍 내 Step 간에는 SendMessage로 재활용.
 >
-> ⚠️ "새 Phase가 시작됐다"는 이유만으로 에이전트를 재스폰하지 않는다.
-> ⚠️ Phase N 완료 후 Phase N+1 시작 시 같은 에이전트에 SendMessage한다.
+> **순차 Phases (Phase N+1이 Phase N에 의존하는 경우):**
+> 최초 진입 Phase에서만 TeamCreate + Dev+QA 스폰.
+> 이후 의존 Phase들은 같은 팀·같은 에이전트를 SendMessage로 재활용.
+> ```
+> TeamCreate("{TASK_NAME}-seq")
+> → dev_phases["1"].team_name = "{TASK_NAME}-seq" 업데이트
+> → dev_phases["2"].team_name = "{TASK_NAME}-seq" 업데이트  ← 의존 Phase도 동일 팀 이름으로 미리 채움
+> → Dev+QA 최초 1회 스폰 (team_name="{TASK_NAME}-seq")
+> → Phase N+1 시작 시: SendMessage 재활용 (재스폰 금지)
+> ```
+>
+> **혼합 전략 (병렬 Phase 이후 의존 Phase가 있는 경우):**
+> ```
+> Phase 1 (depends_on: [])     → TeamCreate("{TASK_NAME}-p1") → dev_phases["1"].team_name = "{TASK_NAME}-p1"
+> Phase 2 (depends_on: [])     → TeamCreate("{TASK_NAME}-p2") → dev_phases["2"].team_name = "{TASK_NAME}-p2"
+> Phase 3 (depends_on: [1, 2]) → 1, 2 완료 후 TeamCreate("{TASK_NAME}-p3") → dev_phases["3"].team_name = "{TASK_NAME}-p3"
+> ```
+> Phase 3이 새 팀을 만드는 이유: Phase 1/2의 Dev+QA는 각자의 팀 소속이라
+> SendMessage로 재활용 불가 → 새 Dev+QA 스폰 필요 → 새 팀도 필요.
+>
+> ⚠️ 같은 팀 내에서 Phase가 바뀐 경우(순차) "새 Phase가 시작됐다"는 이유만으로 에이전트를 재스폰하지 않는다.
+> ⚠️ 같은 팀 내 Phase N 완료 후 Phase N+1 시작 시 같은 에이전트에 SendMessage한다.
 
 > **Dev/QA 스폰 시 반드시 프롬프트에 포함:**
 > `IS_DELEGATED_AGENT=true`
@@ -730,7 +754,7 @@ else:
 ### Phase 4: 검증
 
 ⚠️ **Phase 4의 첫 번째 액션은 state.json을 `"verification"`으로 변경하는 것이다. 예외 없음.**
-e2e 스크립트 실행, verifications/ 파일 쓰기, e2e-writer 스폰 — 모두 state 변경 이후에만 가능.
+verifications/ 파일 쓰기, critical-reviewer 스폰 — 모두 state 변경 이후에만 가능.
 development 상태에서 verifications/ 쓰기는 hook이 차단한다.
 
 Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데이트.
@@ -740,25 +764,60 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 
 | agent_mode | 동작 |
 |---|---|
-| `team` | e2e-writer 에이전트 스폰 (기본) |
-| `subagent` | Agent tool로 e2e-writer 스폰 |
-| `single` | Main Claude가 직접 e2e 검증 수행 |
+| `team` | critical-reviewer 에이전트 스폰 (기본) |
+| `subagent` | Agent tool로 critical-reviewer 스폰 |
+| `single` | Main Claude가 직접 비판적 검증 수행 |
 
-1. e2e-writer 에이전트 스폰 (TASK_DIR 전달)
-2. e2e-writer가 수행:
-   - plan.md + 모든 phase/step의 "## e2e 테스트 대상" 섹션 수집
-   - `verifications/e2e-tests/` 디렉토리에 실제 e2e 스크립트 작성
-   - 모든 스크립트 실행 → `verifications/e2e-result.md` 작성
+1. 비판적 리뷰어(critical-reviewer) 에이전트 스폰 (TASK_DIR 전달)
+2. 리뷰어가 수행 (처음부터 끝까지 독립적으로 검토):
+   - [검증 A] plan.md After 코드와 실제 변경된 소스 파일을 직접 읽어 줄 단위 비교
+   - [검증 B] 각 step TC 기대결과가 실제 코드에서 충족되는지 확인
+   - [검증 C] plan.md에서 다루지 않은 엣지 케이스 탐색 (null/undefined/빈 배열/빈 문자열)
+   - [검증 D] 변경 파일의 기존 코드 경로 regression 없는지 확인
+   - [검증 E] 빌드/타입 체크 명령어 실행
+   - `verifications/e2e-result.md` 작성 (각 검증 항목 결과 포함)
+
+> **critical-reviewer 스폰 프롬프트 (Main Claude가 아래 내용을 그대로 리뷰어에게 전달한다):**
+>
+> 당신은 소프트웨어 품질에 극도로 비판적인 시니어 리뷰어입니다.
+> TASK_DIR: {TASK_DIR}
+>
+> **[역할]**
+> 이 구현이 실제로 올바른지 처음부터 끝까지 독립적으로 검증합니다.
+> 이전 QA 에이전트의 TC 결과를 신뢰하지 마세요 — 당신이 직접 코드를 보고 판단합니다.
+>
+> **[검증 순서 — 반드시 이 순서대로]**
+> 1. TASK_DIR/plan.md 읽기 → 무엇을 만들기로 했는지 파악
+> 2. TASK_DIR의 모든 phase-N-*/step-M.md 읽기 → 구현 기록 확인
+> 3. 실제 변경된 소스 파일을 직접 Read → 실제 코드 상태 확인
+> 4. 아래 검증 항목을 하나씩 수행:
+>
+>    [검증 A] plan.md After 코드와 실제 코드 대조 — 줄 단위로 비교
+>    [검증 B] 각 step TC 기대결과가 실제 코드에서 달성됐는지 확인
+>    [검증 C] plan.md에서 다루지 않은 엣지 케이스 탐색 (null/undefined/빈 배열/빈 문자열)
+>    [검증 D] 변경 파일의 기존 코드 경로가 regression 없는지 확인
+>    [검증 E] 빌드/타입 체크 명령어 실행
+>
+> 5. TASK_DIR/verifications/e2e-result.md 작성 (각 검증 항목 결과 포함)
+>
+> **[보고]**
+> 모두 통과: [DONE]
+> 이슈 발견: [E2E:실패:PHASE-P-STEP-M]
+> 원인: <파일명:라인 — 구체적 문제>
+> 제안: <최소 수정 방향>
+>
+> ⚠️ "동작할 것 같다"는 추측 금지. 실제 코드를 읽고 확인한 것만 PASS 처리.
+> ⚠️ 빌드 명령어 없이 통과 처리 금지.
 
 3. `[E2E:실패:PHASE-P-STEP-M]` 수신 시:
    - 책임 step-M.md의 해당 TC 판정 ✅→❌ 변경
    - state.json `workflow_phase = "development"` (current_dev_phase/current_step 포인터는 유지 — 이미 완료된 phase들을 재요구하지 않도록)
    - Main Claude가 Dev에게 실패한 Step 재작업 지시
    - Dev가 수정 완료 → QA가 실패 Step만 재검증 → TC ✅ 복구
-   - Main Claude가 workflow_phase → "verification" 재설정 → e2e-writer 재실행
+   - Main Claude가 workflow_phase → "verification" 재설정 → critical-reviewer 재실행
 
 4. `[DONE]` 수신 (verifications/e2e-result.md 전부 통과):
-   - e2e-writer + 전체 팀 shutdown
+   - critical-reviewer + 전체 팀 shutdown
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - active_file 삭제: `rm -f {active_file}`             ← 그 다음
      ⚠️ task_dir 자체는 절대 삭제하지 않는다. 모든 문서 보존.

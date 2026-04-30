@@ -37,6 +37,15 @@ _run_gate_checks() {
     return 0
   fi
 
+  # per-phase team_name: dev_phases[N].team_name → TEAM_NAME 덮어쓰기
+  # top-level team_name 필드 제거 후 plan-gate/bash-gate는 "" 반환하므로, 현재 Phase 팀으로 교체.
+  if [ "${WORKFLOW_PHASE}" = "development" ] && [ "${CURRENT_DEV_PHASE:-0}" -gt 0 ]; then
+    local _PHASE_TN
+    _PHASE_TN=$(jq -r --argjson ph "${CURRENT_DEV_PHASE}" \
+      '.dev_phases[($ph|tostring)].team_name // ""' "${STATE_FILE}" 2>/dev/null)
+    TEAM_NAME="${_PHASE_TN}"
+  fi
+
   # CHECK 3: plan_approved + plan.md 실존
   if [ "${PLAN_APPROVED}" != "true" ]; then
     jq -n --arg r "⛔ ${_P}계획이 승인되지 않았습니다. /dev-bounce로 계획을 수립하고 승인 후 개발을 시작하세요." \
