@@ -416,6 +416,10 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 
 항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
+> **⚠️ 병렬 스폰 필수**: Dev + QA Agent() 호출을 **단일 응답에서 동시에 발송**한다.
+> QA Agent() 호출 후 응답을 기다린 뒤 Dev Agent() 호출하는 것은 순차 실행이므로 금지.
+> 두 Agent() 호출을 같은 응답의 tool call 블록에 함께 포함해야 실제 병렬 실행된다.
+
 > **에이전트 수명 — 병렬성 기반 스폰 전략:**
 >
 > Lead가 [DOCS:완료] 전에 각 Phase의 병렬 실행 가능 여부를 판단하고 state.json에 기록한다.
@@ -579,14 +583,19 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > ⚠️ **TC 작성과 개발은 병렬 진행한다. 검증은 둘 다 완료된 후.**
 > QA TC 작성 + Dev 구현을 동시에 SendMessage로 지시한다.
 > QA `[STEP:N:테스트정의완료]` + Dev `[STEP:N:개발완료]` 모두 수신한 후에만 QA에게 검증을 지시한다.
+>
+> **⚠️ 병렬 발송 필수**: SendMessage 두 호출을 **단일 응답에서 동시에 발송**한다.
+> QA SendMessage 후 응답 기다린 뒤 Dev SendMessage하는 것은 순차 실행이므로 금지.
+> 두 SendMessage() 호출을 같은 응답의 tool call 블록에 함께 포함해야 실제 병렬 실행된다.
 
 각 개발 Phase의 각 Step마다:
 
 ```
 # QA_AGENT_ID / DEV_AGENT_ID: 3-2에서 스폰 시 받은 agentId. Phase가 바뀌어도 그대로 사용.
 
-5-1. SendMessage(to=QA_AGENT_ID): "Phase N Step M TC 작성" 지시  ┐ 동시 발송
-     SendMessage(to=DEV_AGENT_ID): "Phase N Step M 구현" 지시    ┘
+5-1. [단일 응답에서 동시 발송 — 두 tool call을 같은 응답에 포함]
+     SendMessage(to=QA_AGENT_ID): "Phase N Step M TC 작성" 지시  ┐ 병렬
+     SendMessage(to=DEV_AGENT_ID): "Phase N Step M 구현" 지시    ┘ 병렬
      → [STEP:N:테스트정의완료] 수신 (QA)
      → [STEP:N:개발완료] 수신 (Dev) — 둘 다 완료될 때까지 대기
        빌드 명령: <명령어>
@@ -604,9 +613,9 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
      실패 시 → SendMessage(to=DEV_AGENT_ID): 재작업 지시
              → SendMessage(to=QA_AGENT_ID): 재검증 지시
 
-Phase N 완료 → Phase N+1 시작:
-  SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ┐ 동시 발송, 재스폰 없음
-  SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ┘
+Phase N 완료 → Phase N+1 시작: [단일 응답에서 동시 발송, 재스폰 없음]
+  SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ┐ 병렬
+  SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ┘ 병렬
 ```
 
 > **phase.md 필수 섹션**: `## 목표`, `## Steps` — plan-gate가 검증하며 누락 시 코드 수정 차단.
