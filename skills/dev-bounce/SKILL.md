@@ -293,7 +293,23 @@ bash "$_BCFG/bouncer-config.sh" agent_mode team
 > **TeamCreate 전 확인**: 이미 동일 이름 팀이 존재하면 반드시 TeamDelete 후 생성.
 > "Already leading team" 에러 발생 시 → TeamDelete 후 재시도.
 
-TeamCreate로 Dev Team 생성 후 TASK_DIR 전달하여 Lead 스폰.
+**team 모드 스폰 순서 (반드시 준수):**
+```
+1. TeamCreate(team_name="{TASK_NAME}")
+2. state.json team_name = "{TASK_NAME}" 업데이트
+3. Agent(team_name="{TASK_NAME}", name="lead", prompt=...)  ← team_name + name 필수
+```
+> ⚠️ Agent 스폰 시 `team_name`과 `name` 파라미터 없이 스폰하면 팀에 등록되지 않아 hook이 차단함.
+> team_name = TeamCreate에서 사용한 이름과 동일해야 함.
+
+Lead가 [DOCS:완료] 출력 후 Main Claude가 Dev + QA 스폰:
+```
+Agent(team_name="{TASK_NAME}", name="dev", prompt=...)  ┐ 단일 응답에서 병렬 발송
+Agent(team_name="{TASK_NAME}", name="qa", prompt=...)   ┘
+```
+이후 Step마다: SendMessage(to="dev", ...) / SendMessage(to="qa", ...) 재활용
+
+TeamCreate로 팀 생성 후 TASK_DIR 전달하여 Lead 스폰.
 
 Lead가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
@@ -410,6 +426,13 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > **⚠️ Lead가 아닌 Main Claude가 직접 스폰한다.**
 > Lead로부터 `[DOCS:완료]` 보고를 받은 후, **Main Claude**가 Dev + QA를 각 1명씩 스폰한다.
 > Lead가 Agent tool로 Dev/QA를 스폰하는 것은 구조 위반이다.
+>
+> **⚠️ 반드시 `team_name`과 `name` 파라미터 포함 (단일 응답 병렬 발송):**
+> ```
+> Agent(team_name="{TASK_NAME}", name="dev", prompt=Dev스폰프롬프트)  ┐ 병렬
+> Agent(team_name="{TASK_NAME}", name="qa",  prompt=QA스폰프롬프트)   ┘ 병렬
+> ```
+> `team_name` 없이 Agent()만 쓰면 팀 미등록 → hook 전면 차단.
 
 **subagent 모드:**
 > Lead가 `[DOCS:완료]` 출력 직후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
