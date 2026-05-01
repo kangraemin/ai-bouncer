@@ -243,8 +243,8 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"`
    - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
-   ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
-   ⚠️ `resolved_agent_mode`도 설정하지 않는다 — Lead가 phase/step 문서 생성 후 결정한다.
+   ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Phase 3에서 초기화한다.
+   ⚠️ `resolved_agent_mode`도 설정하지 않는다 — Phase 3에서 문서 생성 후 결정한다.
 
 ---
 
@@ -273,7 +273,7 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 ### Phase 3: Dev Team 구성 + 개발
 
-**agent_mode 확인** (state.json에서 읽기 — Phase 1에서 plan.md 기반으로 결정됨):
+**agent_mode 확인** (state.json에서 읽기 — Phase 3에서 문서 생성 후 결정됨):
 
 ```bash
 python3 -c "import json; s=json.load(open('{TASK_DIR}/state.json')); print(s.get('resolved_agent_mode','team'))"
@@ -281,60 +281,24 @@ python3 -c "import json; s=json.load(open('{TASK_DIR}/state.json')); print(s.get
 
 > Phase 4도 동일하게 state.json의 `resolved_agent_mode` 값을 사용한다.
 
-#### 3-1. Lead 에이전트 스폰
+#### 3-1. 문서 생성 (Main Claude 직접 수행)
 
-**agent_mode별 구성:**
-
-| agent_mode | 동작 |
-|---|---|
-| `team` | TeamCreate로 Lead 팀 생성 후 Lead 스폰. Dev+QA 팀은 Phase 시작 시 각각 생성 |
-| `subagent` | Agent tool로 Lead 스폰. Main Claude가 Agent tool로 Dev/QA 스폰. dev_phases[N].team_name = "" (빈 문자열) |
-| `single` | Main Claude가 직접 phase 분해 + TDD 루프 수행. phase/step 구조는 유지 (hook 검증용). dev_phases[N].team_name = "" |
-
-**team 모드 (기본):**
-
-> **TeamCreate 전 확인**: 이미 동일 이름 팀이 존재하면 반드시 TeamDelete 후 생성.
-> "Already leading team" 에러 발생 시 순서대로 시도:
-> 1. TeamDelete → TeamCreate 재시도
-> 2. TeamDelete 실패 시(다른 세션 잔류 팀) → `rm -r ~/.claude/teams/{TEAM_NAME}` 후 재시도
->    ⚠️ `rm -rf`는 전역 deny 규칙으로 차단됨. 반드시 `rm -r` 사용.
-> 3. 모두 실패 시 → AskUserQuestion으로 사용자에게 상황 보고 후 지시 대기
-
-**team 모드 스폰 순서 (반드시 준수):**
-```
-1. TeamCreate(team_name="{TASK_NAME}")   ← Lead 전용 팀 생성
-2. Agent(team_name="{TASK_NAME}", name="lead", prompt=...)  ← team_name + name 필수
-```
-> ⚠️ Agent 스폰 시 `team_name`과 `name` 파라미터 없이 스폰하면 팀에 등록되지 않아 hook이 차단함.
-> team_name = TeamCreate에서 사용한 이름과 동일해야 함.
-
-⚠️ 에이전트 스폰 후 응답을 종료하지 않는다. [DOCS:완료] (Lead) 및 각 단계 신호 수신 전까지 같은 응답 내에서 대기한다. 중간에 응답을 종료하면 completion-gate가 차단한다.
-
-Lead가 [DOCS:완료] 출력 후 Main Claude가 Dev + QA 스폰:
-```
-Agent(team_name="{TASK_NAME}", name="dev", prompt=...)  ┐ 단일 응답에서 병렬 발송
-Agent(team_name="{TASK_NAME}", name="qa", prompt=...)   ┘
-```
-이후 Step마다: SendMessage(to="dev", ...) / SendMessage(to="qa", ...) 재활용
-
-TeamCreate로 팀 생성 후 TASK_DIR 전달하여 Lead 스폰.
-
-Lead가 수행:
+Main Claude가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
 2. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]` 출력
 3. state.json `dev_phases` 초기화 (각 phase에 `team_name: ""` 포함)
-4. **3-1b: 모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
+4. **모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
 
-   > ⚠️ **개발 시작 전 필수**: `[DOCS:완료]`를 출력하기 전까지 Dev/QA 스폰 절대 금지.
+   > ⚠️ **개발 시작 전 필수**: 문서 생성이 완료되기 전까지 Dev/QA 스폰 절대 금지.
    > Phase 1 docs가 완료됐다고 개발을 시작하지 않는다.
-   > **모든 Phase의 모든 Step 문서**를 전부 만든 후에야 `[DOCS:완료]`를 출력한다.
+   > **모든 Phase의 모든 Step 문서**를 전부 만든 후에야 resolved_agent_mode를 결정한다.
 
    Phase N마다 아래 순서를 반드시 지킨다:
 
    ```
    Phase 1:
      → phase-1-<이름>/ 디렉토리 생성
-     → phase-1-<이름>/phase.md 작성 (## 목표, ## Steps 포함)
+     → phase-1-<이름>/phase.md 작성 (## 목표, ## 기술 접근, ## Steps 포함)
      → phase-1-<이름>/step-1.md stub 작성  ← 반드시 phase.md 직후
      → phase-1-<이름>/step-2.md stub 작성  ← step 수만큼 반복
    Phase 2:
@@ -344,19 +308,47 @@ Lead가 수행:
      ... (모든 Phase 완료까지)
    ```
 
-   step stub 형식 (TC는 비워둠 — QA가 채움):
-   ```markdown
-   ## 테스트 기준
+   **[phase.md 작성 기준]** — 반드시 아래 3섹션 모두 포함:
 
-   | TC-ID | 시나리오 | 기대 결과 | 실제 결과 |
-   |-------|----------|-----------|-----------|
-   | TC-1  |          |           |           |
+   ```markdown
+   ## 목표
+   plan.md 해당 Phase 목표 발췌 (1~2문장)
+
+   ## 기술 접근
+   이 Phase에서 수정하는 각 파일에 대해 한 줄씩:
+   - `파일명`: (현재 핵심 로직/구조) → (변경 후 핵심 로직/구조)
+
+   예:
+   - `components/ChannelFilter.tsx`: border-l-3 고정 선택 표시 → OKLCH hue 동적 배경색 + checkbox
+   - `lib/constants.ts`: 없음 → CHANNEL_HUE_MAP, getChannelHue/channelColor/channelTint/channelDeep 추가
+
+   ⚠️ 금지: "수정한다", "추가한다"만 쓰는 것 — 무엇이 어떻게 바뀌는지 반드시 명시
+
+   ## Steps
+   - Step N: 제목 — 완료 기준 (어떤 명령/상태면 완료인지 명시)
    ```
 
-   **전체 Phase의 전체 Step 파일이 모두 생성된 후** → step 5 진행
-   ⚠️ Phase 1만 완료된 상태에서 다음 단계 금지.
+   **[step.md stub 작성 기준]** — ## 구현 목표를 직접 채운다. TC는 비워둔다 (QA가 채움):
 
-5. agent_mode 자동 결정 후 state.json에 저장:
+   ```markdown
+   ## 구현 목표
+   - 변경 대상: `파일명`
+   - 핵심 변경: (plan.md Step N Before/After에서 발췌, 2~5줄)
+     예: "RatingChip 컴포넌트 신규 — rating 값에 따라 bg/fg/flame 동적 설정"
+     예: "img 컨테이너 h-16 w-24 landscape → h-[76px] w-[76px] 정사각형으로 변경"
+     예: "isSelected 시 style.background=channelTint(hue), borderColor=channelColor(hue) 적용"
+   - 참고: plan.md ## Phase N / Step M
+
+   ## 테스트 기준
+
+   | TC-ID | 유형 | 시나리오 | 기대 결과 | 실제 결과 |
+   |-------|------|----------|-----------|-----------|
+   | TC-1  |      |          |           |           |
+   ```
+
+   ⚠️ ## 구현 목표가 "변경 대상: 파일명" 단 1줄이면 불충분 — plan.md Before/After 핵심을 반드시 발췌
+
+5. **resolved_agent_mode 결정 후 state.json에 저장:**
 
    dev_phases에 생성한 Phase 수(PHASE_COUNT)를 기준으로 결정:
    - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"`
@@ -368,7 +360,6 @@ Lead가 수행:
      ```
      출력: "📊 Phase {N}개 → {mode} 모드 사용 (config.json)"
 
-   state.json에 `resolved_agent_mode` 저장 (Python):
    ```bash
    python3 -c "
    import json
@@ -378,84 +369,24 @@ Lead가 수행:
    "
    ```
 
-6. `[DOCS:완료]` 출력 → Main Claude에게 보고
+문서 생성 + 모드 결정 완료 → 3-2 팀 구성 진행
 
-> **Lead 스폰 프롬프트 (Main Claude가 아래 내용을 그대로 Lead에게 전달한다):**
->
-> 당신은 소프트웨어 아키텍처·프로젝트 관리 분야 20년 경력의 Lead 엔지니어입니다.
-> TASK_DIR: {TASK_DIR}
->
-> **[역할]**
-> 당신은 오케스트레이터입니다. 코드 파일을 직접 작성·수정하지 않습니다.
-> - plan.md를 읽고 개발 Phase/Step 구조를 설계합니다
-> - 모든 문서(phase.md, step.md)를 일괄 생성 후 [DOCS:완료]를 출력합니다
-> - [DOCS:완료] 이후에만 Dev/QA 스폰이 가능합니다
->
-> **[phase.md 작성 기준]** — 반드시 아래 3섹션 모두 포함:
->
-> ```markdown
-> ## 목표
-> plan.md 해당 Phase 목표 발췌 (1~2문장)
->
-> ## 기술 접근
-> 이 Phase에서 수정하는 각 파일에 대해 한 줄씩:
-> - `파일명`: (현재 핵심 로직/구조) → (변경 후 핵심 로직/구조)
->
-> 예:
-> - `components/ChannelFilter.tsx`: border-l-3 고정 선택 표시 → OKLCH hue 동적 배경색 + checkbox
-> - `lib/constants.ts`: 없음 → CHANNEL_HUE_MAP, getChannelHue/channelColor/channelTint/channelDeep 추가
->
-> ⚠️ 금지: "수정한다", "추가한다"만 쓰는 것 — 무엇이 어떻게 바뀌는지 반드시 명시
->
-> ## Steps
-> - Step N: 제목 — 완료 기준 (어떤 명령/상태면 완료인지 명시)
-> ```
->
-> **[step.md stub 작성 기준]** — Lead가 ## 구현 목표를 직접 채운다. TC는 비워둔다 (QA가 채움):
->
-> ```markdown
-> ## 구현 목표
-> - 변경 대상: `파일명`
-> - 핵심 변경: (plan.md Step N Before/After에서 발췌, 2~5줄)
->   예: "RatingChip 컴포넌트 신규 — rating 값에 따라 bg/fg/flame 동적 설정"
->   예: "img 컨테이너 h-16 w-24 landscape → h-[76px] w-[76px] 정사각형으로 변경"
->   예: "isSelected 시 style.background=channelTint(hue), borderColor=channelColor(hue) 적용"
-> - 참고: plan.md ## Phase N / Step M
->
-> ## 테스트 기준
->
-> | TC-ID | 유형 | 시나리오 | 기대 결과 | 실제 결과 |
-> |-------|------|----------|-----------|-----------|
-> | TC-1  |      |          |           |           |
-> ```
->
-> ⚠️ ## 구현 목표가 "변경 대상: 파일명" 단 1줄이면 불충분 — plan.md Before/After 핵심을 반드시 발췌
->
-> **[반드시 지킬 것]**
-> 1. [DOCS:완료] 전 Dev/QA 스폰 절대 금지
-> 2. 코드 파일 직접 수정 금지 — 반드시 Dev에게 위임
-> 3. 모든 Phase의 모든 Step 문서 생성 후에만 [DOCS:완료] 출력
-> 4. git commit/push 직접 금지
+**subagent 모드**: 문서 생성 완료 후 Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다. dev_phases[N].team_name은 빈 문자열로 유지.
 
-**subagent 모드**: Lead에게 agent_mode를 전달. team_name은 빈 문자열로 유지.
-Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다.
-
-> **subagent/single 모드 state.json 업데이트 의무:**
+> **state.json 업데이트 의무:**
 >
 > team 모드와 동일하게, 다음 시점에 state.json을 반드시 업데이트한다:
-> - **Lead**: `dev_phases` 초기화 후 `current_dev_phase = 1`, `current_step = 1` 설정
+> - **Main Claude**: 문서 생성 완료 후 `dev_phases` 초기화, `current_dev_phase = 1`, `current_step = 1` 설정
 > - **QA**: Step 테스트 통과 시 `current_step++`
-> - **Lead**: Phase 완료 시 `current_dev_phase++`, `current_step = 1` 리셋
+> - **Main Claude**: Phase 완료 시 `current_dev_phase++`, `current_step = 1` 리셋
 >
 > plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
 > single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
-#### 3-2. 팀 구성 (Main Claude 담당, team 모드) / Lead 담당 (subagent 모드)
+#### 3-2. 팀 구성 (Main Claude 담당)
 
 **team 모드:**
-> **⚠️ Lead가 아닌 Main Claude가 직접 스폰한다.**
-> Lead로부터 `[DOCS:완료]` 보고를 받은 후, **Main Claude**가 Dev + QA를 각 1명씩 스폰한다.
-> Lead가 Agent tool로 Dev/QA를 스폰하는 것은 구조 위반이다.
+> 문서 생성 완료 후 Main Claude가 Dev + QA를 각 1명씩 스폰한다.
 >
 > **⚠️ 반드시 `team_name`과 `name` 파라미터 포함 (단일 응답 병렬 발송):**
 > ```
@@ -465,7 +396,7 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > `team_name` 없이 Agent()만 쓰면 팀 미등록 → hook 전면 차단.
 
 **subagent 모드:**
-> Lead가 `[DOCS:완료]` 출력 직후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
+> 문서 생성 완료 후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
 
 항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
 
@@ -475,15 +406,15 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 
 > **에이전트 수명 — 병렬성 기반 스폰 전략:**
 >
-> Lead가 [DOCS:완료] 전에 각 Phase의 병렬 실행 가능 여부를 판단하고 state.json에 기록한다.
+> Main Claude가 팀 스폰 전에 각 Phase의 병렬 실행 가능 여부를 판단하고 state.json에 기록한다.
 >
-> **병렬성 판단 기준 (Lead가 plan.md Before/After를 읽고 직접 판단):**
+> **병렬성 판단 기준 (Main Claude가 plan.md Before/After를 읽고 직접 판단):**
 > - Phase B가 Phase A의 결과물(함수, 타입, 컴포넌트)을 사용 → 순차
 > - Phase A의 변경이 Phase B 구현의 정확성에 영향 → 순차
 > - 두 Phase가 서로 완전히 독립적으로 구현 가능 → 병렬
 > (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
 >
-> Lead가 state.json dev_phases에 `depends_on` 필드로 기록:
+> Main Claude가 state.json dev_phases에 `depends_on` 필드로 기록:
 > ```json
 > "dev_phases": {
 >   "1": {"name": "...", "steps": {...}, "depends_on": [], "team_name": ""},
