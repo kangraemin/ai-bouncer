@@ -136,6 +136,27 @@ write_step1 "# Step 1
 어떤 기능을 개발합니다."
 check "TC-07: 현재 step에 TC 없음 → block" "$(run_gate "$DUMMY")" "block"
 
+# run_gate_state: FILE_PATH=state.json, Write 도구, content에 새 phase 전달
+run_gate_state() {
+  local new_content="$1"
+  local encoded
+  encoded=$(echo "$new_content" | jq -Rs .)
+  (cd "$TMPDIR" && echo "{\"tool_name\":\"Write\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$TASK_DIR/state.json\",\"content\":$encoded}}" \
+    | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
+}
+
+# TC-08: CHECK 1.6 — state.json에 plan_approved=true인 상태에서 development 쓰기 → allow
+write_state '{"workflow_phase":"planning","plan_approved":true,"current_dev_phase":0,"current_step":0,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+check "TC-08: plan_approved=true → development 쓰기 allow" \
+  "$(run_gate_state '{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{}}')" \
+  "allow"
+
+# TC-09: CHECK 1.6 — state.json에 plan_approved=false인 상태에서 development 쓰기 → block
+write_state '{"workflow_phase":"planning","plan_approved":false,"current_dev_phase":0,"current_step":0,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+check "TC-09: plan_approved=false → development 쓰기 block" \
+  "$(run_gate_state '{"workflow_phase":"development","plan_approved":false,"current_dev_phase":1,"current_step":1,"dev_phases":{}}')" \
+  "block"
+
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

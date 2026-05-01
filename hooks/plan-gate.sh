@@ -80,8 +80,8 @@ fi
 
 # CHECK 1.6: planning 단계 state.json forward-skip 차단
 if [[ "$FILE_PATH" == */state.json ]]; then
-  _CURRENT_PHASE=$(jq -r '.workflow_phase // ""' "$STATE_FILE" 2>/dev/null)
-  _PLAN_APPROVED_16=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
+  _CURRENT_PHASE=$(jq -r '.workflow_phase // ""' "$FILE_PATH" 2>/dev/null)
+  _PLAN_APPROVED_16=$(jq -r '.plan_approved // false' "$FILE_PATH" 2>/dev/null)
   if [ "$_PLAN_APPROVED_16" != "true" ]; then
     _NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
     _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
