@@ -351,15 +351,20 @@ Main Claude가 수행:
 
 5. **resolved_agent_mode 결정 후 state.json에 저장:**
 
-   dev_phases에 생성한 Phase 수(PHASE_COUNT)를 기준으로 결정:
-   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"`
-     출력: "📊 Phase {N}개 → single 모드 자동 선택"
-   - PHASE_COUNT > 3 → config.json에서 읽기:
-     ```bash
-     _BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
-     bash "$_BCFG/bouncer-config.sh" agent_mode team
-     ```
-     출력: "📊 Phase {N}개 → {mode} 모드 사용 (config.json)"
+   **먼저 config.json에서 agent_mode를 읽는다** (항상):
+   ```bash
+   _BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+   CONFIG_MODE=$(bash "$_BCFG/bouncer-config.sh" agent_mode team)
+   ```
+
+   그 다음 PHASE_COUNT 기준으로 최종 결정:
+   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"` (Phase 수 기준 자동 override)
+     ⚠️ **반드시 아래 메시지를 출력한다:**
+     - CONFIG_MODE가 "single"이면: `"📊 Phase {N}개 → single 모드 자동 선택"`
+     - CONFIG_MODE가 다른 값이면: `"📊 Phase {N}개 → single 모드 자동 선택 (config: {CONFIG_MODE} → Phase ≤ 3이므로 override)"`
+   - PHASE_COUNT > 3 → CONFIG_MODE 값 그대로 사용
+     ⚠️ **반드시 아래 메시지를 출력한다:**
+     `"📊 Phase {N}개 → {CONFIG_MODE} 모드 사용 (config.json)"`
 
    ```bash
    python3 -c "
