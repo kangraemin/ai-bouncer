@@ -58,16 +58,19 @@ _run_gate_checks() {
     exit 0
   fi
 
-  # AGENT_MODE
-  local AGENT_MODE
-  AGENT_MODE=$(jq -r '.agent_mode // "team"' "${BOUNCER_CONFIG}" 2>/dev/null || echo "team")
-
-  # resolved_agent_mode in state.json overrides config.json
-  # (plan.md Phase 수 기반으로 Phase 1에서 동적 결정됨, ≤3 Phase → single)
+  # AGENT_MODE: state.json에서만 읽기 (Lead가 phase/step 문서 생성 후 결정해 저장)
+  # SESSION_ID 소유권 검증 후 적용 (다중 세션 오염 방지)
+  # 세션 불일치 / state.json 없음 / resolved_agent_mode 없음 → "team" 안전 기본값
+  local AGENT_MODE="team"
   if [ -n "${STATE_FILE:-}" ] && [ -f "${STATE_FILE}" ]; then
-    local _RESOLVED
+    local _RESOLVED _ACTIVE_FILE _ACTIVE_SID _CUR_SID
     _RESOLVED=$(jq -r '.resolved_agent_mode // empty' "${STATE_FILE}" 2>/dev/null)
-    [ -n "$_RESOLVED" ] && AGENT_MODE="$_RESOLVED"
+    if [ -n "$_RESOLVED" ]; then
+      _ACTIVE_FILE=$(jq -r '.active_file // empty' "${STATE_FILE}" 2>/dev/null)
+      _ACTIVE_SID=$(cat "$_ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
+      _CUR_SID=$(cat /tmp/.ai-bouncer-current-session 2>/dev/null | tr -d '[:space:]')
+      [ -n "$_CUR_SID" ] && [ "$_CUR_SID" = "$_ACTIVE_SID" ] && AGENT_MODE="$_RESOLVED"
+    fi
   fi
 
   case "$AGENT_MODE" in

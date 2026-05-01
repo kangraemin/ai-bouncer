@@ -242,24 +242,9 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
    - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"`
    - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
-8. plan.md Phase 수 기반 agent_mode 자동 결정:
-
-   ```bash
-   PHASE_COUNT=$(grep -c "^### Phase" "{TASK_DIR}/plan.md" 2>/dev/null || echo 0)
-   ```
-
-   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"`
-     출력: "📊 Phase {N}개 → single 모드 자동 선택"
-   - PHASE_COUNT > 3 → config.json에서 읽기:
-     ```bash
-     _BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
-     bash "$_BCFG/bouncer-config.sh" agent_mode team
-     ```
-     출력: "📊 Phase {N}개 → {mode} 모드 사용 (config.json)"
-
-   state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`,
-   `resolved_agent_mode = "{결정된 값}"`
+8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
    ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
+   ⚠️ `resolved_agent_mode`도 설정하지 않는다 — Lead가 phase/step 문서 생성 후 결정한다.
 
 ---
 
@@ -368,10 +353,32 @@ Lead가 수행:
    | TC-1  |          |           |           |
    ```
 
-   **전체 Phase의 전체 Step 파일이 모두 생성된 후** → `[DOCS:완료]` 출력
-   ⚠️ Phase 1만 완료된 상태에서 `[DOCS:완료]` 출력 금지.
+   **전체 Phase의 전체 Step 파일이 모두 생성된 후** → step 5 진행
+   ⚠️ Phase 1만 완료된 상태에서 다음 단계 금지.
 
-5. `[DOCS:완료]` 출력 → Main Claude에게 보고
+5. agent_mode 자동 결정 후 state.json에 저장:
+
+   dev_phases에 생성한 Phase 수(PHASE_COUNT)를 기준으로 결정:
+   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"`
+     출력: "📊 Phase {N}개 → single 모드 자동 선택"
+   - PHASE_COUNT > 3 → config.json에서 읽기:
+     ```bash
+     _BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+     bash "$_BCFG/bouncer-config.sh" agent_mode team
+     ```
+     출력: "📊 Phase {N}개 → {mode} 모드 사용 (config.json)"
+
+   state.json에 `resolved_agent_mode` 저장 (Python):
+   ```bash
+   python3 -c "
+   import json
+   s = json.load(open('{TASK_DIR}/state.json'))
+   s['resolved_agent_mode'] = '{결정된 값}'
+   json.dump(s, open('{TASK_DIR}/state.json','w'), ensure_ascii=False, indent=2)
+   "
+   ```
+
+6. `[DOCS:완료]` 출력 → Main Claude에게 보고
 
 > **Lead 스폰 프롬프트 (Main Claude가 아래 내용을 그대로 Lead에게 전달한다):**
 >
