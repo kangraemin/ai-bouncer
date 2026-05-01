@@ -242,7 +242,23 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
    - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"`
    - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
-8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+8. plan.md Phase 수 기반 agent_mode 자동 결정:
+
+   ```bash
+   PHASE_COUNT=$(grep -c "^### Phase" "{TASK_DIR}/plan.md" 2>/dev/null || echo 0)
+   ```
+
+   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"`
+     출력: "📊 Phase {N}개 → single 모드 자동 선택"
+   - PHASE_COUNT > 3 → config.json에서 읽기:
+     ```bash
+     _BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
+     bash "$_BCFG/bouncer-config.sh" agent_mode team
+     ```
+     출력: "📊 Phase {N}개 → {mode} 모드 사용 (config.json)"
+
+   state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`,
+   `resolved_agent_mode = "{결정된 값}"`
    ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
 
 ---
@@ -272,12 +288,13 @@ hooks가 디렉토리 구조만 검증하므로 flat 파일은 무시된다.
 
 ### Phase 3: Dev Team 구성 + 개발
 
-**agent_mode 확인** (config.json에서 읽기 — Phase 3/4 분기에 필요):
+**agent_mode 확인** (state.json에서 읽기 — Phase 1에서 plan.md 기반으로 결정됨):
 
 ```bash
-_BCFG=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))")
-bash "$_BCFG/bouncer-config.sh" agent_mode team
+python3 -c "import json; s=json.load(open('{TASK_DIR}/state.json')); print(s.get('resolved_agent_mode','team'))"
 ```
+
+> Phase 4도 동일하게 state.json의 `resolved_agent_mode` 값을 사용한다.
 
 #### 3-1. Lead 에이전트 스폰
 

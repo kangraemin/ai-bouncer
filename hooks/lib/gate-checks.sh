@@ -62,6 +62,14 @@ _run_gate_checks() {
   local AGENT_MODE
   AGENT_MODE=$(jq -r '.agent_mode // "team"' "${BOUNCER_CONFIG}" 2>/dev/null || echo "team")
 
+  # resolved_agent_mode in state.json overrides config.json
+  # (plan.md Phase 수 기반으로 Phase 1에서 동적 결정됨, ≤3 Phase → single)
+  if [ -n "${STATE_FILE:-}" ] && [ -f "${STATE_FILE}" ]; then
+    local _RESOLVED
+    _RESOLVED=$(jq -r '.resolved_agent_mode // empty' "${STATE_FILE}" 2>/dev/null)
+    [ -n "$_RESOLVED" ] && AGENT_MODE="$_RESOLVED"
+  fi
+
   case "$AGENT_MODE" in
     team)
       if [ "${WORKFLOW_PHASE}" = "development" ] && [ -z "${TEAM_NAME:-}" ]; then
