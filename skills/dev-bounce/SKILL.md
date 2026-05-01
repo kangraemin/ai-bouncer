@@ -238,11 +238,12 @@ Main Claude가 직접 수행 (팀 스폰 없음):
         - 취소/포기 → "작업이 취소되었습니다" 안내
         - 오해/질문 → 설명 후 "재시도하려면 /dev-bounce를 다시 실행하세요" 안내
      ⚠️ 거부 후 .active를 남긴 채 설명만 하면 bash-gate가 /finish 등 후속 작업을 모두 차단함.
-7. 승인 후 plan mode plan 파일을 `{TASK_DIR}/plan.md`로 복사한다.
+7. **⚠️ CRITICAL — state.json 업데이트 전 반드시 먼저 실행**: plan mode plan 파일을 `{TASK_DIR}/plan.md`로 복사한다.
    - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
-   - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"`
+   - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"` — 이 단계를 건너뛰면 gate가 모든 후속 작업을 차단함.
    - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+   ⚠️ step 7 cp 완료 확인 후에만 실행.
    ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Phase 3에서 초기화한다.
    ⚠️ `resolved_agent_mode`도 설정하지 않는다 — Phase 3에서 문서 생성 후 결정한다.
 

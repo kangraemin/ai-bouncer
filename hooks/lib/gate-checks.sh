@@ -67,6 +67,9 @@ _run_gate_checks() {
     _RESOLVED=$(jq -r '.resolved_agent_mode // empty' "${STATE_FILE}" 2>/dev/null)
     if [ -n "$_RESOLVED" ]; then
       _ACTIVE_FILE=$(jq -r '.active_file // empty' "${STATE_FILE}" 2>/dev/null)
+      if [[ "$_ACTIVE_FILE" != /* ]] && [ -n "${REPO_ROOT:-}" ]; then
+        _ACTIVE_FILE="${REPO_ROOT}/${_ACTIVE_FILE}"
+      fi
       _ACTIVE_SID=$(cat "$_ACTIVE_FILE" 2>/dev/null | tr -d '[:space:]')
       _CUR_SID=$(cat /tmp/.ai-bouncer-current-session 2>/dev/null | tr -d '[:space:]')
       [ -n "$_CUR_SID" ] && [ "$_CUR_SID" = "$_ACTIVE_SID" ] && AGENT_MODE="$_RESOLVED"
