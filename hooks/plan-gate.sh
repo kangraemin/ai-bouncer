@@ -132,7 +132,8 @@ except:
     exit 0
   fi
 
-  # CHECK 1.6c: plan_approved=true여도 verification 없이 done 직접 전환 차단
+  # CHECK 1.6c: verification/done 전환 시 모든 step-*.md ✅ 완료 확인
+  # CHECK 1.6d: done 전환 시 추가로 e2e-result.md 확인
   if [ "$_PLAN_APPROVED_16" = "true" ]; then
     _NEW_CONTENT_16C=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
     _NEW_PHASE_16C=$(echo "$_NEW_CONTENT_16C" | python3 -c "
@@ -145,6 +146,30 @@ except:
     m = re.search(r'\"workflow_phase\"\s*:\s*\"([^\"]+)\"', txt)
     print(m.group(1) if m else '')
 " 2>/dev/null)
+    if [[ "$_NEW_PHASE_16C" = "verification" || "$_NEW_PHASE_16C" = "done" ]]; then
+      _ALL_STEPS_16=true
+      _DPC_16=$(jq '.dev_phases | length' "${STATE_FILE}" 2>/dev/null)
+      _DPC_16=${_DPC_16:-0}
+      if [ "$_DPC_16" -gt 0 ]; then
+        for _pidx_16 in $(seq 1 "$_DPC_16"); do
+          _pf_16=$(_get_phase_folder "${STATE_FILE}" "$_pidx_16")
+          _pd_16="${TASK_DIR}/${_pf_16}"
+          _hs_16=false
+          for _sf_16 in "$_pd_16"/step-*.md; do
+            [ -f "$_sf_16" ] || continue
+            _hs_16=true
+            if ! grep -q '✅' "$_sf_16" 2>/dev/null; then
+              _ALL_STEPS_16=false; break 2
+            fi
+          done
+          if [ "$_hs_16" = false ]; then _ALL_STEPS_16=false; break; fi
+        done
+      fi
+      if [ "$_ALL_STEPS_16" != "true" ]; then
+        jq -n --arg nxt "$_NEW_PHASE_16C" '{decision:"block", reason:("⛔ workflow_phase=" + $nxt + " 전환 불가: 미완료 step이 있습니다. 모든 step-*.md에 ✅가 있어야 합니다.")}'
+        exit 0
+      fi
+    fi
     if [ "$_NEW_PHASE_16C" = "done" ]; then
       _E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
       _E2E_PASS=false

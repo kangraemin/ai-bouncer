@@ -157,6 +157,42 @@ check "TC-09: plan_approved=false → development 쓰기 block" \
   "$(run_gate_state '{"workflow_phase":"development","plan_approved":false,"current_dev_phase":1,"current_step":1,"dev_phases":{}}')" \
   "block"
 
+
+# TC-10/11/12: 이전 TC에서 생성된 추가 step 파일 정리
+rm -f "$PHASE_DIR"/step-*.md
+
+# TC-10: verification 전환 시 미완료 step → block (CHECK 1.6c)
+write_state "$BASE_STATE"
+write_phase_md "## 목표
+goal
+## Steps
+- step 1"
+write_step1 "# Step 1
+## 구현 목표
+Test"
+check "TC-10: verification 전환 시 미완료 step → block" \
+  "$(run_gate_state '{"workflow_phase":"verification","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
+  "block"
+
+# TC-11: done 전환 시 미완료 step → block (e2e-result.md 있어도, CHECK 1.6c)
+mkdir -p "$TASK_DIR/verifications"
+cat > "$TASK_DIR/verifications/e2e-result.md" <<'EOF'
+# E2E 결과
+## 결론
+통과
+EOF
+check "TC-11: done 전환 시 미완료 step → block (e2e-result.md 있어도)" \
+  "$(run_gate_state '{"workflow_phase":"done","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
+  "block"
+
+# TC-12: verification 전환 시 모든 step ✅ → allow
+write_step1 "# Step 1
+## 구현 결과
+Done ✅"
+check "TC-12: verification 전환 시 모든 step ✅ → allow" \
+  "$(run_gate_state '{"workflow_phase":"verification","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
+  "allow"
+
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
