@@ -769,6 +769,13 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 >    [검증 E] 빌드/타입 체크 명령어 실행
 >
 > 5. TASK_DIR/verifications/e2e-result.md 작성 (각 검증 항목 결과 포함)
+>    ⚠️ `## 결론` 섹션 형식 필수: 헤더 바로 다음 줄(빈 줄 없이)에 `통과` 또는 `실패` 기록.
+>    올바른 형식:
+>    ```
+>    ## 결론
+>    통과 — ...
+>    ```
+>    `## 결론\n\n통과` (빈 줄 있음) 형식은 plan-gate.sh가 차단한다.
 >
 > **[보고]**
 > 모두 통과: [DONE]
@@ -787,6 +794,12 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
    - Main Claude가 workflow_phase → "verification" 재설정 → critical-reviewer 재실행
 
 4. `[DONE]` 수신 (verifications/e2e-result.md 전부 통과):
+   - **done 쓰기 전 필수 확인**: e2e-result.md의 `## 결론` 바로 다음 줄이 `통과`로 시작하는지 검증
+     ```bash
+     grep -A1 "^## 결론" {TASK_DIR}/verifications/e2e-result.md | grep -q "^통과"
+     ```
+     실패 시(`## 결론` 뒤에 빈 줄 등): Edit 도구로 빈 줄 제거 후 재확인.
+     ⚠️ 이 확인 없이 done을 쓰면 plan-gate.sh가 차단한다.
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - dev_phases의 모든 팀에 대해 TeamDelete (등록된 팀 이름별로 순서대로)
      ⚠️ TeamDelete 실패 시 `rm -r ~/.claude/teams/{TEAM_NAME}`으로 직접 정리.
