@@ -289,8 +289,8 @@ python3 -c "import json; s=json.load(open('{TASK_DIR}/state.json')); print(s.get
 Main Claude가 수행:
 1. `{TASK_DIR}/plan.md` 읽기
 2. 고수준 계획 → 개발 Phase 분해 → `[DEV_PHASES:확정]` 출력
-3. state.json `dev_phases` 초기화 (각 phase에 `team_name: ""` 포함)
-4. **모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
+   (Phase 이름·Step 수만 결정. `depends_on`은 이 단계에서 미결정 — 파일 생성 후 코드 기반으로 판단)
+3. **모든 phase/step 문서 골격 일괄 생성 (순서 엄수)**
 
    > ⚠️ **개발 시작 전 필수**: 문서 생성이 완료되기 전까지 Dev/QA 스폰 절대 금지.
    > Phase 1 docs가 완료됐다고 개발을 시작하지 않는다.
@@ -351,7 +351,19 @@ Main Claude가 수행:
 
    ⚠️ ## 구현 목표가 "변경 대상: 파일명" 단 1줄이면 불충분 — plan.md Before/After 핵심을 반드시 발췌
 
-5. **resolved_agent_mode 최종 결정 — 임시값 "single" 덮어쓰기:**
+4. **depends_on 최초 판단 — 문서 생성 후 실제 코드 기반**
+
+   파일 생성이 완료된 후, 각 Phase의 변경 대상 파일을 실제로 Read하여
+   Phase 간 의존성을 최초로 판단한다 (plan.md는 참고용 힌트일 뿐, 최종 판단은 코드 기반):
+
+   - Phase B가 Phase A가 신규 생성·변경하는 함수/타입/컴포넌트를 사용 → 순차 (`depends_on: [A]`)
+   - Phase A 변경이 Phase B 구현의 정확성에 영향 → 순차
+   - 두 Phase가 완전히 독립적으로 구현 가능 → 병렬 (`depends_on: []`)
+   (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
+
+5. state.json `dev_phases` 초기화 (step 4 depends_on 포함, 각 phase에 `team_name: ""`)
+
+6. **resolved_agent_mode 최종 결정 — 임시값 "single" 덮어쓰기:**
 
    **먼저 config.json에서 agent_mode를 읽는다** (항상):
    ```bash
@@ -414,15 +426,10 @@ Main Claude가 수행:
 
 > **에이전트 수명 — 병렬성 기반 스폰 전략:**
 >
-> Main Claude가 팀 스폰 전에 각 Phase의 병렬 실행 가능 여부를 판단하고 state.json에 기록한다.
+> `depends_on`은 3-1 단계(문서 생성 후 실제 코드 기반)에서 이미 결정되어 state.json에 기록됨.
+> 팀 스폰 시에는 state.json의 `depends_on` 값을 읽어 병렬/순차 전략을 결정한다.
 >
-> **병렬성 판단 기준 (Main Claude가 plan.md Before/After를 읽고 직접 판단):**
-> - Phase B가 Phase A의 결과물(함수, 타입, 컴포넌트)을 사용 → 순차
-> - Phase A의 변경이 Phase B 구현의 정확성에 영향 → 순차
-> - 두 Phase가 서로 완전히 독립적으로 구현 가능 → 병렬
-> (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
->
-> Main Claude가 state.json dev_phases에 `depends_on` 필드로 기록:
+> Main Claude가 state.json dev_phases에서 `depends_on` 필드를 읽어 사용:
 > ```json
 > "dev_phases": {
 >   "1": {"name": "...", "steps": {...}, "depends_on": [], "team_name": ""},
