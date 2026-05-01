@@ -305,6 +305,14 @@ if [ -f "$MANIFEST" ]; then
   info "기존 설치 감지 → 업데이트 모드"
 fi
 
+if [ "$IS_UPDATE" = "true" ] && [ "$CI_MODE" = "true" ] && [ -f "$BOUNCER_DATA_DIR/config.json" ]; then
+  _OLD_CFG="$BOUNCER_DATA_DIR/config.json"
+  AGENT_MODE="${AGENT_MODE:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('agent_mode','team'))" 2>/dev/null || echo team)}"
+  ENFORCEMENT_MODE="${ENFORCEMENT_MODE:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('enforcement_mode','hooks'))" 2>/dev/null || echo hooks)}"
+  COMMIT_STRATEGY="${COMMIT_STRATEGY:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('commit_strategy','per-step'))" 2>/dev/null || echo per-step)}"
+  info "기존 config.json 읽기 → agent_mode=$AGENT_MODE, enforcement=$ENFORCEMENT_MODE, commit=$COMMIT_STRATEGY"
+fi
+
 # ── 파일 복사 함수 ──────────────────────────────────────────────
 INSTALLED_FILES=()
 DATE_TAG=$(date +%Y%m%d)
@@ -542,21 +550,21 @@ if [ -d "$PACKAGE_DIR/scripts" ]; then
   done
 fi
 
-# update.sh / uninstall.sh
+# uninstall.sh
 if [ "$SCOPE" = "global" ]; then
-  cp "$PACKAGE_DIR/update.sh" "$TARGET_DIR/update.sh"
-  chmod +x "$TARGET_DIR/update.sh"
-  ok "update.sh ($TARGET_DIR)"
   cp "$PACKAGE_DIR/uninstall.sh" "$TARGET_DIR/uninstall.sh"
   chmod +x "$TARGET_DIR/uninstall.sh"
   ok "uninstall.sh ($TARGET_DIR)"
+  if [ "$IS_UPDATE" = "true" ]; then
+    rm -f "$TARGET_DIR/update.sh" 2>/dev/null || true
+  fi
 else
-  cp "$PACKAGE_DIR/update.sh" "$REPO_ROOT/update.sh"
-  chmod +x "$REPO_ROOT/update.sh"
-  ok "update.sh (프로젝트 루트)"
   cp "$PACKAGE_DIR/uninstall.sh" "$REPO_ROOT/uninstall.sh"
   chmod +x "$REPO_ROOT/uninstall.sh"
   ok "uninstall.sh (프로젝트 루트)"
+  if [ "$IS_UPDATE" = "true" ]; then
+    rm -f "$REPO_ROOT/update.sh" 2>/dev/null || true
+  fi
 fi
 
 # ── .ai-bouncer-tasks git 추적 설정 ──────────────────────────────
@@ -633,7 +641,6 @@ for f in "${INSTALLED_FILES[@]}"; do
 done
 if [ "$IS_SOURCE_REPO" = false ]; then
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
-update.sh
 uninstall.sh"
 fi
 
@@ -676,14 +683,16 @@ if git -C "$REPO_ROOT" rev-parse --is-inside-work-tree &>/dev/null; then
     git -C "$REPO_ROOT" rm --cached ".claude/$f" 2>/dev/null || true
   done
   if [ "$IS_SOURCE_REPO" = false ]; then
-    git -C "$REPO_ROOT" rm --cached update.sh uninstall.sh 2>/dev/null || true
+    git -C "$REPO_ROOT" rm --cached uninstall.sh 2>/dev/null || true
   fi
 fi
 fi # SCOPE=local .gitignore 블록 끝
 
 # 커밋 전략 선택
 header "커밋 전략"
-if [ "$CI_MODE" = "true" ]; then
+if [ -n "${COMMIT_STRATEGY:-}" ]; then
+  ok "커밋 전략 (기존 config): $COMMIT_STRATEGY"
+elif [ "$CI_MODE" = "true" ]; then
   COMMIT_CHOICE="1"
 else
   echo "  Step/Phase 완료 시 자동 커밋 전략을 선택하세요."
@@ -696,11 +705,13 @@ else
   read -r COMMIT_CHOICE
   COMMIT_CHOICE="${COMMIT_CHOICE:-1}"
 fi
-case "$COMMIT_CHOICE" in
-  2) COMMIT_STRATEGY="per-phase" ;;
-  3) COMMIT_STRATEGY="none" ;;
-  *) COMMIT_STRATEGY="per-step" ;;
-esac
+if [ -z "${COMMIT_STRATEGY:-}" ]; then
+  case "$COMMIT_CHOICE" in
+    2) COMMIT_STRATEGY="per-phase" ;;
+    3) COMMIT_STRATEGY="none" ;;
+    *) COMMIT_STRATEGY="per-step" ;;
+  esac
+fi
 
 # 커밋 스킬 감지 (commands/ 또는 skills/ 방식 모두 지원)
 COMMIT_SKILL_BOOL="false"
@@ -826,7 +837,7 @@ header "settings.json 설정"
 
 SETTINGS_FILE="$TARGET_DIR/settings.json"
 
-python3 - "$SETTINGS_FILE" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" "$PACKAGE_DIR/hooks/hooks.json" <<'PYEOF'
+python3 - "$SETTINGS_FILE" "$TARGET_DIR" "$ENFORCEMENT_MODE" "$AGENT_MODE" "$PACKAGE_DIR/hooks/hooks.json" "$IS_UPDATE" <<'PYEOF'
 import json, sys, os
 
 settings_file = sys.argv[1]
@@ -834,6 +845,7 @@ target_dir = sys.argv[2]
 enforcement_mode = sys.argv[3]
 agent_mode = sys.argv[4]
 hooks_manifest_path = sys.argv[5]
+is_update = sys.argv[6] == 'true'
 
 cfg = {}
 if os.path.exists(settings_file):
@@ -894,6 +906,17 @@ for ht, groups in hooks.items():
             cmd = h.get('command', '')
             if cmd and not is_bouncer_hook(cmd):
                 pre_snap.setdefault(ht, []).append(dict(g))
+
+# IS_UPDATE: bouncer hook 전부 제거 후 재등록 (matcher 변경 반영)
+if is_update:
+    for hook_type in list(hooks.keys()):
+        filtered = [g for g in hooks[hook_type]
+                    if not any(is_bouncer_hook(h.get('command', '')) for h in g.get('hooks', []))]
+        if filtered:
+            hooks[hook_type] = filtered
+        else:
+            del hooks[hook_type]
+    print('  ✓ IS_UPDATE: 기존 bouncer hook 전부 제거 (재등록 준비)')
 
 # hooks.json 매니페스트 기반 등록
 if enforcement_mode == 'hooks' and os.path.exists(hooks_manifest_path):

@@ -178,7 +178,7 @@ if missing:
   fi
 
   if [ "$issues" -gt 0 ]; then
-    echo "⚠ ai-bouncer 설치 손상 감지 (${issues}건). bash update.sh로 복구하세요."
+    echo "⚠ ai-bouncer 설치 손상 감지 (${issues}건). bash install.sh --ci로 복구하세요."
   fi
   return $issues
 }
@@ -197,6 +197,9 @@ if [ "$FORCE" = false ] && [ "$CHECK_ONLY" = false ] && [ -f "$CHECKED_FILE" ]; 
     exit 0
   fi
 fi
+
+# ── BOUNCER_TEST_PKG_DIR: 버전 체크·bootstrap 건너뜀 (테스트 전용) ────────────
+if [ -z "${BOUNCER_TEST_PKG_DIR:-}" ]; then
 
 # ── 최신 SHA 조회 ────────────────────────────────────────────────────────────
 LATEST_SHA=$(curl -sf --max-time 5 "$API_URL" 2>/dev/null | $PYTHON -c "
@@ -263,25 +266,32 @@ if [ "${_UPDATE_BOOTSTRAPPED:-}" != "1" ]; then
   trap - EXIT
 fi
 
-# ── git clone → update.sh 실행 ───────────────────────────────────────────────
+fi # BOUNCER_TEST_PKG_DIR 블록 끝
+
+# ── git clone → install.sh --ci 실행 ─────────────────────────────────────────
 _G='\033[0;32m' _D='\033[2m' _R='\033[0;31m' _B='\033[1m' _N='\033[0m'
 
-CLONE_DIR=$(mktemp -d) || { echo "ai-bouncer: mktemp -d failed" >&2; exit 0; }
-trap 'rm -rf "$CLONE_DIR"' EXIT
-
-if ! git clone --depth 1 "https://github.com/$REPO.git" "$CLONE_DIR/ai-bouncer" -q 2>/dev/null; then
-  echo "ai-bouncer: git clone 실패, 업데이트 건너뜀" >&2
-  exit 0
+if [ -n "${BOUNCER_TEST_PKG_DIR:-}" ]; then
+  CLONE_DIR="$BOUNCER_TEST_PKG_DIR"
+else
+  CLONE_DIR=$(mktemp -d) || { echo "ai-bouncer: mktemp -d failed" >&2; exit 0; }
+  trap 'rm -rf "$CLONE_DIR"' EXIT
+  if ! git clone --depth 1 "https://github.com/$REPO.git" "$CLONE_DIR/ai-bouncer" -q 2>/dev/null; then
+    echo "ai-bouncer: git clone 실패, 업데이트 건너뜀" >&2
+    exit 0
+  fi
 fi
 
-# update.sh 실행
-if [ -f "$CLONE_DIR/ai-bouncer/update.sh" ]; then
-  (cd "$(dirname "$TARGET_DIR")" && bash "$CLONE_DIR/ai-bouncer/update.sh") || {
-    echo "ai-bouncer: update.sh 실행 실패" >&2
+# install.sh --ci 실행
+if [ -f "$CLONE_DIR/ai-bouncer/install.sh" ]; then
+  _SCOPE_DEFAULT=2
+  [ "$TARGET_DIR" = "$HOME/.claude" ] && _SCOPE_DEFAULT=1
+  (cd "$(dirname "$TARGET_DIR")" && SCOPE_DEFAULT=$_SCOPE_DEFAULT CI=true bash "$CLONE_DIR/ai-bouncer/install.sh" --ci) || {
+    echo "ai-bouncer: install.sh --ci 실행 실패" >&2
     exit 0
   }
 else
-  echo "ai-bouncer: update.sh를 찾을 수 없음" >&2
+  echo "ai-bouncer: install.sh를 찾을 수 없음" >&2
   exit 0
 fi
 

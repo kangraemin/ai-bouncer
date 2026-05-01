@@ -244,9 +244,8 @@ print("  .gitignore ai-bouncer 블록 제거됨")
 PYEOF
 fi
 
-# 프로젝트 루트의 update.sh / uninstall.sh 삭제
+# 프로젝트 루트의 uninstall.sh 삭제
 if [ -n "$REPO_ROOT" ]; then
-  rm -f "$REPO_ROOT/update.sh"
   rm -f "$REPO_ROOT/uninstall.sh"
 fi
 
