@@ -208,7 +208,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - **신규 파일이 있으면 핵심 로직 코드** — 구조와 주요 함수 시그니처 포함
    - 검증 방법 (명령어 + 기대 결과)
    - E2E 영향 분석 (기존 e2e 테스트 중 수정/추가/삭제가 필요한 항목, 새 e2e 시나리오)
-   - **개발 Phase 계획** (필수 — Lead가 이걸 기반으로 phase/step 문서 생성):
+   - **개발 Phase 계획** (필수 — Phase 3에서 Main Claude가 이걸 기반으로 phase/step 문서 생성):
      ```markdown
      ## 개발 Phase 계획
      
@@ -686,7 +686,7 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 
 #### 3-6. Phase 완료 처리 (Main Claude 필수 확인)
 
-Lead가 `[PHASE:N:완료]` 또는 `[ALL_STEPS:완료]`를 출력하면, **Main Claude가 반드시 다음을 확인**:
+Dev가 `[PHASE:N:완료]` 또는 `[ALL_STEPS:완료]`를 출력하면, **Main Claude가 반드시 다음을 확인**:
 
 ```bash
 # state.json에서 남은 Phase 확인
@@ -705,13 +705,13 @@ else:
 
 **결과에 따라 분기 (반드시 따를 것):**
 
-- `NEXT_PHASE=N` → **Phase 4로 넘어가지 않는다.** Lead에게 "Phase N 개발을 시작하라"고 지시.
+- `NEXT_PHASE=N` → **Phase 4로 넘어가지 않는다.** Dev에게 "Phase N 개발을 시작하라"고 SendMessage.
   state.json `current_dev_phase`를 N으로 업데이트.
 - `ALL_DONE` → 모든 Phase 완료. Phase 4 (검증 루프) 진행.
 
-> **주의**: Lead가 `[ALL_STEPS:완료]`를 출력해도 state.json의 dev_phases에 남은 Phase가 있으면
+> **주의**: Dev가 `[ALL_STEPS:완료]`를 출력해도 state.json의 dev_phases에 남은 Phase가 있으면
 > **절대 Phase 4로 넘어가지 않는다.** 남은 Phase를 먼저 모두 완료해야 한다.
-> Lead가 잘못 판단할 수 있으므로 Main Claude가 직접 dev_phases 개수를 확인한다.
+> Dev가 잘못 판단할 수 있으므로 Main Claude가 직접 dev_phases 개수를 확인한다.
 
 ---
 
