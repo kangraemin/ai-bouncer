@@ -242,10 +242,12 @@ Main Claude가 직접 수행 (팀 스폰 없음):
    - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
    - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"` — 이 단계를 건너뛰면 gate가 모든 후속 작업을 차단함.
    - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
-8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
+8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`, `resolved_agent_mode = "single"` (임시 기본값)
    ⚠️ step 7 cp 완료 확인 후에만 실행.
    ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Phase 3에서 초기화한다.
-   ⚠️ `resolved_agent_mode`도 설정하지 않는다 — Phase 3에서 문서 생성 후 결정한다.
+   ⚠️ `resolved_agent_mode = "single"`은 데드락 방지용 임시값이다.
+      gate가 "team" 기본값을 쓰면 TEAM_NAME이 없어 전면 차단되므로, development 진입 시 즉시 "single"로 설정한다.
+      Phase 3 문서 생성 완료 후 실제 Phase 수 기준으로 덮어쓴다.
 
 ---
 
@@ -349,7 +351,7 @@ Main Claude가 수행:
 
    ⚠️ ## 구현 목표가 "변경 대상: 파일명" 단 1줄이면 불충분 — plan.md Before/After 핵심을 반드시 발췌
 
-5. **resolved_agent_mode 결정 후 state.json에 저장:**
+5. **resolved_agent_mode 최종 결정 — 임시값 "single" 덮어쓰기:**
 
    **먼저 config.json에서 agent_mode를 읽는다** (항상):
    ```bash
