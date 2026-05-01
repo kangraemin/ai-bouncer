@@ -38,7 +38,7 @@ for state_file in sorted(glob.glob('.ai-bouncer-tasks/*/*/state.json'), reverse=
         except:
             state = {}
         phase = state.get('workflow_phase', '')
-        is_stale = (phase == 'done')
+        is_stale = (phase in ('done', 'cancelled'))
         results['active'] = {
             'task_dir': task_dir,
             'state_file': state_file,
@@ -92,7 +92,7 @@ print(json.dumps(results, ensure_ascii=False))
 
 먼저 `is_stale` 확인:
 
-**A-0: stale** (`is_stale == true` — `workflow_phase == "done"`인데 `.active` 존재, 불가능한 상태)
+**A-0: stale** (`is_stale == true` — `workflow_phase == "done"` 또는 `"cancelled"`인데 `.active` 존재)
 → 자동 처리 (사용자에게 확인 없이):
   1. `.active` 파일 삭제: `rm -f {active_file}`
   2. 한 줄 안내: `⚠️ 잔여 잠금 파일 자동 정리: {task_dir} (done 상태였음)`
