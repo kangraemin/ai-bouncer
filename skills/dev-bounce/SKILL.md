@@ -201,7 +201,7 @@ Main Claude가 직접 수행 (팀 스폰 없음):
 2. 관련 코드 탐색 (Read/Grep/Glob) — plan mode 안에서 수행
 3. 필요시 사용자에게 AskUserQuestion 1~2회
 4. plan mode plan 파일에 계획 작성 — **이것이 사용자에게 보이는 원본이자 최종 plan.md가 된다.**
-   plan mode plan 파일 경로는 EnterPlanMode 호출 시 시스템이 알려준다.
+   plan mode plan 파일 경로는 EnterPlanMode 호출 시 시스템이 알려준다. **이 경로를 PLAN_FILE로 기억한다.**
    **필수 포함 항목 — 누락 시 plan 재작성:**
    - **변경 파일별 Before/After 코드** — 주요 변경 지점은 실제 코드 라인 단위로 명시.
      "이 함수를 수정한다"는 불충분. 어떤 줄이 어떻게 바뀌는지 코드로 보여준다.
@@ -238,8 +238,10 @@ Main Claude가 직접 수행 (팀 스폰 없음):
         - 취소/포기 → "작업이 취소되었습니다" 안내
         - 오해/질문 → 설명 후 "재시도하려면 /dev-bounce를 다시 실행하세요" 안내
      ⚠️ 거부 후 .active를 남긴 채 설명만 하면 bash-gate가 /finish 등 후속 작업을 모두 차단함.
-7. 승인 후 plan mode plan 내용을 그대로 `{TASK_DIR}/plan.md`에 저장한다.
-   별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
+7. 승인 후 plan mode plan 파일을 `{TASK_DIR}/plan.md`로 복사한다.
+   - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
+   - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"`
+   - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
 8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`
    ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Lead가 Phase 3에서 초기화한다.
 
@@ -303,6 +305,8 @@ bash "$_BCFG/bouncer-config.sh" agent_mode team
 ```
 > ⚠️ Agent 스폰 시 `team_name`과 `name` 파라미터 없이 스폰하면 팀에 등록되지 않아 hook이 차단함.
 > team_name = TeamCreate에서 사용한 이름과 동일해야 함.
+
+⚠️ 에이전트 스폰 후 응답을 종료하지 않는다. [DOCS:완료] (Lead) 및 각 단계 신호 수신 전까지 같은 응답 내에서 대기한다. 중간에 응답을 종료하면 completion-gate가 차단한다.
 
 Lead가 [DOCS:완료] 출력 후 Main Claude가 Dev + QA 스폰:
 ```
@@ -638,6 +642,7 @@ Lead가 `[DOCS:완료]` 출력 후 → Main Claude가 Agent tool로 Dev + QA를 
 > **⚠️ 병렬 발송 필수**: SendMessage 두 호출을 **단일 응답에서 동시에 발송**한다.
 > QA SendMessage 후 응답 기다린 뒤 Dev SendMessage하는 것은 순차 실행이므로 금지.
 > 두 SendMessage() 호출을 같은 응답의 tool call 블록에 함께 포함해야 실제 병렬 실행된다.
+> ⚠️ Dev `[STEP:N:개발완료]` + QA `[STEP:N:테스트통과]` 수신 전 응답 종료 금지. step.md ✅ 없는 상태에서 응답이 끝나면 completion-gate가 차단한다.
 
 각 개발 Phase의 각 Step마다:
 
