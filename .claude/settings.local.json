@@ -15,7 +15,8 @@
       "Bash(chmod +x ~/.claude/ai-bouncer/hooks/subagent-track.sh)",
       "Bash(cp hooks/bash-gate.sh ~/.claude/ai-bouncer/hooks/bash-gate.sh)",
       "Bash(chmod +x ~/.claude/ai-bouncer/hooks/bash-gate.sh)",
-      "Bash(cp hooks/plan-gate.sh ~/.claude/ai-bouncer/hooks/plan-gate.sh)"
+      "Bash(cp hooks/plan-gate.sh ~/.claude/ai-bouncer/hooks/plan-gate.sh)",
+      "Bash(cp hooks/lib/gate-checks.sh ~/.claude/hooks/lib/gate-checks.sh)"
     ]
   }
 }
