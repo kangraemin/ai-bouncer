@@ -18,7 +18,9 @@
       "Bash(cp hooks/plan-gate.sh ~/.claude/ai-bouncer/hooks/plan-gate.sh)",
       "Bash(cp hooks/lib/gate-checks.sh ~/.claude/hooks/lib/gate-checks.sh)",
       "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/skills/dev-bounce/SKILL.md /Users/ram/programming/vibecoding/ai-bouncer/.claude/skills/dev-bounce/SKILL.md)",
-      "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/hooks/lib/gate-checks.sh /Users/ram/.claude/ai-bouncer/hooks/lib/gate-checks.sh)"
+      "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/hooks/lib/gate-checks.sh /Users/ram/.claude/ai-bouncer/hooks/lib/gate-checks.sh)",
+      "Bash(cp hooks/plan-gate.sh ~/.claude/hooks/plan-gate.sh)",
+      "Read(//Users/ram/.claude/hooks/**)"
     ]
   }
 }
