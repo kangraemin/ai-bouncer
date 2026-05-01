@@ -238,16 +238,15 @@ Main Claude가 직접 수행 (팀 스폰 없음):
         - 취소/포기 → "작업이 취소되었습니다" 안내
         - 오해/질문 → 설명 후 "재시도하려면 /dev-bounce를 다시 실행하세요" 안내
      ⚠️ 거부 후 .active를 남긴 채 설명만 하면 bash-gate가 /finish 등 후속 작업을 모두 차단함.
-7. **⚠️ CRITICAL — state.json 업데이트 전 반드시 먼저 실행**: plan mode plan 파일을 `{TASK_DIR}/plan.md`로 복사한다.
-   - `PLAN_FILE`: EnterPlanMode가 알려준 plan 파일 경로 (예: `~/.claude/plans/{slug}.md`)
-   - 복사: `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"` — 이 단계를 건너뛰면 gate가 모든 후속 작업을 차단함.
-   - 별도 템플릿으로 재작성하지 않는다 — plan mode에서 작성한 것이 최종본이다.
-8. state.json 업데이트: `plan_approved = true`, `workflow_phase = "development"`, `resolved_agent_mode = "single"` (임시 기본값)
-   ⚠️ step 7 cp 완료 확인 후에만 실행.
-   ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Phase 3에서 초기화한다.
-   ⚠️ `resolved_agent_mode = "single"`은 데드락 방지용 임시값이다.
-      gate가 "team" 기본값을 쓰면 TEAM_NAME이 없어 전면 차단되므로, development 진입 시 즉시 "single"로 설정한다.
-      Phase 3 문서 생성 완료 후 실제 Phase 수 기준으로 덮어쓴다.
+7. plan.md 복사 후 state.json 원자적 업데이트 (두 작업을 연속으로 수행):
+   a. `cp "$PLAN_FILE" "{TASK_DIR}/plan.md"` — PLAN_FILE은 EnterPlanMode가 알려준 경로. 별도 템플릿으로 재작성 금지.
+      이 단계를 건너뛰면 gate가 모든 후속 작업을 차단함.
+   b. Write 도구로 state.json **단일 Write 호출**에 `plan_approved = true`, `workflow_phase = "development"`, `resolved_agent_mode = "single"` 동시 설정.
+      ⚠️ `plan_approved`와 `workflow_phase`를 반드시 같은 Write call에 포함 — hook이 원자적 전환을 허용한다.
+      ⚠️ `dev_phases`는 수정하지 않는다 — 빈 객체 `{}` 유지. Phase 3에서 초기화한다.
+      ⚠️ `resolved_agent_mode = "single"`은 데드락 방지용 임시값이다.
+         gate가 "team" 기본값을 쓰면 TEAM_NAME이 없어 전면 차단되므로, development 진입 시 즉시 "single"로 설정한다.
+         Phase 3 문서 생성 완료 후 실제 Phase 수 기준으로 덮어쓴다.
 
 ---
 

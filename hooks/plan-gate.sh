@@ -84,7 +84,19 @@ if [[ "$FILE_PATH" == */state.json ]]; then
   _PLAN_APPROVED_16=$(jq -r '.plan_approved // false' "$FILE_PATH" 2>/dev/null)
   if [ "$_PLAN_APPROVED_16" != "true" ]; then
     _NEW_CONTENT=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
-    _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
+    # 새 내용에 plan_approved=true가 동시에 포함된 경우 원자적 전환 허용
+    _NEW_PA=$(echo "$_NEW_CONTENT" | python3 -c "
+import json, sys, re
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+    print('true' if d.get('plan_approved') is True else 'false')
+except:
+    m = re.search(r'\"plan_approved\"\s*:\s*(true|false)', txt)
+    print(m.group(1) if m else 'false')
+" 2>/dev/null)
+    if [ "$_NEW_PA" != "true" ]; then
+      _NEW_PHASE=$(echo "$_NEW_CONTENT" | python3 -c "
 import json, sys, re
 txt = sys.stdin.read()
 try:
@@ -94,14 +106,15 @@ except:
     m = re.search(r'\"workflow_phase\"\s*:\s*\"([^\"]+)\"', txt)
     print(m.group(1) if m else '')
 " 2>/dev/null)
-    case "$_NEW_PHASE" in
-      development|done|verification)
-        jq -n --arg nxt "$_NEW_PHASE" '{
-          decision: "block",
-          reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
-        }'
-        exit 0 ;;
-    esac
+      case "$_NEW_PHASE" in
+        development|done|verification)
+          jq -n --arg nxt "$_NEW_PHASE" '{
+            decision: "block",
+            reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
+          }'
+          exit 0 ;;
+      esac
+    fi
   fi
   # CHECK 1.6b: current_step이 해당 Phase의 step 수를 초과하면 차단 (순환 차단 방지)
   _NEW_CONTENT_16B=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
