@@ -392,6 +392,8 @@ Main Claude가 수행:
 
 **single 모드**: 팀 구성·에이전트 스폰 없음. Main Claude가 TC 작성·구현·검증을 직접 수행한다 (3-3 single 모드 루프 참조).
 
+**subagent 모드**: 문서 생성 완료 후 Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다. dev_phases[N].team_name은 빈 문자열로 유지.
+
 > **state.json 업데이트 의무 (모든 모드 공통):**
 >
 > 다음 시점에 state.json을 반드시 업데이트한다:
@@ -412,6 +414,14 @@ Main Claude가 수행:
 > Agent(team_name="{TASK_NAME}", name="qa",  prompt=QA스폰프롬프트)   ┘ 병렬
 > ```
 > `team_name` 없이 Agent()만 쓰면 팀 미등록 → hook 전면 차단.
+
+**subagent 모드:**
+> 문서 생성 완료 후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
+> Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
+>
+> **⚠️ 병렬 스폰 필수**: Dev + QA Agent() 호출을 **단일 응답에서 동시에 발송**한다.
+> QA Agent() 호출 후 응답을 기다린 뒤 Dev Agent() 호출하는 것은 순차 실행이므로 금지.
+> 두 Agent() 호출을 같은 응답의 tool call 블록에 함께 포함해야 실제 병렬 실행된다.
 
 **single 모드:**
 > 팀 구성 없음 — 에이전트 스폰 금지. 3-3의 single 모드 루프로 즉시 진행한다.
@@ -766,6 +776,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 | agent_mode | 동작 |
 |---|---|
 | `team` | critical-reviewer 에이전트 스폰 (기본) |
+| `subagent` | Agent tool로 critical-reviewer 스폰 |
 | `single` | Main Claude가 직접 비판적 검증 수행 |
 
 1. 비판적 리뷰어(critical-reviewer) 에이전트 스폰 (TASK_DIR 전달)
