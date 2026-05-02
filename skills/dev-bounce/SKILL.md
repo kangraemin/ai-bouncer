@@ -213,7 +213,14 @@ Main Claude가 직접 수행 (팀 스폰 없음):
      "이 함수를 수정한다"는 불충분. 어떤 줄이 어떻게 바뀌는지 코드로 보여준다.
    - **신규 파일이 있으면 핵심 로직 코드** — 구조와 주요 함수 시그니처 포함
    - 검증 방법 (명령어 + 기대 결과)
-   - E2E 영향 분석 (기존 e2e 테스트 중 수정/추가/삭제가 필요한 항목, 새 e2e 시나리오)
+   - E2E 영향 분석 및 테스트 반영 (필수):
+     1. `find tests/ -name "test-*.sh"` 로 테스트 파일 목록 확인
+     2. 변경 대상 코드와 관련된 테스트 파일을 Read하여 관련 케이스 여부 직접 확인
+     3. 수정/삭제 필요 항목 명시 (없으면 "없음")
+     4. 신규 e2e 시나리오 명시 (없으면 "없음")
+     5. **기존 테스트가 있고 코드 변경이 있으면 → 개발 Phase 계획에 "e2e 테스트 업데이트" Step 포함 필수**
+        예: `Step N: e2e 테스트 추가 — tests/test-bash-gate.sh에 IS_MY_TASK 케이스 추가, bash tests/test-bash-gate.sh 전체 통과`
+     ⚠️ 테스트 파일을 Read하지 않고 "영향 없음"으로 퉁치는 것 금지
    - **개발 Phase 계획** (필수 — Phase 3에서 Main Claude가 이걸 기반으로 phase/step 문서 생성):
      ```markdown
      ## 개발 Phase 계획
@@ -793,6 +800,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
    - [검증 C] plan.md에서 다루지 않은 엣지 케이스 탐색 (null/undefined/빈 배열/빈 문자열)
    - [검증 D] 변경 파일의 기존 코드 경로 regression 없는지 확인
    - [검증 E] 빌드/타입 체크 명령어 실행
+   - [검증 F] 프로젝트 테스트 스위트 실행 — `find tests/ -name "test-*.sh"` 탐색 후 각 파일 Read, side effect 없으면 실행하고 결과 기록
    - `verifications/e2e-result.md` 작성 (각 검증 항목 결과 포함)
 
 > **critical-reviewer 스폰 프롬프트 (Main Claude가 아래 내용을 그대로 리뷰어에게 전달한다):**
@@ -815,6 +823,12 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 >    [검증 C] plan.md에서 다루지 않은 엣지 케이스 탐색 (null/undefined/빈 배열/빈 문자열)
 >    [검증 D] 변경 파일의 기존 코드 경로가 regression 없는지 확인
 >    [검증 E] 빌드/타입 체크 명령어 실행
+>    [검증 F] 프로젝트 테스트 스위트 실행:
+>      - `find tests/ -name "test-*.sh"` 로 테스트 파일 탐색 (프로젝트 루트 기준)
+>      - 탐색된 각 파일을 Read하여 side effect(영구 파일 변경/네트워크/삭제) 여부 확인
+>      - side effect 없는 파일: `bash {파일}` 실행 (프로젝트 루트에서)
+>      - 실행 출력 전체를 e2e-result.md에 포함
+>      - 하나라도 실패 시: [E2E:실패] 보고, 모두 통과 시: PASS 기록
 >
 > 5. TASK_DIR/verifications/e2e-result.md 작성 (각 검증 항목 결과 포함)
 >    ⚠️ `## 결론` 섹션 형식 필수: 헤더 바로 다음 줄(빈 줄 없이)에 `통과` 또는 `실패` 기록.
@@ -833,6 +847,7 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 >
 > ⚠️ "동작할 것 같다"는 추측 금지. 실제 코드를 읽고 확인한 것만 PASS 처리.
 > ⚠️ 빌드 명령어 없이 통과 처리 금지.
+> ⚠️ tests/ 디렉토리가 존재하면 테스트 실행 없이 통과 처리 금지.
 
 3. `[E2E:실패:PHASE-P-STEP-M]` 수신 시:
    - 책임 step-M.md의 해당 TC 판정 ✅→❌ 변경
