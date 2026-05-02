@@ -23,7 +23,9 @@
       "Read(//Users/ram/.claude/hooks/**)",
       "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/skills/dev-bounce/SKILL.md /Users/ram/.claude/skills/dev-bounce/SKILL.md)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/skills/bouncer-status/SKILL.md '~/.claude/skills/bouncer-status/SKILL.md')",
+      "Read(//Users/ram/.claude/skills/bouncer-status/**)"
     ]
   }
 }

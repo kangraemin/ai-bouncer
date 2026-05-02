@@ -67,24 +67,35 @@ bash "$UPDATE_CHECK" --check-only 2>/dev/null
 
 #### 2-2. Hook 등록 상태
 
-settings.json에서 bouncer hook 등록 여부를 확인한다.
+**매번 GitHub remote에서 최신 hooks.json을 fetch해서** required hooks 목록을 동적으로 구성한다.
 
-필수 hooks:
-| hook | event | matcher |
-|------|-------|---------|
-| plan-gate.sh | PreToolUse | Write\|Edit\|MultiEdit |
-| bash-gate.sh | PreToolUse | Bash |
-| doc-reminder.sh | PostToolUse | Write\|Edit\|MultiEdit |
-| bash-audit.sh | PostToolUse | Bash |
-| completion-gate.sh | Stop | |
-| stop-active-cleanup.sh | Stop | |
-| subagent-track.sh | SubagentStart | |
-| subagent-cleanup.sh | SubagentStop | |
+```bash
+REPO="${AI_BOUNCER_REPO:-kangraemin/ai-bouncer}"
+RAW_BASE="https://raw.githubusercontent.com/$REPO/main"
+REMOTE_HOOKS_JSON=$(curl -sf --max-time 5 "$RAW_BASE/hooks/hooks.json" 2>/dev/null)
+# fetch 실패 시 로컬 설치본 fallback
+[ -z "$REMOTE_HOOKS_JSON" ] && REMOTE_HOOKS_JSON=$(cat "$BOUNCER_DATA_DIR/hooks/hooks.json" 2>/dev/null || echo "{}")
+```
 
-판정:
-- ✅ settings.json에 등록됨 + 파일 존재
+`REMOTE_HOOKS_JSON`에서 `{event: [{matcher, file}]}` 구조를 파싱해 hook 목록을 추출한다.
+
+각 hook에 대해 **3단계 판정**:
+
+```bash
+# a. settings.json 등록 여부
+# b. 파일 존재 여부 ($BOUNCER_DATA_DIR/hooks/<file>)
+# c. 파일 내용 일치 여부:
+REMOTE_FILE=$(curl -sf --max-time 3 "$RAW_BASE/hooks/<file>" 2>/dev/null)
+LOCAL_FILE=$(cat "$BOUNCER_DATA_DIR/hooks/<file>" 2>/dev/null)
+# md5 또는 sha256 비교
+```
+
+판정 기준:
+- ✅ 등록됨 + 파일 존재 + 내용 최신 (remote와 일치)
+- ⚠️ 등록됨 + 파일 존재 + 내용 구버전 (remote와 다름)
 - ⚠️ 등록됨 + 파일 없음
 - ❌ 미등록
+- ❓ curl 실패로 확인 불가 (로컬 기준으로 fallback)
 
 #### 2-3. CLAUDE.md 규칙
 
@@ -94,7 +105,11 @@ grep -q 'ai-bouncer-rule' "$TARGET_DIR/CLAUDE.md"
 
 #### 2-4. 파일 무결성
 
-manifest.json의 files 배열에 있는 파일이 `$TARGET_DIR/` 하위에 실제 존재하는지 확인.
+앞서 2-2에서 fetch한 `REMOTE_HOOKS_JSON`의 모든 `file` 값을 추출해,
+해당 hook 파일이 `$BOUNCER_DATA_DIR/hooks/` 하위에 실제 존재하고
+내용이 remote와 일치하는지 확인한다. (2-2 fetch 데이터 재활용)
+
+`manifest.json`은 보조 참고용 — remote hooks.json에 없는 파일은 체크 불필요.
 
 #### 2-5. 활성 태스크
 
