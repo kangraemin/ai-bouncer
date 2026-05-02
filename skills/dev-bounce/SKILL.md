@@ -390,17 +390,16 @@ Main Claude가 수행:
 
 문서 생성 + 모드 결정 완료 → 3-2 팀 구성 진행
 
-**subagent 모드**: 문서 생성 완료 후 Main Claude가 Agent tool로 Dev + QA를 각 1명씩 스폰한다. dev_phases[N].team_name은 빈 문자열로 유지.
+**single 모드**: 팀 구성·에이전트 스폰 없음. Main Claude가 TC 작성·구현·검증을 직접 수행한다 (3-3 single 모드 루프 참조).
 
-> **state.json 업데이트 의무:**
+> **state.json 업데이트 의무 (모든 모드 공통):**
 >
-> team 모드와 동일하게, 다음 시점에 state.json을 반드시 업데이트한다:
-> - **Main Claude**: 문서 생성 완료 후 `dev_phases` 초기화, `current_dev_phase = 1`, `current_step = 1` 설정
-> - **QA**: Step 테스트 통과 시 `current_step++`
-> - **Main Claude**: Phase 완료 시 `current_dev_phase++`, `current_step = 1` 리셋
+> 다음 시점에 state.json을 반드시 업데이트한다:
+> - **문서 생성 완료 후**: `dev_phases` 초기화, `current_dev_phase = 1`, `current_step = 1` 설정
+> - **Step 테스트 통과 시**: `current_step++`
+> - **Phase 완료 시**: `current_dev_phase++`, `current_step = 1` 리셋
 >
 > plan-gate/bash-gate가 이 카운터와 아티팩트 파일을 모두 검증하므로, 카운터 미업데이트 시 다음 step 코드 수정이 차단된다.
-> single 모드에서는 Main Claude가 직접 이 업데이트를 수행한다.
 
 #### 3-2. 팀 구성 (Main Claude 담당)
 
@@ -414,14 +413,8 @@ Main Claude가 수행:
 > ```
 > `team_name` 없이 Agent()만 쓰면 팀 미등록 → hook 전면 차단.
 
-**subagent 모드:**
-> 문서 생성 완료 후 **Main Claude가** Agent tool로 Dev + QA를 각 1명씩 스폰한다.
-
-항상 Dev + QA 에이전트 각 1명 스폰. QA 없이 Dev만 스폰하는 것은 금지.
-
-> **⚠️ 병렬 스폰 필수**: Dev + QA Agent() 호출을 **단일 응답에서 동시에 발송**한다.
-> QA Agent() 호출 후 응답을 기다린 뒤 Dev Agent() 호출하는 것은 순차 실행이므로 금지.
-> 두 Agent() 호출을 같은 응답의 tool call 블록에 함께 포함해야 실제 병렬 실행된다.
+**single 모드:**
+> 팀 구성 없음 — 에이전트 스폰 금지. 3-3의 single 모드 루프로 즉시 진행한다.
 
 > **에이전트 수명 — 병렬성 기반 스폰 전략:**
 >
@@ -604,6 +597,8 @@ Main Claude가 수행:
 
 #### 3-3. TDD 개발 루프 (Phase/Step 반복)
 
+**team 모드 루프 (SendMessage 기반):**
+
 > ⚠️ **TC 작성과 개발은 병렬 진행한다. 검증은 둘 다 완료된 후.**
 > QA TC 작성 + Dev 구현을 동시에 SendMessage로 지시한다.
 > QA `[STEP:N:테스트정의완료]` + Dev `[STEP:N:개발완료]` 모두 수신한 후에만 QA에게 검증을 지시한다.
@@ -641,6 +636,34 @@ Main Claude가 수행:
 Phase N 완료 → Phase N+1 시작: [단일 응답에서 동시 발송, 재스폰 없음]
   SendMessage(to=QA_AGENT_ID): "Phase N+1 Step 1 TC 작성" 지시  ┐ 병렬
   SendMessage(to=DEV_AGENT_ID): "Phase N+1 Step 1 구현" 지시    ┘ 병렬
+```
+
+**single 모드 루프 (Main Claude 직접 수행):**
+
+> ⚠️ 에이전트 없음 — SendMessage 금지. Main Claude가 TC 작성·구현·검증을 모두 직접 수행한다.
+> ⚠️ step.md ✅ + ## 실행출력 없이 응답을 끝내면 completion-gate가 차단한다.
+
+각 개발 Phase의 각 Step마다:
+
+```
+5-1. step.md ## 테스트 기준 테이블 TC 직접 작성 (Edit 도구)
+     - plan.md Phase N Step M의 구현 목표와 Before/After 기준으로 TC 작성
+     - 유형 컬럼 포함 (happy/negative/boundary/e2e 등 균형 있게)
+     - 시나리오·기대결과 각 5자 이상, backtick 검증 명령어 포함
+
+5-2. plan.md After 코드 기준으로 구현 (Edit/Write 도구)
+     - 변경 대상 파일 Read → After 코드 그대로 적용
+     - 빌드/린터 명령어 실행 (Bash 도구) → 오류 없는지 확인
+
+5-3. TC 검증 실행 (Bash 도구)
+     → step-M.md TC 테이블 "실제 결과" 컬럼에 ✅/❌ 기록 (Edit 도구)
+     → step-M.md에 ## 실행출력 섹션 추가 (실제 명령어 출력 2줄 이상) (Edit 도구)
+     → state.json current_step++ 업데이트 (Write 도구)
+     ⚠️ plan-gate가 이전 step의 실행출력 존재를 검증함. 없으면 다음 step 차단.
+
+     실패 시 → 코드 수정 후 5-3 재실행
+
+Phase N 완료 → state.json current_dev_phase++, current_step=1 업데이트 → Phase N+1 Step 1부터 반복
 ```
 
 > **phase.md 필수 섹션**: `## 목표`, `## Steps` — plan-gate가 검증하며 누락 시 코드 수정 차단.
@@ -743,7 +766,6 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
 | agent_mode | 동작 |
 |---|---|
 | `team` | critical-reviewer 에이전트 스폰 (기본) |
-| `subagent` | Agent tool로 critical-reviewer 스폰 |
 | `single` | Main Claude가 직접 비판적 검증 수행 |
 
 1. 비판적 리뷰어(critical-reviewer) 에이전트 스폰 (TASK_DIR 전달)
