@@ -62,8 +62,8 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
   SCRIPT_DIR_CS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   source "$SCRIPT_DIR_CS/lib/resolve-task.sh"
 
-  # .active 없으면 gate 비활성 → 통과
-  [ -z "$TASK_NAME" ] && exit 0
+  # .active 없거나 내 세션이 아니면 gate 비활성 → 통과
+  [ "$IS_MY_TASK" != "true" ] && exit 0
 
   # state.json 없으면 통과
   [ -f "$STATE_FILE" ] || exit 0
@@ -329,8 +329,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 
-# .active 없거나 비어있으면 → 통과 (gate 비활성)
-if [ -z "$TASK_NAME" ]; then
+# .active 없거나 내 세션이 아니면 → 통과 (gate 비활성)
+if [ "$IS_MY_TASK" != "true" ]; then
   exit 0
 fi
 

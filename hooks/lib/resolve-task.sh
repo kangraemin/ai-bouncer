@@ -14,6 +14,7 @@ DOCS_BASE=""
 TASK_DIR=""
 STATE_FILE=""
 IS_DELEGATED_AGENT=false
+IS_MY_TASK=false
 
 # 0. 승인된 sub-agent 확인 — 부모 task로 즉시 resolve
 APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
@@ -25,6 +26,7 @@ if [ -n "$SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
     TASK_DIR="$_delegated_task_dir"
     STATE_FILE="${_delegated_task_dir}/state.json"
     IS_DELEGATED_AGENT=true
+    IS_MY_TASK=true
     # 즉시 반환 — 이하 .active 스캔 스킵
     return 0 2>/dev/null || :
   fi
@@ -50,6 +52,7 @@ _resolve_from_base() {
     if [ -z "$SESSION_ID" ]; then
       TASK_NAME="$task_folder"
       DOCS_BASE="$base"
+      IS_MY_TASK=true
       return 0
     fi
 
@@ -57,6 +60,7 @@ _resolve_from_base() {
     if [ "$stored_sid" = "$SESSION_ID" ]; then
       TASK_NAME="$task_folder"
       DOCS_BASE="$base"
+      IS_MY_TASK=true
       return 0
     fi
   done
@@ -106,12 +110,13 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
     [ -d "$base" ] || return 1
     for af in "$base"/*/.active; do
       [ -f "$af" ] || continue
-      local td sf phase
+      local td sf phase stored_sid
       td=$(dirname "$af")
       sf="${td}/state.json"
       [ -f "$sf" ] || continue
-      # fallback은 모든 미등록 세션에 적용 — .active 소유자 무관
-      # 목적: 승인 목록(/tmp/) 유실 시에도 서브에이전트가 gate 우회 불가
+      # session ID 매칭 필수 — 다른 세션의 .active는 무시
+      stored_sid=$(cat "$af" 2>/dev/null | tr -d '[:space:]')
+      [ "$stored_sid" = "$SESSION_ID" ] || continue
       phase=$(jq -r '.workflow_phase // ""' "$sf" 2>/dev/null)
       case "$phase" in
         development|verification)
@@ -119,6 +124,7 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
           DOCS_BASE="$base"
           TASK_DIR="$td"
           STATE_FILE="$sf"
+          IS_MY_TASK=true
           return 0 ;;
       esac
     done

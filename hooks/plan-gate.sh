@@ -38,8 +38,8 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 
-# .active 없거나 비어있으면 → 통과
-if [ -z "$TASK_NAME" ]; then
+# .active 없거나 내 세션이 아니면 → 통과
+if [ "$IS_MY_TASK" != "true" ]; then
   exit 0
 fi
 

@@ -20,7 +20,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"
 
-[ -z "$TASK_NAME" ] && exit 0
+[ "$IS_MY_TASK" != "true" ] && exit 0
 [ -f "$STATE_FILE" ] || exit 0
 
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
