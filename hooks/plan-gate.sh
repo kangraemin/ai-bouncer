@@ -213,6 +213,33 @@ except:
       exit 0
     fi
   fi
+  # CHECK 1.6f: resolved_agent_mode=single 임의 override 차단
+  # dev_phases > 3인데 config agent_mode != "single"일 때 single로 쓰면 차단
+  _NEW_CONTENT_16F=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+  _16F_PHASE_COUNT=$(echo "$_NEW_CONTENT_16F" | python3 -c "
+import json, sys
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+except:
+    sys.exit(0)
+if d.get('resolved_agent_mode', '') != 'single':
+    sys.exit(0)
+phase_count = len(d.get('dev_phases', {}))
+if phase_count <= 3:
+    sys.exit(0)
+print(phase_count)
+" 2>/dev/null)
+  if [ -n "$_16F_PHASE_COUNT" ]; then
+    _BCFG_16F=$(python3 -c "import os; d=['.claude/ai-bouncer/scripts','scripts']; g=os.path.expanduser('~/.claude/ai-bouncer/scripts'); print(next((p for p in [*d,g] if os.path.isfile(p+'/bouncer-config.sh')),''))" 2>/dev/null)
+    _CFG_MODE_16F="team"
+    [ -n "$_BCFG_16F" ] && _CFG_MODE_16F=$(bash "$_BCFG_16F/bouncer-config.sh" agent_mode team 2>/dev/null)
+    if [ "$_CFG_MODE_16F" != "single" ]; then
+      jq -n --arg r "⛔ [plan-gate] resolved_agent_mode=single 임의 override 금지. config의 agent_mode=${_CFG_MODE_16F}이고 dev_phases=${_16F_PHASE_COUNT}개(>3)입니다. SKILL.md 규칙: PHASE_COUNT>3이면 CONFIG_MODE 그대로 사용." \
+        '{decision:"block", reason:$r}'
+      exit 0
+    fi
+  fi
 fi
 
 # state.json 값 읽기

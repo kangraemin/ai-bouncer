@@ -674,6 +674,7 @@ Phase N 완료 → Phase N+1 시작: [단일 응답에서 동시 발송, 재스�
 
 > ⚠️ 에이전트 없음 — SendMessage 금지. Main Claude가 TC 작성·구현·검증을 모두 직접 수행한다.
 > ⚠️ step.md ✅ + ## 실행출력 없이 응답을 끝내면 completion-gate가 차단한다.
+> ⛔ **scope 자기제한 금지**: "Phase 수가 많다", "한 세션에 비현실적", "일부만 먼저 하겠다" 등의 이유로 구현 범위를 임의로 줄이지 않는다. context 한도에 실제로 도달하기 전까지 모든 Phase/Step을 순서대로 끝까지 진행한다.
 
 각 개발 Phase의 각 Step마다:
 
