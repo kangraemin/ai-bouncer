@@ -25,7 +25,8 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(cp /Users/ram/programming/vibecoding/ai-bouncer/skills/bouncer-status/SKILL.md '~/.claude/skills/bouncer-status/SKILL.md')",
-      "Read(//Users/ram/.claude/skills/bouncer-status/**)"
+      "Read(//Users/ram/.claude/skills/bouncer-status/**)",
+      "Bash(cp skills/dev-bounce/SKILL.md /Users/ram/.claude/skills/dev-bounce/SKILL.md)"
     ]
   }
 }
