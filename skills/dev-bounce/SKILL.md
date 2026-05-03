@@ -218,8 +218,12 @@ Main Claude가 직접 수행 (팀 스폰 없음):
      2. 변경 대상 코드와 관련된 테스트 파일을 Read하여 관련 케이스 여부 직접 확인
      3. 수정/삭제 필요 항목 명시 (없으면 "없음")
      4. 신규 e2e 시나리오 명시 (없으면 "없음")
-     5. **기존 테스트가 있고 코드 변경이 있으면 → 개발 Phase 계획에 "e2e 테스트 업데이트" Step 포함 필수**
-        예: `Step N: e2e 테스트 추가 — tests/test-bash-gate.sh에 IS_MY_TASK 케이스 추가, bash tests/test-bash-gate.sh 전체 통과`
+     5. **이번 변경의 동작을 e2e로 검증할 수 있으면 → 개발 Phase 계획에 e2e 테스트 Step 포함 (예외 없음)**
+        - 기준: "지금 변경한 코드의 동작을 e2e로 검증할 수 있는가?" — YES이면 무조건 Step 포함
+        - 기존 테스트 파일 유무와 무관. 파일이 있어도 이번 변경 케이스가 없으면 추가.
+        예: `Step N: e2e 테스트 추가 — tests/test-bash-gate.sh에 <이번 변경 케이스> 추가, bash tests/test-bash-gate.sh 전체 통과`
+        예: `Step N: 신규 e2e 스크립트 작성 — tests/test-<feature>.sh 작성, 전체 통과`
+        ⚠️ "영향 없음" 분석 결과로 Step 생략 금지 — 분석과 테스트 작성은 별개
      ⚠️ 테스트 파일을 Read하지 않고 "영향 없음"으로 퉁치는 것 금지
    - **개발 Phase 계획** (필수 — Phase 3에서 Main Claude가 이걸 기반으로 phase/step 문서 생성):
      ```markdown
@@ -529,7 +533,7 @@ Main Claude가 수행:
 > | `type-check` | 정적 타입·빌드·컴파일 오류 없음 | "npx tsc --noEmit 오류 0건" |
 >
 > ⚠️ TC 유형은 구현 목표의 성격에 맞게 균형 있게 선택합니다.
-> ⚠️ e2e TC는 가능하면 포함을 권장합니다. 단, 순수 빌드 step에서는 불필요할 수 있습니다.
+> ⚠️ e2e TC는 이 Step의 변경 동작을 런타임으로 검증할 수 있으면 가능한 한 무조건 포함한다. 순수 빌드 step에서만 예외.
 > ⚠️ type-check TC만으로 TC를 채우는 것은 품질 미달입니다.
 >
 > **[e2e TC 작성 요령]** — 실제 런타임/브라우저에서 발생하는 동작을 기술합니다:
@@ -710,7 +714,7 @@ Phase N 완료 → state.json current_dev_phase++, current_step=1 업데이트 �
 > ⚠️ backtick(`) 포함 검증 명령어 필수 — 없으면 hook 차단.
 > ⚠️ 5-3 완료 후 `## 실행출력` 섹션에 실제 출력 2줄 이상 기록 필수 — 없으면 다음 step 차단.
 > ⚠️ 유형 컬럼 필수 — happy/negative/boundary/e2e/integration/regression/type-check
-> ⚠️ type-check TC만 있으면 품질 미달 — 다양한 유형 포함 권장
+> ⚠️ type-check TC만 있으면 품질 미달 — 런타임 검증 가능한 경우 e2e TC 가능한 한 무조건 포함
 
 #### 3-4. Step/Phase 완료 시 커밋
 
