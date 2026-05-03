@@ -399,6 +399,7 @@ Main Claude가 수행:
    - PHASE_COUNT > 3 → CONFIG_MODE 값 그대로 사용
      ⚠️ **반드시 아래 메시지를 출력한다:**
      `"📊 Phase {N}개 → {CONFIG_MODE} 모드 사용 (config.json)"`
+     ⛔ **CONFIG_MODE override 절대 금지**: "Phase 수가 많다", "한 세션에 비현실적", "사용자 plan에 single 시나리오 있다" 등 어떤 이유로도 CONFIG_MODE를 임의로 변경하지 않는다. 모드 결정 기준은 PHASE_COUNT ≤ 3 여부뿐이다.
 
    ```bash
    python3 -c "
