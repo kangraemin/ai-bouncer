@@ -195,8 +195,8 @@ except:
       fi
     fi
   fi
-  # CHECK 1.6e: development 상태에서 cancelled 전환 차단 (미완료 step 있는 경우)
-  if [ "$_PLAN_APPROVED_16" = "true" ] && [ "$_CURRENT_PHASE" = "development" ]; then
+  # CHECK 1.6e: development/verification 단계에서 cancelled 전환 전면 차단
+  if [ "$_PLAN_APPROVED_16" = "true" ] && [[ "$_CURRENT_PHASE" == "development" || "$_CURRENT_PHASE" == "verification" ]]; then
     _NEW_CONTENT_16E=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
     _NEW_PHASE_16E=$(echo "$_NEW_CONTENT_16E" | python3 -c "
 import json, sys, re
@@ -209,17 +209,8 @@ except:
     print(m.group(1) if m else '')
 " 2>/dev/null)
     if [ "$_NEW_PHASE_16E" = "cancelled" ]; then
-      _HAS_INCOMPLETE_16E=false
-      for _sf_16e in "$TASK_DIR"/phase-*/step-*.md; do
-        [ -f "$_sf_16e" ] || continue
-        if ! grep -q '✅' "$_sf_16e" 2>/dev/null; then
-          _HAS_INCOMPLETE_16E=true; break
-        fi
-      done
-      if [ "$_HAS_INCOMPLETE_16E" = "true" ]; then
-        jq -n '{decision:"block", reason:"⛔ 미완료 step이 있는 작업을 임의로 취소할 수 없습니다. 사용자에게 취소 여부를 확인받은 후 진행하세요."}'
-        exit 0
-      fi
+      jq -n '{decision:"block", reason:"⛔ [plan-gate] development/verification 단계에서 임의로 cancelled 처리 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
+      exit 0
     fi
   fi
 fi

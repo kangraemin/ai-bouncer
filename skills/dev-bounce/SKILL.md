@@ -213,18 +213,21 @@ Main Claude가 직접 수행 (팀 스폰 없음):
      "이 함수를 수정한다"는 불충분. 어떤 줄이 어떻게 바뀌는지 코드로 보여준다.
    - **신규 파일이 있으면 핵심 로직 코드** — 구조와 주요 함수 시그니처 포함
    - 검증 방법 (명령어 + 기대 결과)
-   - E2E 영향 분석 및 테스트 반영 (필수):
-     1. `find tests/ -name "test-*.sh"` 로 테스트 파일 목록 확인
-     2. 변경 대상 코드와 관련된 테스트 파일을 Read하여 관련 케이스 여부 직접 확인
-     3. 수정/삭제 필요 항목 명시 (없으면 "없음")
-     4. 신규 e2e 시나리오 명시 (없으면 "없음")
-     5. **이번 변경의 동작을 e2e로 검증할 수 있으면 → 개발 Phase 계획에 e2e 테스트 Step 포함 (예외 없음)**
-        - 기준: "지금 변경한 코드의 동작을 e2e로 검증할 수 있는가?" — YES이면 무조건 Step 포함
-        - 기존 테스트 파일 유무와 무관. 파일이 있어도 이번 변경 케이스가 없으면 추가.
-        예: `Step N: e2e 테스트 추가 — tests/test-bash-gate.sh에 <이번 변경 케이스> 추가, bash tests/test-bash-gate.sh 전체 통과`
-        예: `Step N: 신규 e2e 스크립트 작성 — tests/test-<feature>.sh 작성, 전체 통과`
-        ⚠️ "영향 없음" 분석 결과로 Step 생략 금지 — 분석과 테스트 작성은 별개
-     ⚠️ 테스트 파일을 Read하지 않고 "영향 없음"으로 퉁치는 것 금지
+   - **E2E 테스트 코드** — 이번 변경으로 동작이 달라지는 시나리오를 plan.md에 실행 가능한 bash 코드로 직접 작성.
+     "영향 없음" / "기존 TC 유지" 등 영향도 서술 금지 — 테스트 코드만 허용.
+     ⚠️ e2e-writer가 이 섹션에서 시나리오를 수집함 — 코드 없으면 e2e 테스트 자동화 불가.
+     작성 절차:
+     1. `find tests/ -name "test-*.sh"` 로 기존 테스트 파일 파악
+     2. 기존 파일이 있으면 Read하여 TC 패턴(setup/run_gate/check 구조) 확인
+     3. 이번 변경의 동작을 bash 코드로 직접 스케치:
+        ```bash
+        # TC: <시나리오 설명>
+        # setup: state.json = { "workflow_phase": "X", ... }
+        OUT=$(cd "$TMPDIR" && echo '...' | bash "$HOOKS_DIR/plan-gate.sh")
+        [ "$(echo "$OUT" | jq -r '.decision')" = "block" ] && echo "✅" || { echo "❌"; exit 1; }
+        ```
+     4. 개발 Phase 계획에 "Step N: e2e 테스트 작성 — <위 코드를 tests/test-X.sh에 추가, 전체 통과>" Step 반드시 포함
+     ⚠️ 테스트 파일이 없어도, 있어도, 무조건 이번 변경 케이스 코드 작성 — Skip 금지
    - **개발 Phase 계획** (필수 — Phase 3에서 Main Claude가 이걸 기반으로 phase/step 문서 생성):
      ```markdown
      ## 개발 Phase 계획

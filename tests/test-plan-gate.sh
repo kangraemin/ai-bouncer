@@ -55,7 +55,7 @@ run_gate() {
   (cd "$TMPDIR" && echo "{\"tool_name\":\"Edit\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$file\",\"old_string\":\"x\",\"new_string\":\"y\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
-BASE_STATE='{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"step 1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
+BASE_STATE='{"workflow_phase":"development","plan_approved":true,"resolved_agent_mode":"single","current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"step 1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}'
 
 write_phase_md() {
   cat > "$PHASE_DIR/phase.md" <<EOF
@@ -192,6 +192,23 @@ Done ✅"
 check "TC-12: verification 전환 시 모든 step ✅ → allow" \
   "$(run_gate_state '{"workflow_phase":"verification","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
   "allow"
+
+# TC-13: development → cancelled write → block (step 유무 무관)
+write_state "$BASE_STATE"
+write_step1 "# Step 1
+## 구현 목표
+Test"
+check "TC-13: development → cancelled → block" \
+  "$(run_gate_state '{"workflow_phase":"cancelled","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
+  "block"
+
+# TC-14: development → cancelled, 모든 step ✅ 있어도 → block (구버전은 allow)
+write_step1 "# Step 1
+## 구현 결과
+Done ✅"
+check "TC-14: development → cancelled (모든 step ✅) → block" \
+  "$(run_gate_state '{"workflow_phase":"cancelled","plan_approved":true,"current_dev_phase":1,"current_step":1,"dev_phases":{"1":{"name":"test","folder":"phase-1-test","steps":{"1":{"title":"s1"}},"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}')" \
+  "block"
 
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"

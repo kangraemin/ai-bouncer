@@ -65,10 +65,26 @@ printf "## 결론\n통과\n" > "$TASK_DIR/verifications/e2e-result.md"
 OUT=$(run_gate 'echo {"workflow_phase":"done"} >> state.json' "")
 check "TC-03: done 전환 + e2e-result.md 통과 → allow" "$OUT" "allow"
 
-# TC-04: cancelled 전환은 e2e-result.md 없어도 항상 허용
+# TC-04: cancelled 전환은 e2e-result.md 없어도 항상 허용 (planning 상태)
 rm -f "$TASK_DIR/verifications/e2e-result.md"
 OUT=$(run_gate 'echo {"workflow_phase":"cancelled"} >> state.json' "")
-check "TC-04: cancelled 전환 → always allow" "$OUT" "allow"
+check "TC-04: cancelled 전환 → always allow (planning)" "$OUT" "allow"
+
+# TC-05: development → cancelled (bash) → block (항상)
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"dev_phases":{}}
+EOF
+OUT=$(run_gate 'echo {"workflow_phase":"cancelled"} >> state.json' "")
+check "TC-05: development → cancelled (bash) → block" "$OUT" "block"
+
+# TC-06: rm .active + workflow_phase=development → block
+OUT=$(run_gate "rm -f .ai-bouncer-tasks/2026-01-01/test-task/.active" "")
+check "TC-06: rm .active + phase=development → block" "$OUT" "block"
+touch "$TASK_DIR/.active"
+# state.json 복원 (TC-10+ 테스트용)
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"planning","plan_approved":false,"dev_phases":{}}
+EOF
 
 # ============================================================
 # TC-10~14: IS_DELEGATED_AGENT 경로 + team 모드 team_name 검증

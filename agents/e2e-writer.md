@@ -28,7 +28,7 @@ cat {TASK_DIR}/plan.md
 ### 1. 시나리오 수집
 
 다음 소스에서 e2e 시나리오를 수집한다:
-- `{TASK_DIR}/plan.md`의 E2E 영향 분석 섹션
+- `{TASK_DIR}/plan.md`의 E2E 테스트 코드 섹션 (bash 코드 블록 직접 추출)
 - 각 `{TASK_DIR}/phase-N-*/phase.md`의 `## e2e 테스트 대상` 섹션
 - 각 `{TASK_DIR}/phase-N-*/step-M.md`에서 TC 유형이 `e2e`인 행의 검증 방법
 

@@ -290,22 +290,12 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
         fi
       fi
     fi
-    # development 상태 + cancelled 전환 시 미완료 step 확인
-    if [ "$_BG_PHASE" = "development" ]; then
+    # development/verification 상태 + cancelled 전환 전면 차단
+    if [[ "$_BG_PHASE" == "development" || "$_BG_PHASE" == "verification" ]]; then
       _BG_PA=$(jq -r '.plan_approved // false' "$_BG_STATE" 2>/dev/null)
       if [ "$_BG_PA" = "true" ] && echo "$CMD" | grep -qE "cancelled"; then
-        _BG_TASK_DIR=$(dirname "$_BG_STATE")
-        _HAS_INCOMPLETE=false
-        for _sf in "$_BG_TASK_DIR"/phase-*/step-*.md; do
-          [ -f "$_sf" ] || continue
-          if ! grep -q '✅' "$_sf" 2>/dev/null; then
-            _HAS_INCOMPLETE=true; break
-          fi
-        done
-        if [ "$_HAS_INCOMPLETE" = "true" ]; then
-          jq -n '{decision:"block", reason:"⛔ [bash-gate] 미완료 step이 있는 작업을 임의로 취소할 수 없습니다. 사용자에게 취소 여부를 확인받은 후 진행하세요."}'
-          exit 0
-        fi
+        jq -n '{decision:"block", reason:"⛔ [bash-gate] development/verification 단계에서 임의로 cancelled 처리 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
+        exit 0
       fi
     fi
   fi
@@ -319,14 +309,27 @@ fi
 
 # .active 파일 조작 (삭제 포함 — dev-bounce 완료 시 필요)
 # 단, 다른 세션이 claim한 .active는 조작 불가
+# rm: workflow_phase=done/cancelled인 경우만 허용
 if echo "$CMD" | grep -qE '\.active'; then
   _active_safe=true
   for _af_path in .ai-bouncer-tasks/*/*/.active .ai-bouncer-tasks/*/.active; do
     [ -f "$_af_path" ] || continue
     echo "$CMD" | grep -qF "$_af_path" || continue
     _af_sid=$(cat "$_af_path" 2>/dev/null | tr -d '[:space:]')
+    # 다른 세션이 claim한 .active는 무조건 차단
     if [ -n "$_af_sid" ] && [ -n "$SESSION_ID" ] && [ "$_af_sid" != "$SESSION_ID" ]; then
       _active_safe=false; break
+    fi
+    # rm 명령인 경우 workflow_phase=done/cancelled 아니면 차단
+    if echo "$CMD" | grep -qE '\brm\b'; then
+      _af_state_path="$(dirname "$_af_path")/state.json"
+      if [ -f "$_af_state_path" ]; then
+        _af_wf=$(jq -r '.workflow_phase // ""' "$_af_state_path" 2>/dev/null)
+        if [ "$_af_wf" != "done" ] && [ "$_af_wf" != "cancelled" ]; then
+          jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 done/cancelled 아닌 상태에서 .active 삭제 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
+          exit 0
+        fi
+      fi
     fi
   done
   [ "$_active_safe" = "true" ] && EXCEPTION=true
