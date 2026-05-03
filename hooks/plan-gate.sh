@@ -110,7 +110,7 @@ except:
         development|done|verification)
           jq -n --arg nxt "$_NEW_PHASE" '{
             decision: "block",
-            reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요. 작업 취소 시 workflow_phase=cancelled 사용.")
+            reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요.")
           }'
           exit 0 ;;
       esac
@@ -190,7 +190,34 @@ except:
         _E2E_PASS=true
       fi
       if [ "$_E2E_PASS" != "true" ]; then
-        jq -n '{decision:"block", reason:"⛔ verification 없이 workflow_phase=done으로 직접 전환할 수 없습니다. Phase 4에서 e2e-writer를 통해 검증을 완료하세요. 작업 취소 시 workflow_phase=cancelled 사용."}'
+        jq -n '{decision:"block", reason:"⛔ verification 없이 workflow_phase=done으로 직접 전환할 수 없습니다. Phase 4에서 e2e-writer를 통해 검증을 완료하세요."}'
+        exit 0
+      fi
+    fi
+  fi
+  # CHECK 1.6e: development 상태에서 cancelled 전환 차단 (미완료 step 있는 경우)
+  if [ "$_PLAN_APPROVED_16" = "true" ] && [ "$_CURRENT_PHASE" = "development" ]; then
+    _NEW_CONTENT_16E=$(echo "$INPUT" | jq -r '.tool_input.content // .tool_input.new_string // ""')
+    _NEW_PHASE_16E=$(echo "$_NEW_CONTENT_16E" | python3 -c "
+import json, sys, re
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+    print(d.get('workflow_phase', ''))
+except:
+    m = re.search(r'\"workflow_phase\"\s*:\s*\"([^\"]+)\"', txt)
+    print(m.group(1) if m else '')
+" 2>/dev/null)
+    if [ "$_NEW_PHASE_16E" = "cancelled" ]; then
+      _HAS_INCOMPLETE_16E=false
+      for _sf_16e in "$TASK_DIR"/phase-*/step-*.md; do
+        [ -f "$_sf_16e" ] || continue
+        if ! grep -q '✅' "$_sf_16e" 2>/dev/null; then
+          _HAS_INCOMPLETE_16E=true; break
+        fi
+      done
+      if [ "$_HAS_INCOMPLETE_16E" = "true" ]; then
+        jq -n '{decision:"block", reason:"⛔ 미완료 step이 있는 작업을 임의로 취소할 수 없습니다. 사용자에게 취소 여부를 확인받은 후 진행하세요."}'
         exit 0
       fi
     fi
@@ -262,7 +289,12 @@ if { [[ "$FILE_PATH" == */.ai-bouncer-tasks/*/verifications/* ]] || [[ "$FILE_PA
 fi
 
 # .ai-bouncer-tasks/ 하위 파일은 태스크 관리 파일 → plan_approved 무관 허용
+# 단, .py/.sh 스크립트 생성 금지 (scaffold 방지)
 if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
+  if [[ "$FILE_PATH" == *.py ]] || [[ "$FILE_PATH" == *.sh ]]; then
+    jq -n '{decision:"block", reason:"⛔ .ai-bouncer-tasks/ 내부에 스크립트(.py/.sh) 생성 금지. 태스크 문서는 .md 파일만 허용됩니다."}'
+    exit 0
+  fi
   exit 0
 fi
 

@@ -18,6 +18,12 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
 # --- ai-bouncer start ---
 
+# 0. .ai-bouncer-tasks/ 내부 스크립트 실행 차단 (scaffold 방지) — fast-exit보다 먼저
+if echo "$CMD" | grep -qE '(\.venv/bin/python|python3?|bash|sh)\s+[^ ]*\.ai-bouncer-tasks/[^ ]*\.(py|sh)'; then
+  jq -n '{decision:"block", reason:"⛔ [bash-gate] .ai-bouncer-tasks/ 내부 스크립트 실행 금지. step.md는 Write 도구로 개별 작성하세요."}'
+  exit 0
+fi
+
 # 1. Fast exit: 쓰기 패턴 미포함 → exit 0 (git commit/push는 제외)
 # fd redirect (2>/dev/null, 1>&2 등) 제거 후 검사 — 오탐 방지
 CMD_CLEAN=$(echo "$CMD" | sed -E 's/[0-9]+>\/dev\/null//g; s/[0-9]+>[&]?[0-9]*//g')
@@ -264,9 +270,9 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
       if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]done['\"]"; then _WP_BLOCKED=true; fi
       if echo "$CMD" | grep -q "workflow_phase" && echo "$CMD" | grep -qE "\]\s*=\s*['\"]verification['\"]"; then _WP_BLOCKED=true; fi
       if [ "$_WP_BLOCKED" = "true" ]; then
-        # cancelled 전환은 항상 허용
+        # cancelled 전환: pass through (planning→cancelled는 Phase 0 취소 케이스)
         if echo "$CMD" | grep -qE "cancelled"; then
-          :  # pass through
+          :
         else
           # done 전환: e2e-result.md 통과 조건 검증
           _ALLOW=false
@@ -281,6 +287,24 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
             jq -n '{decision:"block", reason:"⛔ [bash-gate] done 조건 미충족. verifications/e2e-result.md 통과 필요."}'
             exit 0
           fi
+        fi
+      fi
+    fi
+    # development 상태 + cancelled 전환 시 미완료 step 확인
+    if [ "$_BG_PHASE" = "development" ]; then
+      _BG_PA=$(jq -r '.plan_approved // false' "$_BG_STATE" 2>/dev/null)
+      if [ "$_BG_PA" = "true" ] && echo "$CMD" | grep -qE "cancelled"; then
+        _BG_TASK_DIR=$(dirname "$_BG_STATE")
+        _HAS_INCOMPLETE=false
+        for _sf in "$_BG_TASK_DIR"/phase-*/step-*.md; do
+          [ -f "$_sf" ] || continue
+          if ! grep -q '✅' "$_sf" 2>/dev/null; then
+            _HAS_INCOMPLETE=true; break
+          fi
+        done
+        if [ "$_HAS_INCOMPLETE" = "true" ]; then
+          jq -n '{decision:"block", reason:"⛔ [bash-gate] 미완료 step이 있는 작업을 임의로 취소할 수 없습니다. 사용자에게 취소 여부를 확인받은 후 진행하세요."}'
+          exit 0
         fi
       fi
     fi

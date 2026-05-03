@@ -37,7 +37,7 @@ if [ "$WORKFLOW_PHASE" = "done" ] && [ "$PLAN_APPROVED" = "true" ]; then
   if [ ! -f "$E2E_RESULT" ]; then
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("⛔ 검증 없이 done 처리됨. [" + $task + "] verifications/e2e-result.md가 없습니다. Phase 4에서 e2e-writer를 실행하거나 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("⛔ 검증 없이 done 처리됨. [" + $task + "] verifications/e2e-result.md가 없습니다. Phase 4에서 e2e-writer를 실행하세요.")
     }'
     exit 0
   fi
@@ -89,7 +89,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
     if [ "$ALL_DONE" = "false" ]; then
       jq -n --arg reason "$BLOCK_REASON" --arg task "$TASK_NAME" '{
         decision: "block",
-        reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+        reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요.")
       }'
       exit 0
     fi
@@ -114,7 +114,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   if [ ! -f "$E2E_RESULT" ]; then
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] verifications/e2e-result.md 없음. e2e-writer 에이전트를 통해 e2e 테스트를 실행하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] verifications/e2e-result.md 없음. e2e-writer 에이전트를 통해 e2e 테스트를 실행하세요.")
     }'
     exit 0
   fi
@@ -124,7 +124,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   if [ "$HAS_PASS" != "1" ]; then
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
-      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] e2e-result.md가 통과해야 합니다. e2e-writer 에이전트를 통해 재실행하세요. 작업 취소하려면 state.json의 workflow_phase를 \"cancelled\"로 변경하세요.")
+      reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] e2e-result.md가 통과해야 합니다. e2e-writer 에이전트를 통해 재실행하세요.")
     }'
     exit 0
   fi
