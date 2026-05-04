@@ -386,7 +386,36 @@ Main Claude가 수행:
    - 두 Phase가 완전히 독립적으로 구현 가능 → 병렬 (`depends_on: []`)
    (파일 겹침은 힌트일 뿐, 최종 판단은 작업 간 영향 여부)
 
-5. state.json `dev_phases` 초기화 (step 4 depends_on 포함, 각 phase에 `team_name: ""`)
+5. state.json `dev_phases` 초기화 (step 4 depends_on 포함, 각 phase에 `team_name: ""`, `status: "pending"`)
+
+   모든 phase 문서 생성 완료 후 `phase_layers`와 `current_layer` 계산·저장 (Kahn's algorithm):
+
+   ```python
+   python3 -c "
+   import json
+   s = json.load(open('{TASK_DIR}/state.json'))
+   dp = s['dev_phases']
+
+   in_deg = {k: len(v.get('depends_on', [])) for k, v in dp.items()}
+   layers = []
+   ready = sorted([k for k, d in in_deg.items() if d == 0], key=int)
+   while ready:
+       layers.append(ready)
+       nxt = []
+       for node in ready:
+           for k, v in dp.items():
+               if int(node) in [int(d) for d in v.get('depends_on', [])]:
+                   in_deg[k] -= 1
+                   if in_deg[k] == 0:
+                       nxt.append(k)
+       ready = sorted(nxt, key=int)
+
+   s['phase_layers'] = layers
+   s['current_layer'] = 0
+   json.dump(s, open('{TASK_DIR}/state.json', 'w'), ensure_ascii=False, indent=2)
+   print('phase_layers:', layers)
+   "
+   ```
 
 6. **resolved_agent_mode 최종 결정 — 임시값 "single" 덮어쓰기:**
 
@@ -396,15 +425,25 @@ Main Claude가 수행:
    CONFIG_MODE=$(bash "$_BCFG/bouncer-config.sh" agent_mode team)
    ```
 
-   그 다음 PHASE_COUNT 기준으로 최종 결정:
-   - PHASE_COUNT ≤ 3 → `resolved_agent_mode = "single"` (Phase 수 기준 자동 override)
+   그 다음 `phase_layers` 기반으로 최대 동시 실행 가능 Phase 수(`max_concurrent`) 계산:
+   ```bash
+   python3 -c "
+   import json
+   s = json.load(open('{TASK_DIR}/state.json'))
+   layers = s.get('phase_layers', [[]])
+   print(max(len(l) for l in layers))
+   "
+   ```
+
+   `max_concurrent` 기준으로 최종 결정:
+   - `max_concurrent == 1` → `resolved_agent_mode = "single"` (전체 직렬 — 병렬화 이득 없음)
      ⚠️ **반드시 아래 메시지를 출력한다:**
-     - CONFIG_MODE가 "single"이면: `"📊 Phase {N}개 → single 모드 자동 선택"`
-     - CONFIG_MODE가 다른 값이면: `"📊 Phase {N}개 → single 모드 자동 선택 (config: {CONFIG_MODE} → Phase ≤ 3이므로 override)"`
-   - PHASE_COUNT > 3 → CONFIG_MODE 값 그대로 사용
+     - CONFIG_MODE가 "single"이면: `"📊 depends_on 분석: 전체 직렬 → single 모드"`
+     - CONFIG_MODE가 다른 값이면: `"📊 depends_on 분석: 전체 직렬 → single 모드 자동 선택 (config: {CONFIG_MODE} override)"`
+   - `max_concurrent ≥ 2` → CONFIG_MODE 값 그대로 사용 (병렬 Phase 존재)
      ⚠️ **반드시 아래 메시지를 출력한다:**
-     `"📊 Phase {N}개 → {CONFIG_MODE} 모드 사용 (config.json)"`
-     ⛔ **CONFIG_MODE override 절대 금지**: "Phase 수가 많다", "한 세션에 비현실적", "사용자 plan에 single 시나리오 있다" 등 어떤 이유로도 CONFIG_MODE를 임의로 변경하지 않는다. 모드 결정 기준은 PHASE_COUNT ≤ 3 여부뿐이다.
+     `"📊 depends_on 분석: 최대 {max_concurrent}개 Phase 동시 실행 가능 → {CONFIG_MODE} 모드 (config.json)"`
+     ⛔ **CONFIG_MODE override 절대 금지**: "Phase 수가 많다", "한 세션에 비현실적", "사용자 plan에 single 시나리오 있다" 등 어떤 이유로도 CONFIG_MODE를 임의로 변경하지 않는다. 모드 결정 기준은 `max_concurrent ≥ 2` 여부뿐이다.
 
    ```bash
    python3 -c "
@@ -433,13 +472,8 @@ Main Claude가 수행:
 #### 3-2. 팀 구성 (Main Claude 담당)
 
 **team 모드:**
-> 문서 생성 완료 후 Main Claude가 Dev + QA를 각 1명씩 스폰한다.
+> state.json의 `phase_layers`와 `depends_on`을 읽어 아래 "에이전트 수명 — 병렬성 기반 스폰 전략"에 따라 TeamCreate + Agent 스폰.
 >
-> **⚠️ 반드시 `team_name`과 `name` 파라미터 포함 (단일 응답 병렬 발송):**
-> ```
-> Agent(team_name="{TASK_NAME}", name="dev", prompt=Dev스폰프롬프트)  ┐ 병렬
-> Agent(team_name="{TASK_NAME}", name="qa",  prompt=QA스폰프롬프트)   ┘ 병렬
-> ```
 > `team_name` 없이 Agent()만 쓰면 팀 미등록 → hook 전면 차단.
 
 **subagent 모드:**
@@ -764,32 +798,51 @@ Dev/QA가 구현 불가 또는 기획 질문이 생긴 경우:
 
 #### 3-6. Phase 완료 처리 (Main Claude 필수 확인)
 
-Dev가 `[PHASE:N:완료]` 또는 `[ALL_STEPS:완료]`를 출력하면, **Main Claude가 반드시 다음을 확인**:
+Dev/QA가 `[PHASE:N:완료]`를 보고하면, **Main Claude가 반드시 다음을 수행**:
 
-```bash
-# state.json에서 남은 Phase 확인
+**Step 1 — 완료된 Phase 상태 업데이트:**
+```python
 python3 -c "
 import json
-state = json.load(open('{TASK_DIR}/state.json'))
-current = state.get('current_dev_phase', 0)
-total = len(state.get('dev_phases', {}))
-print(f'current={current} total={total}')
-if current < total:
-    print(f'NEXT_PHASE={current + 1}')
+s = json.load(open('{TASK_DIR}/state.json'))
+s['dev_phases']['{N}']['status'] = 'done'
+json.dump(s, open('{TASK_DIR}/state.json','w'), ensure_ascii=False, indent=2)
+"
+```
+
+**Step 2 — 현재 레이어 완료 여부 확인:**
+```python
+python3 -c "
+import json
+s = json.load(open('{TASK_DIR}/state.json'))
+layers = s['phase_layers']
+cur = s['current_layer']
+layer_phases = layers[cur]
+done = all(s['dev_phases'][str(p)]['status'] == 'done' for p in layer_phases)
+if done:
+    next_layer = cur + 1
+    if next_layer < len(layers):
+        print(f'NEXT_LAYER={next_layer}')
+        print('PHASES=' + ','.join(str(p) for p in layers[next_layer]))
+    else:
+        print('ALL_DONE')
 else:
-    print('ALL_DONE')
+    pending = [p for p in layer_phases if s['dev_phases'][str(p)]['status'] != 'done']
+    print(f'LAYER_PENDING={pending}')
 "
 ```
 
 **결과에 따라 분기 (반드시 따를 것):**
 
-- `NEXT_PHASE=N` → **Phase 4로 넘어가지 않는다.** Dev에게 "Phase N 개발을 시작하라"고 SendMessage.
-  state.json `current_dev_phase`를 N으로 업데이트.
-- `ALL_DONE` → 모든 Phase 완료. Phase 4 (검증 루프) 진행.
+- `LAYER_PENDING` → 해당 Phase가 아직 실행 중. 해당 팀에서 완료 보고 대기.
+- `NEXT_LAYER=N` → 현재 레이어 완료. 다음 레이어 Phase 팀 구성 진행:
+  1. state.json `current_layer = N` 업데이트
+  2. `current_dev_phase = PHASES[0]` (다음 레이어 첫 번째 phase 번호) — hook 호환성 유지
+  3. `PHASES` 목록의 각 Phase에 대해 TeamCreate + Dev+QA 스폰 (3-2 병렬 전략 적용)
+- `ALL_DONE` → 모든 레이어 완료. Phase 4 (검증 루프) 진행.
 
-> **주의**: Dev가 `[ALL_STEPS:완료]`를 출력해도 state.json의 dev_phases에 남은 Phase가 있으면
-> **절대 Phase 4로 넘어가지 않는다.** 남은 Phase를 먼저 모두 완료해야 한다.
-> Dev가 잘못 판단할 수 있으므로 Main Claude가 직접 dev_phases 개수를 확인한다.
+> **주의**: 병렬 Phase 중 일부가 `[PHASE:N:완료]`를 먼저 보고해도 `LAYER_PENDING`이 남아 있으면 Phase 4로 넘어가지 않는다.
+> Dev가 `[ALL_STEPS:완료]`를 출력해도 `phase_layers` 기준으로 Main Claude가 직접 확인한다.
 
 ---
 

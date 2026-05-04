@@ -93,15 +93,13 @@ if [ "$MODE" = "--config" ]; then
 
   header "에이전트 모드 재설정"
   echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
-  echo "  2) subagent  — Agent 도구로 서브에이전트 스폰"
-  echo "  3) single    — 에이전트 없이 Main Claude가 직접 수행"
+  echo "  2) single    — 에이전트 없이 Main Claude가 직접 수행"
   echo ""
   printf "  선택 [1]: "
   read -r AGENT_CHOICE
   AGENT_CHOICE="${AGENT_CHOICE:-1}"
   case "$AGENT_CHOICE" in
-    2) AGENT_MODE="subagent" ;;
-    3) AGENT_MODE="single" ;;
+    2) AGENT_MODE="single" ;;
     *) AGENT_MODE="team" ;;
   esac
 
@@ -755,15 +753,13 @@ if [ "$CI_MODE" = "true" ]; then
   AGENT_MODE="${AGENT_MODE:-team}"
 else
   echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
-  echo "  2) subagent  — Agent 도구로 서브에이전트 스폰"
-  echo "  3) single    — 에이전트 없이 Main Claude가 직접 수행"
+  echo "  2) single    — 에이전트 없이 Main Claude가 직접 수행"
   echo ""
   printf "  선택 [1]: "
   read -r AGENT_CHOICE
   AGENT_CHOICE="${AGENT_CHOICE:-1}"
   case "$AGENT_CHOICE" in
-    2) AGENT_MODE="subagent" ;;
-    3) AGENT_MODE="single" ;;
+    2) AGENT_MODE="single" ;;
     *) AGENT_MODE="team" ;;
   esac
 fi
