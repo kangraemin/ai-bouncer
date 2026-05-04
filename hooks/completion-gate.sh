@@ -83,6 +83,14 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
           BLOCK_REASON="Phase ${i} / ${STEP_NAME} 미완료 (✅ 없음)"
           break 2
         fi
+        # TC 실제결과 컬럼(6번째 필드)에 ✅ 없는 행 탐지 — ⏸️/❌/빈셀/임의텍스트 모두 차단
+        INCOMPLETE_TC=$(awk -F'|' '/^\| TC-[0-9]/{gsub(/ /,"",$6); if ($6 !~ /✅/) print NR}' "$step_file" 2>/dev/null | head -1)
+        if [ -n "$INCOMPLETE_TC" ]; then
+          ALL_DONE=false
+          STEP_NAME=$(basename "$step_file")
+          BLOCK_REASON="Phase ${i} / ${STEP_NAME} 미완료 (TC 실제결과 컬럼에 ✅ 없는 행 존재)"
+          break 2
+        fi
       done
     done
 
@@ -94,15 +102,12 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
       exit 0
     fi
 
-    # 모든 step ✅ 완료 — verification 전환 필요 여부 확인
-    CURRENT_DEV_PHASE=$(jq -r '.current_dev_phase // 1' "$STATE_FILE" 2>/dev/null)
-    if [ "$CURRENT_DEV_PHASE" -le "$PHASE_COUNT" ]; then
-      jq -n --arg task "$TASK_NAME" '{
-        decision: "block",
-        reason: ("모든 Phase/Step이 완료되었습니다. [" + $task + "] state.json의 workflow_phase를 \"verification\"으로 전환하고 e2e-writer 에이전트를 실행하세요.")
-      }'
-      exit 0
-    fi
+    # 모든 step ✅ 완료 → verification 전환 강제 (current_dev_phase 값 무관)
+    jq -n --arg task "$TASK_NAME" '{
+      decision: "block",
+      reason: ("모든 Phase/Step이 완료되었습니다. [" + $task + "] state.json의 workflow_phase를 \"verification\"으로 전환하고 e2e-writer 에이전트를 실행하세요.")
+    }'
+    exit 0
   fi
   exit 0
 fi

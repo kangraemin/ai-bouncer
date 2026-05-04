@@ -48,10 +48,10 @@ check "TC-02: verification + e2e-result.md 실패 → block" "$(run_gate)" "bloc
 printf "## 결론\n통과\n" > "$TASK_DIR/verifications/e2e-result.md"
 check "TC-03: verification + e2e-result.md 통과 → allow" "$(run_gate)" "allow"
 
-# TC-04: done phase → allow (gate 비활성)
+# TC-04: done phase + e2e-result.md 통과 → allow
 write_state "done"
-rm -f "$TASK_DIR/verifications/e2e-result.md"
-check "TC-04: done phase → allow" "$(run_gate)" "allow"
+printf "## 결론\n통과\n" > "$TASK_DIR/verifications/e2e-result.md"
+check "TC-04: done + e2e-result.md 통과 → allow" "$(run_gate)" "allow"
 
 # TC-05: planning phase → allow
 write_state "planning"
@@ -60,6 +60,29 @@ check "TC-05: planning phase → allow" "$(run_gate)" "allow"
 # TC-06: development + dev_phases 비어있음 → allow (completion-gate는 ✅ 체크만)
 write_state "development"
 check "TC-06: development + dev_phases={} → allow" "$(run_gate)" "allow"
+
+# TC-A: Bug A 회귀 — current_dev_phase=2 > PHASE_COUNT=1, 모든 step ✅ → block
+PHASE_DIR_A="$TASK_DIR/phase-1-test"
+mkdir -p "$PHASE_DIR_A"
+printf "| TC-1 | happy | scenario | expected | ✅ |\n" > "$PHASE_DIR_A/step-1.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":2,"dev_phases":{"1":{"name":"test","steps":{"1":"x"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+check "TC-A: Bug A — current_dev_phase=2 > PHASE_COUNT=1, 모든 step ✅ → block" "$(run_gate)" "block"
+
+# TC-B: Bug B 회귀 — step에 TC-1 ✅ + TC-2 ⏸️ → block
+printf "| TC-1 | happy | scenario | expected | ✅ |\n| TC-2 | e2e | scenario | expected | ⏸️ deferred |\n" > "$PHASE_DIR_A/step-1.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"dev_phases":{"1":{"name":"test","steps":{"1":"x"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+check "TC-B: Bug B — TC-1 ✅ + TC-2 ⏸️ → block" "$(run_gate)" "block"
+
+# TC-C: 모든 TC ✅ → block (verification 전환 강제)
+printf "| TC-1 | happy | scenario | expected | ✅ |\n| TC-2 | e2e | scenario | expected | ✅ |\n" > "$PHASE_DIR_A/step-1.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"dev_phases":{"1":{"name":"test","steps":{"1":"x"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+check "TC-C: 모든 TC ✅ → block (verification 전환 강제)" "$(run_gate)" "block"
 
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
