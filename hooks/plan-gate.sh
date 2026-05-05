@@ -182,6 +182,25 @@ except:
         jq -n --arg nxt "$_NEW_PHASE_16C" '{decision:"block", reason:("⛔ workflow_phase=" + $nxt + " 전환 불가: 미완료 step이 있습니다. 모든 step-*.md에 ✅가 있어야 합니다.")}'
         exit 0
       fi
+      # CHECK 1.6c-2: verification 전환 시 모든 dev_phases status=done 확인
+      _ALL_PHASES_DONE_16=$(echo "$_NEW_CONTENT_16C" | python3 -c "
+import json, sys
+txt = sys.stdin.read()
+try:
+    d = json.loads(txt)
+except:
+    print('skip'); sys.exit(0)
+phases = d.get('dev_phases', {})
+if not phases:
+    print('ok'); sys.exit(0)
+not_done = [k for k,v in phases.items() if v.get('status','') != 'done']
+print('ok' if not not_done else ','.join(not_done))
+" 2>/dev/null)
+      if [ -n "$_ALL_PHASES_DONE_16" ] && [ "$_ALL_PHASES_DONE_16" != "ok" ] && [ "$_ALL_PHASES_DONE_16" != "skip" ]; then
+        jq -n --arg nxt "$_NEW_PHASE_16C" --arg phases "$_ALL_PHASES_DONE_16" \
+          '{decision:"block", reason:("⛔ workflow_phase=" + $nxt + " 전환 불가: 미완료 dev_phase가 있습니다 (" + $phases + "). 모든 phase를 완료하세요.")}'
+        exit 0
+      fi
     fi
     if [ "$_NEW_PHASE_16C" = "done" ]; then
       _E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
