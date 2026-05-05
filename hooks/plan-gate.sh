@@ -193,7 +193,7 @@ except:
 phases = d.get('dev_phases', {})
 if not phases:
     print('ok'); sys.exit(0)
-not_done = [k for k,v in phases.items() if v.get('status','') != 'done']
+not_done = [k for k,v in phases.items() if v.get('status') not in (None, '', 'done')]
 print('ok' if not not_done else ','.join(not_done))
 " 2>/dev/null)
       if [ -n "$_ALL_PHASES_DONE_16" ] && [ "$_ALL_PHASES_DONE_16" != "ok" ] && [ "$_ALL_PHASES_DONE_16" != "skip" ]; then

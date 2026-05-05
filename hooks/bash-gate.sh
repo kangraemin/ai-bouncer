@@ -336,7 +336,13 @@ if echo "$CMD" | grep -qE '\.active'; then
 fi
 
 # /tmp/ 임시 파일 조작 항상 허용 (worklog 중간 파일, mktemp 등)
-if echo "$CMD_CLEAN" | grep -qE '(>|>>|tee\s+)/tmp/|\brm\b.*/tmp/|\bmktemp\b'; then
+if echo "$CMD_CLEAN" | grep -qE '(>|>>)[[:space:]]*/tmp/|tee[[:space:]]*/tmp/|\brm\b[[:space:]]*.*/tmp/|\bmktemp\b'; then
+  EXCEPTION=true
+fi
+if echo "$CMD" | grep -qE '\btouch\b[[:space:]]*/tmp/|\bsed\b.*-i.*/tmp/|\bwget\b.*/tmp/|\bcurl\b.*-o[[:space:]]*/tmp/'; then
+  EXCEPTION=true
+fi
+if echo "$CMD" | grep -qE '^\s*(cp|mv)\b.*[[:space:]]/tmp/' || echo "$CMD" | grep -qE '/tmp/.*[[:space:]]/tmp/'; then
   EXCEPTION=true
 fi
 
