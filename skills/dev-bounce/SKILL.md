@@ -440,10 +440,12 @@ Main Claude가 수행:
      ⚠️ **반드시 아래 메시지를 출력한다:**
      - CONFIG_MODE가 "single"이면: `"📊 depends_on 분석: 전체 직렬 → single 모드"`
      - CONFIG_MODE가 다른 값이면: `"📊 depends_on 분석: 전체 직렬 → single 모드 자동 선택 (config: {CONFIG_MODE} override)"`
-   - `max_concurrent ≥ 2` → CONFIG_MODE 값 그대로 사용 (병렬 Phase 존재)
+   - `max_concurrent ≥ 2` → CONFIG_MODE를 기반으로 결정하되, `team`이면 `subagent`로 대체 (병렬 Phase 존재)
+     - CONFIG_MODE가 `"team"`인 경우: `resolved_agent_mode = "subagent"` (TeamCreate는 리더 1팀 제한으로 병렬 불가)
+     - CONFIG_MODE가 `"subagent"` 또는 `"single"`인 경우: CONFIG_MODE 그대로 사용
      ⚠️ **반드시 아래 메시지를 출력한다:**
-     `"📊 depends_on 분석: 최대 {max_concurrent}개 Phase 동시 실행 가능 → {CONFIG_MODE} 모드 (config.json)"`
-     ⛔ **CONFIG_MODE override 절대 금지**: "Phase 수가 많다", "한 세션에 비현실적", "사용자 plan에 single 시나리오 있다" 등 어떤 이유로도 CONFIG_MODE를 임의로 변경하지 않는다. 모드 결정 기준은 `max_concurrent ≥ 2` 여부뿐이다.
+     - CONFIG_MODE가 `"team"`이면: `"📊 depends_on 분석: 최대 {max_concurrent}개 Phase 동시 실행 가능 → subagent 모드 (team → subagent 자동 전환)"`
+     - 그 외: `"📊 depends_on 분석: 최대 {max_concurrent}개 Phase 동시 실행 가능 → {CONFIG_MODE} 모드 (config.json)"`
 
    ```bash
    python3 -c "
