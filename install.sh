@@ -306,11 +306,6 @@ fi
 if [ "$IS_UPDATE" = "true" ] && [ "$CI_MODE" = "true" ] && [ -f "$BOUNCER_DATA_DIR/config.json" ]; then
   _OLD_CFG="$BOUNCER_DATA_DIR/config.json"
   AGENT_MODE="${AGENT_MODE:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('agent_mode','team'))" 2>/dev/null || echo team)}"
-  # team 모드 deprecated → subagent로 자동 마이그레이션
-  if [ "$AGENT_MODE" = "team" ]; then
-    AGENT_MODE="subagent"
-    info "agent_mode 마이그레이션: team → subagent"
-  fi
   ENFORCEMENT_MODE="${ENFORCEMENT_MODE:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('enforcement_mode','hooks'))" 2>/dev/null || echo hooks)}"
   COMMIT_STRATEGY="${COMMIT_STRATEGY:-$(python3 -c "import json; print(json.load(open('$_OLD_CFG')).get('commit_strategy','per-step'))" 2>/dev/null || echo per-step)}"
   info "기존 config.json 읽기 → agent_mode=$AGENT_MODE, enforcement=$ENFORCEMENT_MODE, commit=$COMMIT_STRATEGY"
@@ -769,6 +764,12 @@ else
   esac
 fi
 ok "에이전트 모드: $AGENT_MODE"
+
+# team 모드 deprecated → subagent로 자동 마이그레이션 (경로 무관)
+if [ "$AGENT_MODE" = "team" ]; then
+  AGENT_MODE="subagent"
+  info "agent_mode 마이그레이션: team → subagent"
+fi
 
 # config.json 저장
 mkdir -p "$BOUNCER_DATA_DIR"
