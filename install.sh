@@ -92,7 +92,7 @@ if [ "$MODE" = "--config" ]; then
   esac
 
   header "에이전트 모드 재설정"
-  echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
+  echo "  1) subagent  — Agent tool로 Dev+QA 스폰 (기본값)"
   echo "  2) single    — 에이전트 없이 Main Claude가 직접 수행"
   echo ""
   printf "  선택 [1]: "
@@ -100,7 +100,7 @@ if [ "$MODE" = "--config" ]; then
   AGENT_CHOICE="${AGENT_CHOICE:-1}"
   case "$AGENT_CHOICE" in
     2) AGENT_MODE="single" ;;
-    *) AGENT_MODE="team" ;;
+    *) AGENT_MODE="subagent" ;;
   esac
 
   python3 - "$CONFIG_FILE" "$COMMIT_STRATEGY" "$COMMIT_SKILL_BOOL" "$ENFORCEMENT_MODE" "$AGENT_MODE" "$SETTINGS_FILE" "$TARGET_DIR" <<'PYEOF'
@@ -750,9 +750,9 @@ ok "실행 모드: $ENFORCEMENT_MODE"
 # 에이전트 모드 선택
 header "에이전트 모드"
 if [ "$CI_MODE" = "true" ]; then
-  AGENT_MODE="${AGENT_MODE:-team}"
+  AGENT_MODE="${AGENT_MODE:-subagent}"
 else
-  echo "  1) team      — TeamCreate로 팀 구성 (기본값)"
+  echo "  1) subagent  — Agent tool로 Dev+QA 스폰 (기본값)"
   echo "  2) single    — 에이전트 없이 Main Claude가 직접 수행"
   echo ""
   printf "  선택 [1]: "
@@ -760,7 +760,7 @@ else
   AGENT_CHOICE="${AGENT_CHOICE:-1}"
   case "$AGENT_CHOICE" in
     2) AGENT_MODE="single" ;;
-    *) AGENT_MODE="team" ;;
+    *) AGENT_MODE="subagent" ;;
   esac
 fi
 ok "에이전트 모드: $AGENT_MODE"
