@@ -295,7 +295,7 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
     # macOS symlink 정규화 (예: /var/folders → /private/var/folders)
     _PG_FILE_REAL=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
     if [[ "$_PG_FILE_REAL" == "$_PG_REPO"* ]] && \
-       [[ "$_PG_FILE_REAL" != "$_PG_REPO/.ai-bouncer-tasks/"* ]]; then
+       [[ "$_PG_FILE_REAL" != *"/.ai-bouncer-tasks/"* ]]; then
       jq -n '{
         decision: "block",
         reason: "⛔ planning 단계에서 프로젝트 소스 파일을 수정할 수 없습니다. 계획을 승인받은 후 개발을 시작하세요."
