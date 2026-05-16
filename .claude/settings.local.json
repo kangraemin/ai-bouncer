@@ -37,7 +37,9 @@
       "Bash(cp hooks/lib/block-logger.sh ~/.claude/ai-bouncer/hooks/lib/block-logger.sh)",
       "Bash(cp hooks/completion-gate.sh ~/.claude/ai-bouncer/hooks/completion-gate.sh)",
       "Read(//Users/ram/.claude/ai-bouncer/hooks/**)",
-      "Read(//Users/ram/.claude/ai-bouncer/hooks/lib/**)"
+      "Read(//Users/ram/.claude/ai-bouncer/hooks/lib/**)",
+      "Bash(sed -n '/_get_phase_folder\\(\\)/,/^}/p' ~/.claude/ai-bouncer/hooks/lib/resolve-task.sh)",
+      "Read(//Users/ram/programming/vibecoding/13f-pulse/.ai-bouncer-tasks/2026-05-16/stitch-v2-magazine/**)"
     ]
   }
 }
