@@ -2,6 +2,9 @@
 # bash-gate: PreToolUse hook (Layer 1)
 # Bash 도구로 파일 쓰기 우회 차단 — 쓰기 패턴 휴리스틱 감지
 
+HOOK_NAME="bash-gate"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/block-logger.sh"
+
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
@@ -20,6 +23,7 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
 # 0. .ai-bouncer-tasks/ 내부 스크립트 실행 차단 (scaffold 방지) — fast-exit보다 먼저
 if echo "$CMD" | grep -qE '(\.venv/bin/python|python3?|bash|sh)\s+[^ ]*\.ai-bouncer-tasks/[^ ]*\.(py|sh)'; then
+  log_block "BG-INTERNAL-SCRIPT" "⛔ [bash-gate] .ai-bouncer-tasks/ 내부 스크립트 실행 금지."
   jq -n '{decision:"block", reason:"⛔ [bash-gate] .ai-bouncer-tasks/ 내부 스크립트 실행 금지. step.md는 Write 도구로 개별 작성하세요."}'
   exit 0
 fi
@@ -60,6 +64,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
 
   # none → 항상 block
   if [ "$COMMIT_STRATEGY" = "none" ]; then
+    log_block "BG-COMMIT-NONE" "⛔ [bash-gate] commit_strategy=none: 커밋이 차단됩니다."
     jq -n '{decision:"block", reason:"⛔ [bash-gate] commit_strategy=none: 커밋이 차단됩니다. 수동 관리 모드."}'
     exit 0
   fi
@@ -103,6 +108,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
         fi
       done
       if [ "$ALL_DONE" = false ]; then
+        log_block "BG-COMMIT-VERIFICATION-INCOMPLETE" "⛔ [bash-gate] verification이지만 미완료 Phase 존재."
         jq -n --arg count "$DEV_PHASES_COUNT" '{
           decision: "block",
           reason: ("⛔ [bash-gate] verification이지만 미완료 Phase 존재. 개발을 먼저 완료하세요. (총 " + $count + "개 Phase)")
@@ -125,6 +131,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     if [ -f "$STEP_FILE_CS" ] && grep -q '✅' "$STEP_FILE_CS" 2>/dev/null; then
       exit 0
     fi
+    log_block "BG-COMMIT-PERSTEP-INCOMPLETE" "⛔ [bash-gate] commit_strategy=per-step: 현재 Step 미완료."
     jq -n --arg p "$CS_PHASE" --arg s "$CS_STEP" \
       '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-step: Phase " + $p + " Step " + $s + " 미완료. 테스트 통과 후 커밋하세요.")}'
     exit 0
@@ -150,6 +157,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
         [ "$snum" -gt "$FS_LAST_STEP_CS" ] 2>/dev/null && FS_LAST_STEP_CS=$snum
       done
       if [ "$FS_LAST_STEP_CS" -le 0 ] 2>/dev/null; then
+        log_block "BG-COMMIT-PERPHASE-NO-STEPS" "⛔ [bash-gate] commit_strategy=per-phase: 현재 Phase에 Step 파일 없음."
         jq -n --arg p "$COMMIT_PHASE_CS" \
           '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + "에 Step이 없습니다. Step을 먼저 생성하세요.")}'
         exit 0
@@ -158,6 +166,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
       if [ -f "$FS_LAST_STEP_FILE" ] && grep -q '✅' "$FS_LAST_STEP_FILE" 2>/dev/null; then
         exit 0
       fi
+      log_block "BG-COMMIT-PERPHASE-LAST-A" "⛔ [bash-gate] commit_strategy=per-phase: 마지막 Step(fs fallback) 미완료."
       jq -n --arg p "$COMMIT_PHASE_CS" --arg ls "$FS_LAST_STEP_CS" \
         '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + " 마지막 Step " + $ls + " 미완료. Phase 완료 후 커밋하세요.")}'
       exit 0
@@ -167,6 +176,7 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     if [ -f "$LAST_STEP_FILE_CS" ] && grep -q '✅' "$LAST_STEP_FILE_CS" 2>/dev/null; then
       exit 0
     fi
+    log_block "BG-COMMIT-PERPHASE-LAST-B" "⛔ [bash-gate] commit_strategy=per-phase: 마지막 Step 미완료."
     jq -n --arg p "$COMMIT_PHASE_CS" --arg ls "$LAST_STEP_CS" \
       '{decision:"block", reason:("⛔ [bash-gate] commit_strategy=per-phase: Phase " + $p + " 마지막 Step " + $ls + " 미완료. Phase 완료 후 커밋하세요.")}'
     exit 0
@@ -284,6 +294,7 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
             fi
           fi
           if [ "$_ALLOW" = "false" ]; then
+            log_block "BG-DONE-NO-VERIFY" "⛔ [bash-gate] done 조건 미충족. verifications/e2e-result.md 통과 필요."
             jq -n '{decision:"block", reason:"⛔ [bash-gate] done 조건 미충족. verifications/e2e-result.md 통과 필요."}'
             exit 0
           fi
@@ -294,6 +305,7 @@ if echo "$CMD" | grep -qE 'state\.json' && ! echo "$CMD" | grep -qE '\brm\b|\brm
     if [[ "$_BG_PHASE" == "development" || "$_BG_PHASE" == "verification" ]]; then
       _BG_PA=$(jq -r '.plan_approved // false' "$_BG_STATE" 2>/dev/null)
       if [ "$_BG_PA" = "true" ] && echo "$CMD" | grep -qE "cancelled"; then
+        log_block "BG-ARBITRARY-CANCEL" "⛔ [bash-gate] development/verification 단계에서 임의 cancelled 처리 금지."
         jq -n '{decision:"block", reason:"⛔ [bash-gate] development/verification 단계에서 임의로 cancelled 처리 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
         exit 0
       fi
@@ -326,6 +338,7 @@ if echo "$CMD" | grep -qE '\.active'; then
       if [ -f "$_af_state_path" ]; then
         _af_wf=$(jq -r '.workflow_phase // ""' "$_af_state_path" 2>/dev/null)
         if [ "$_af_wf" != "done" ] && [ "$_af_wf" != "cancelled" ]; then
+          log_block "BG-ACTIVE-DELETE" "⛔ [bash-gate] done/cancelled 아닌 상태에서 .active 삭제 금지."
           jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 done/cancelled 아닌 상태에서 .active 삭제 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
           exit 0
         fi
@@ -389,6 +402,7 @@ if [ "${IS_DELEGATED_AGENT:-false}" = "true" ]; then
         # per-phase 미설정/빈값이면 top-level team_name 폴백
         [ -z "$_IDA_TN" ] && _IDA_TN=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
         if [ -z "$_IDA_TN" ]; then
+          log_block "BG-DELEGATED-NO-TEAM" "⛔ [delegated][team] development 페이즈에서 team_name 없음."
           jq -n --arg r "⛔ [delegated][team] development 페이즈에서 team_name이 없습니다. TeamCreate를 먼저 실행하세요." \
              '{decision:"block", reason:$r}'
           exit 0
@@ -416,12 +430,14 @@ case "$WORKFLOW_PHASE" in
   planning|development|verification) ;;
   done|cancelled) exit 0 ;;  # 완료/취소 상태 — gate 비활성
   *)
+    log_block "BG-PHASE-INVALID" "⛔ [bash-gate] workflow_phase가 허용되지 않는 값."
     jq -n '{decision:"block", reason:"⛔ [bash-gate] workflow_phase가 허용되지 않는 값입니다."}'
     exit 0 ;;
 esac
 
 # CHECK verifications-in-development: development 상태에서 verifications/ 쓰기 차단
 if echo "$CMD" | grep -qE '\.ai-bouncer-tasks[/\\].*/verifications[/\\]' && [ "$WORKFLOW_PHASE" = "development" ]; then
+  log_block "BG-VERIFICATIONS-EARLY" "⛔ [bash-gate] development 상태에서 verifications/ 작성 불가."
   jq -n '{decision:"block", reason:"⛔ [bash-gate] development 상태에서 verifications/ 파일 작성 불가. state.json workflow_phase를 \"verification\"으로 먼저 변경하세요."}'
   exit 0
 fi

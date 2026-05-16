@@ -3,6 +3,9 @@
 # Claude가 각 응답 턴을 마칠 때 실행
 # 검증 단계에서 e2e-result.md 기반으로 검증 통과 여부 확인
 
+HOOK_NAME="completion-gate"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/block-logger.sh"
+
 # 세션 격리: session_id 추출 (Stop hook도 stdin JSON 수신)
 INPUT=$(cat)
 export SESSION_ID
@@ -35,6 +38,7 @@ esac
 if [ "$WORKFLOW_PHASE" = "done" ] && [ "$PLAN_APPROVED" = "true" ]; then
   E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
   if [ ! -f "$E2E_RESULT" ]; then
+    log_block "CG-DONE-NO-VERIFY-FILE" "⛔ 검증 없이 done 처리됨. e2e-result.md 없음."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
       reason: ("⛔ 검증 없이 done 처리됨. [" + $task + "] verifications/e2e-result.md가 없습니다. Phase 4에서 e2e-writer를 실행하세요.")
@@ -43,6 +47,7 @@ if [ "$WORKFLOW_PHASE" = "done" ] && [ "$PLAN_APPROVED" = "true" ]; then
   fi
   HAS_PASS=$(grep -A1 "^## 결론" "$E2E_RESULT" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
   if [ "$HAS_PASS" != "1" ]; then
+    log_block "CG-DONE-NOT-PASSED" "⛔ 검증 미통과 상태로 done 처리됨."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
       reason: ("⛔ 검증 미통과 상태로 done 처리됨. [" + $task + "] e2e-result.md의 \"## 결론\"이 통과여야 합니다.")
@@ -95,6 +100,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
     done
 
     if [ "$ALL_DONE" = "false" ]; then
+      log_block "CG-DEV-PHASE-STEP-INCOMPLETE" "⛔ 개발 미완료 — Phase/Step ✅ 누락."
       jq -n --arg reason "$BLOCK_REASON" --arg task "$TASK_NAME" '{
         decision: "block",
         reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요.")
@@ -103,6 +109,7 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
     fi
 
     # 모든 step ✅ 완료 → verification 전환 강제 (current_dev_phase 값 무관)
+    log_block "CG-DEV-ALL-DONE-AWAIT-VERIFY" "⛔ 모든 Phase/Step 완료 — verification 전환 필요."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
       reason: ("모든 Phase/Step이 완료되었습니다. [" + $task + "] state.json의 workflow_phase를 \"verification\"으로 전환하고 e2e-writer 에이전트를 실행하세요.")
@@ -117,6 +124,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   E2E_RESULT="${TASK_DIR}/verifications/e2e-result.md"
 
   if [ ! -f "$E2E_RESULT" ]; then
+    log_block "CG-VERIFY-NO-FILE" "⛔ verification 단계 — e2e-result.md 없음."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
       reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] verifications/e2e-result.md 없음. e2e-writer 에이전트를 통해 e2e 테스트를 실행하세요.")
@@ -127,6 +135,7 @@ if [ "$PLAN_APPROVED" = "true" ] && [ "$WORKFLOW_PHASE" = "verification" ]; then
   # ## 결론 섹션 + 통과 확인
   HAS_PASS=$(grep -A1 "^## 결론" "$E2E_RESULT" 2>/dev/null | grep -q "^통과" && echo 1 || echo 0)
   if [ "$HAS_PASS" != "1" ]; then
+    log_block "CG-VERIFY-NOT-PASSED" "⛔ verification 단계 — e2e-result.md 미통과."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",
       reason: ("검증이 완료되지 않았습니다. 작업 [" + $task + "] e2e-result.md가 통과해야 합니다. e2e-writer 에이전트를 통해 재실행하세요.")

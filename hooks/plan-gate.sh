@@ -2,6 +2,9 @@
 # plan-gate: PreToolUse hook
 # Write/Edit 시도 전 아티팩트 기반 검증 — state.json 플래그만으로 우회 불가
 
+HOOK_NAME="plan-gate"
+source "$(dirname "${BASH_SOURCE[0]}")/lib/block-logger.sh"
+
 INPUT=$(cat)
 TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')
 
@@ -65,6 +68,7 @@ if [ "${IS_DELEGATED_AGENT:-false}" = "true" ]; then
         # per-phase 미설정/빈값이면 top-level team_name 폴백
         [ -z "$_IDA_TN" ] && _IDA_TN=$(jq -r '.team_name // ""' "$STATE_FILE" 2>/dev/null)
         if [ -z "$_IDA_TN" ]; then
+          log_block "PG-DELEGATED-NO-TEAM" "⛔ [delegated][team] development 페이즈에서 team_name 없음."
           jq -n --arg r "⛔ [delegated][team] development 페이즈에서 team_name이 없습니다. TeamCreate를 먼저 실행하세요." \
              '{decision:"block", reason:$r}'
           exit 0
@@ -108,6 +112,7 @@ except:
 " 2>/dev/null)
       case "$_NEW_PHASE" in
         development|done|verification)
+          log_block "PG-NO-APPROVAL-PHASE-CHANGE" "⛔ plan_approved 없이 state.json 전환 금지."
           jq -n --arg nxt "$_NEW_PHASE" '{
             decision: "block",
             reason: ("⛔ plan_approved 없이 state.json을 " + $nxt + "으로 변경할 수 없습니다. 계획을 수립하고 승인을 받으세요.")
@@ -138,6 +143,7 @@ except:
     _S=$(echo "$_STEP_CHECK" | cut -d: -f2)
     _MAX=$(echo "$_STEP_CHECK" | cut -d: -f3)
     _PH=$(echo "$_STEP_CHECK" | cut -d: -f4)
+    log_block "PG-STEP-OVERFLOW" "⛔ state.json current_step이 Phase 최대 step 수 초과."
     jq -n --arg s "$_S" --arg max "$_MAX" --arg ph "$_PH" '{
       decision: "block",
       reason: ("⛔ state.json current_step=" + $s + "은 Phase " + $ph + "의 최대 step 수(" + $max + ")를 초과합니다. Phase 완료 시 current_dev_phase++, current_step=1로 설정하세요.")
@@ -179,6 +185,7 @@ except:
         done
       fi
       if [ "$_ALL_STEPS_16" != "true" ]; then
+        log_block "PG-VERIF-INCOMPLETE-STEPS" "⛔ workflow_phase 전환 불가: 미완료 step 존재."
         jq -n --arg nxt "$_NEW_PHASE_16C" '{decision:"block", reason:("⛔ workflow_phase=" + $nxt + " 전환 불가: 미완료 step이 있습니다. 모든 step-*.md에 ✅가 있어야 합니다.")}'
         exit 0
       fi
@@ -197,6 +204,7 @@ not_done = [k for k,v in phases.items() if v.get('status') not in (None, '', 'do
 print('ok' if not not_done else ','.join(not_done))
 " 2>/dev/null)
       if [ -n "$_ALL_PHASES_DONE_16" ] && [ "$_ALL_PHASES_DONE_16" != "ok" ] && [ "$_ALL_PHASES_DONE_16" != "skip" ]; then
+        log_block "PG-VERIF-INCOMPLETE-PHASES" "⛔ workflow_phase 전환 불가: 미완료 dev_phase 존재."
         jq -n --arg nxt "$_NEW_PHASE_16C" --arg phases "$_ALL_PHASES_DONE_16" \
           '{decision:"block", reason:("⛔ workflow_phase=" + $nxt + " 전환 불가: 미완료 dev_phase가 있습니다 (" + $phases + "). 모든 phase를 완료하세요.")}'
         exit 0
@@ -209,6 +217,7 @@ print('ok' if not not_done else ','.join(not_done))
         _E2E_PASS=true
       fi
       if [ "$_E2E_PASS" != "true" ]; then
+        log_block "PG-DONE-DIRECT" "⛔ verification 없이 done 직접 전환 불가."
         jq -n '{decision:"block", reason:"⛔ verification 없이 workflow_phase=done으로 직접 전환할 수 없습니다. Phase 4에서 e2e-writer를 통해 검증을 완료하세요."}'
         exit 0
       fi
@@ -228,6 +237,7 @@ except:
     print(m.group(1) if m else '')
 " 2>/dev/null)
     if [ "$_NEW_PHASE_16E" = "cancelled" ]; then
+      log_block "PG-ARBITRARY-CANCEL" "⛔ [plan-gate] development/verification 단계에서 임의 cancelled 처리 금지."
       jq -n '{decision:"block", reason:"⛔ [plan-gate] development/verification 단계에서 임의로 cancelled 처리 금지. 사용자에게 현재 상태를 보고하고 지시를 기다리세요."}'
       exit 0
     fi
@@ -254,6 +264,7 @@ print(phase_count)
     _CFG_MODE_16F="team"
     [ -n "$_BCFG_16F" ] && _CFG_MODE_16F=$(bash "$_BCFG_16F/bouncer-config.sh" agent_mode team 2>/dev/null)
     if [ "$_CFG_MODE_16F" != "single" ]; then
+      log_block "PG-RESOLVED-SINGLE-OVERRIDE" "⛔ [plan-gate] resolved_agent_mode=single 임의 override 금지."
       jq -n --arg r "⛔ [plan-gate] resolved_agent_mode=single 임의 override 금지. config의 agent_mode=${_CFG_MODE_16F}이고 dev_phases=${_16F_PHASE_COUNT}개(>3)입니다. SKILL.md 규칙: PHASE_COUNT>3이면 CONFIG_MODE 그대로 사용." \
         '{decision:"block", reason:$r}'
       exit 0
@@ -275,6 +286,7 @@ case "$WORKFLOW_PHASE" in
   planning|development|verification) ;;
   done|cancelled) exit 0 ;;  # 완료/취소 상태 — gate 비활성
   *)
+    log_block "PG-PHASE-INVALID" "⛔ workflow_phase가 허용되지 않는 값."
     jq -n '{decision:"block", reason:"⛔ workflow_phase가 허용되지 않는 값입니다."}'
     exit 0 ;;
 esac
@@ -282,6 +294,7 @@ esac
 # CHECK 2: planning 단계 → 프로젝트 소스 파일 차단, .ai-bouncer-tasks/ + 외부 경로 허용
 if [ "$WORKFLOW_PHASE" = "planning" ]; then
   if [[ "$FILE_PATH" == */phase-*.md ]] || [[ "$FILE_PATH" == */step-*.md ]]; then
+    log_block "PG-PLANNING-PHASE-FILE" "⛔ planning 단계에서 phase/step 파일 작성 금지."
     jq -n '{
       decision: "block",
       reason: "⛔ planning 단계에서 phase/step 파일을 작성할 수 없습니다. 계획을 먼저 승인받으세요 (/dev-bounce Phase 1)."
@@ -296,6 +309,7 @@ if [ "$WORKFLOW_PHASE" = "planning" ]; then
     _PG_FILE_REAL=$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$FILE_PATH" 2>/dev/null || echo "$FILE_PATH")
     if [[ "$_PG_FILE_REAL" == "$_PG_REPO"* ]] && \
        [[ "$_PG_FILE_REAL" != *"/.ai-bouncer-tasks/"* ]]; then
+      log_block "PG-PLANNING-SOURCE-FILE" "⛔ planning 단계에서 프로젝트 소스 파일 수정 금지."
       jq -n '{
         decision: "block",
         reason: "⛔ planning 단계에서 프로젝트 소스 파일을 수정할 수 없습니다. 계획을 승인받은 후 개발을 시작하세요."
@@ -310,6 +324,7 @@ fi
 if [[ "$FILE_PATH" == */.active ]]; then
   _existing_sid=$(cat "$FILE_PATH" 2>/dev/null | tr -d '[:space:]')
   if [ -n "$_existing_sid" ] && [ "$_existing_sid" != "$SESSION_ID" ]; then
+    log_block "PG-ACTIVE-CONFLICT" "⛔ 다른 세션이 claim한 .active 파일 덮어쓰기 금지."
     jq -n --arg sid "$_existing_sid" '{
       decision: "block",
       reason: ("⛔ 이 .active 파일은 다른 세션(" + $sid + ")이 claim 중입니다. 강제로 덮어쓸 수 없습니다.")
@@ -321,6 +336,7 @@ fi
 # CHECK verifications-in-development: development 상태에서 verifications/ 쓰기 차단
 # Phase 4 시작 전 state를 verification으로 먼저 변경해야 함
 if { [[ "$FILE_PATH" == */.ai-bouncer-tasks/*/verifications/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/*/verifications/* ]]; } && [ "$WORKFLOW_PHASE" = "development" ]; then
+  log_block "PG-VERIFICATIONS-EARLY" "⛔ development 상태에서 verifications/ 작성 불가."
   jq -n '{decision:"block", reason:"⛔ development 상태에서 verifications/ 파일 작성 불가. Phase 4 시작 전 state.json workflow_phase를 \"verification\"으로 먼저 변경하세요."}'
   exit 0
 fi
@@ -329,6 +345,7 @@ fi
 # 단, .py/.sh 스크립트 생성 금지 (scaffold 방지)
 if [[ "$FILE_PATH" == */.ai-bouncer-tasks/* ]] || [[ "$FILE_PATH" == .ai-bouncer-tasks/* ]]; then
   if [[ "$FILE_PATH" == *.py ]] || [[ "$FILE_PATH" == *.sh ]]; then
+    log_block "PG-INTERNAL-SCRIPT" "⛔ .ai-bouncer-tasks/ 내부 스크립트 생성 금지."
     jq -n '{decision:"block", reason:"⛔ .ai-bouncer-tasks/ 내부에 스크립트(.py/.sh) 생성 금지. 태스크 문서는 .md 파일만 허용됩니다."}'
     exit 0
   fi
