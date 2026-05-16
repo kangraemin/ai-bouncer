@@ -28,7 +28,16 @@
       "Read(//Users/ram/.claude/skills/bouncer-status/**)",
       "Bash(cp skills/dev-bounce/SKILL.md /Users/ram/.claude/skills/dev-bounce/SKILL.md)",
       "mcp__claude-library__library_search",
-      "mcp__claude-library__library_read"
+      "mcp__claude-library__library_read",
+      "Bash(cp hooks/lib/block-logger.sh ~/.claude/hooks/lib/block-logger.sh)",
+      "Bash(cp hooks/bash-gate.sh ~/.claude/hooks/bash-gate.sh)",
+      "Bash(cp hooks/completion-gate.sh ~/.claude/hooks/completion-gate.sh)",
+      "Bash(bash -n ~/.claude/hooks/bash-gate.sh)",
+      "Bash(bash -n ~/.claude/hooks/plan-gate.sh)",
+      "Bash(cp hooks/lib/block-logger.sh ~/.claude/ai-bouncer/hooks/lib/block-logger.sh)",
+      "Bash(cp hooks/completion-gate.sh ~/.claude/ai-bouncer/hooks/completion-gate.sh)",
+      "Read(//Users/ram/.claude/ai-bouncer/hooks/**)",
+      "Read(//Users/ram/.claude/ai-bouncer/hooks/lib/**)"
     ]
   }
 }
