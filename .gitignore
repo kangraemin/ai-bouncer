@@ -33,3 +33,4 @@ HANDOFF.md
 .claude/ai-bouncer/scripts/bouncer-update-check.sh
 .claude/ai-bouncer/scripts/claim-active.sh
 # --- ai-bouncer end ---
+.gstack/
