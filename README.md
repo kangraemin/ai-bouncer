@@ -6,7 +6,7 @@
 
 [![License](https://img.shields.io/github/license/kangraemin/ai-bouncer?style=for-the-badge)](https://github.com/kangraemin/ai-bouncer/blob/main/LICENSE)
 [![Stars](https://img.shields.io/github/stars/kangraemin/ai-bouncer?style=for-the-badge)](https://github.com/kangraemin/ai-bouncer/stargazers)
-[![Tests](https://img.shields.io/badge/tests-750%2B-brightgreen?style=for-the-badge)](#tests)
+[![Tests](https://img.shields.io/badge/tests-130%2B-brightgreen?style=for-the-badge)](#tests)
 
 [Getting Started](#install) · [한국어](README.ko.md) · [Issues](https://github.com/kangraemin/ai-bouncer/issues)
 
@@ -16,14 +16,15 @@
 
 ## Why ai-bouncer?
 
-Claude Code is powerful, but without guardrails it tends to go off-script. You ask for one bug fix and it refactors three files. You're still thinking about the plan and it's already writing code. You say "done" and it skips verification.
+Claude Code is powerful, but without guardrails it goes off-script. You ask for one bug fix and it refactors three files. You're still thinking about the plan and it's already writing code. You say "done" and it skips verification. Context compacts mid-task and it forgets where it was.
 
 | Without ai-bouncer | With ai-bouncer |
 |---|---|
 | Claude edits files you didn't ask for | Every change requires an approved plan |
 | Starts coding before you agree on the approach | Plan mode → user approval → then development |
-| `echo > file` bypasses Write/Edit restrictions | 2-layer Bash defense catches all file writes |
+| `echo > file` bypasses Write/Edit restrictions | bash-gate catches write patterns pre-execution |
 | No verification, just "I'm done" | TDD-enforced: TC first, code second, verify third |
+| Compact/clear wipes context, work is lost | All progress in `state.json` — resume from anywhere |
 | Multiple sessions step on each other | Session isolation via `.active` file locking |
 
 ---
@@ -32,25 +33,26 @@ Claude Code is powerful, but without guardrails it tends to go off-script. You a
 
 ### Workflow Enforcement
 
-- **Plan-gate** — blocks all Write/Edit calls until you approve a plan via `ExitPlanMode`
-- **Bash-gate** — detects 15+ write patterns (`>`, `tee`, `sed -i`, `cp`, `curl -o`, etc.) and blocks them pre-execution
-- **Bash-audit** — post-execution git diff snapshot comparison catches anything bash-gate misses, auto-reverts unauthorized changes
-- **Completion-gate** — prevents Claude from ending the conversation before verification passes
+- **plan-gate** — blocks all Write/Edit/MultiEdit calls until you approve a plan via `ExitPlanMode`. Also checks step-level TC presence, `## 실행출력` records, and phase doc structure before allowing the next step.
+- **bash-gate** — detects file-write patterns (`>`, `>>`, `tee`, `sed -i`, `cat/echo/printf >`, python `open(...,'w')`, etc.) and blocks them pre-execution. Closes the "bypass Write via Bash" hole.
+- **completion-gate** — prevents Claude from ending the turn while a task is in `development`/`verification` without `verifications/e2e-result.md` reaching `## 결론` → `통과`.
+- **block-logger** — every gate rejection is logged for later review (evidence collection).
 
-### Development Modes
+### File-Based State
 
-- **SIMPLE** — for small changes (3 files, 50 lines). Main Claude handles everything: plan, code, test, done.
-- **NORMAL** — for larger work. Spawns a Dev Team (Lead + Dev + QA) with TDD loop per step, 3-round verification at the end.
+All workflow state lives on disk, not in context. `state.json` + `phase/step.md` + `verifications/e2e-result.md` mean a compacted or crashed session resumes exactly where it left off — hooks read the files, not the model's memory.
 
-### Multi-Agent Orchestration
+### Agent Modes
 
-- **Team mode** — `TeamCreate` spawns a real team. Lead orchestrates, Dev codes, QA validates.
-- **Subagent mode** — `Agent` tool spawns lightweight sub-processes. Same workflow, less overhead.
-- **Single mode** — Main Claude does everything. Phase/step structure still enforced by hooks.
+`max_concurrent` (derived from `depends_on` via Kahn's algorithm) decides the mode automatically:
+
+- **single** — Main Claude does TC → code → verify itself. Phase/step structure still enforced by hooks.
+- **subagent** — `Agent` tool spawns Dev + QA sub-processes per phase. Used when independent phases can run in parallel.
+- **team** — `TeamCreate` spawns a registered team (config default).
 
 ### Session Isolation
 
-Each task gets its own directory (`.ai-bouncer-tasks/YYYY-MM-DD/task-name/`) with an `.active` lock file containing the session ID. Hooks check ownership — a second session can't interfere with the first.
+Each task gets `.ai-bouncer-tasks/YYYY-MM-DD/task-name/` with an `.active` lock file containing the session ID. Hooks check ownership — a second session can't interfere with the first, and stale locks are auto-cleaned on Stop.
 
 ---
 
@@ -63,9 +65,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/i
 The interactive wizard walks you through:
 
 1. **Scope** — global (`~/.claude/`) or project-local (`.claude/`)
-2. **Commit strategy** — per-step, per-phase, or manual
-3. **Enforcement** — hook-enforced or prompt-only (no hooks, just skill guidance)
-4. **Agent mode** — Team, Subagent, or Single
+2. **Commit strategy** — per-step, per-phase, or none
+3. **Enforcement** — `hooks` (blocking) or `prompt-only` (skill guidance, no hooks)
+4. **Agent mode** — `team`, `subagent`, or `single`
 
 For CI/non-interactive environments:
 
@@ -84,26 +86,26 @@ bash install.sh --ci
 That's it. The rest is automatic:
 
 ```
-Phase 0   Intent detection — question → answer, dev request → proceed
-Phase 1   Plan → EnterPlanMode → explore code → write plan → user approval
+Phase 0   Intent detection — question/explore → answer, dev request → proceed
+Phase 1   EnterPlanMode → explore code → write plan.md → user approval
            ↓ accept
-Phase 1-B Complexity check → SIMPLE or NORMAL
-           ↓
-Phase 2   SIMPLE: TC → code → verify → commit → done
-Phase 3   NORMAL: Lead spawns → phase/step breakdown → TDD loop
-Phase 4   NORMAL: 3-round integration verification → done
+Phase 3   Phase/Step breakdown → depends_on analysis → phase_layers (Kahn)
+           → mode resolved (single / subagent / team)
+           → per-step TDD loop: TC → code → verify → commit
+Phase 4   workflow_phase = verification → critical-reviewer 6-step review
+           → e2e-result.md "## 결론 통과" required → done
 ```
 
 ### What gets blocked
 
 ```
-❌  Write("src/app.ts")              → plan-gate: "계획이 승인되지 않았습니다"
-❌  Bash("echo 'x' > src/app.ts")   → bash-gate: "Bash를 통한 파일 쓰기가 차단되었습니다"
-❌  Bash("python3 -c 'open(f,w)')   → bash-gate: detects python file write
-❌  [Session ends during verify]     → completion-gate: "검증이 완료되지 않았습니다"
-✅  Write("state.json")             → allowed (task management file)
-✅  Bash("git status")              → allowed (read-only)
-✅  Bash("npm test")                → allowed (no write pattern)
+❌  Write("src/app.ts")            → plan-gate: plan not approved
+❌  Bash("echo 'x' > src/app.ts")  → bash-gate: bash file-write blocked
+❌  Bash("python3 -c 'open(f,\"w\")')  → bash-gate: detects python file write
+❌  [Turn ends during verify]      → completion-gate: verification not passed
+✅  Write(".ai-bouncer-tasks/.../state.json")  → allowed (task mgmt file)
+✅  Bash("git status")             → allowed (read-only)
+✅  Bash("npm test")               → allowed (no write pattern)
 ```
 
 ---
@@ -114,64 +116,47 @@ Phase 4   NORMAL: 3-round integration verification → done
 
 | Hook | Event | What it checks |
 |---|---|---|
-| **plan-gate.sh** | PreToolUse (Write/Edit) | `plan_approved`, `plan.md` exists, team config, step TC, phase.md sections |
-| **bash-gate.sh** | PreToolUse (Bash) | Write pattern detection, same checks as plan-gate for file-writing commands |
-| **bash-audit.sh** | PostToolUse (Bash) | git diff pre/post snapshot, auto-reverts unauthorized changes |
-| **completion-gate.sh** | Stop | 3x `round-*.md` with "통과" required before session can end |
-| **doc-reminder.sh** | PostToolUse (Write/Edit) | Reminds to update TC/docs after code changes |
-| **subagent-track.sh** | SubagentStart | Registers spawned agents for session tracking |
-| **subagent-cleanup.sh** | SubagentStop | Cleans up agent registrations |
+| **plan-gate.sh** | PreToolUse (Write/Edit/MultiEdit) | `plan_approved`, `plan.md` exists, prev step.md has ✅ + `## 실행출력`, phase.md sections, TC format, verification-phase file scope |
+| **bash-gate.sh** | PreToolUse (Bash) | write-pattern detection (`>`, `tee`, `sed -i`, `cp`, python write…) + same gate checks for file-writing commands |
+| **completion-gate.sh** | Stop | task not stuck in development/verification; `e2e-result.md` `## 결론` → `통과` before turn can end |
+| **stop-active-cleanup.sh** | Stop | removes stale `.active` lock when `workflow_phase` is `done`/`cancelled` |
+| **subagent-track.sh** | SubagentStart | registers spawned agents for session tracking |
+| **subagent-cleanup.sh** | SubagentStop | cleans up agent registrations |
 
-### 2-Layer Bash Defense
-
-```
-                    Bash("echo 'x' > src/app.ts")
-                              │
-                    ┌─────────▼──────────┐
-        Layer 1     │    bash-gate.sh    │   PreToolUse
-                    │  pattern detection │
-                    │  15+ write patterns│
-                    └──────┬─────────────┘
-                           │ blocked → ⛔ REJECT
-                           │ missed  ↓
-                    ┌──────▼─────────────┐
-        Layer 2     │   bash-audit.sh    │   PostToolUse
-                    │  git diff snapshot │
-                    │  before vs after   │
-                    └──────┬─────────────┘
-                           │ changed → 🔄 AUTO-REVERT
-                           │ clean   → ✅ PASS
-```
+Shared helpers in `hooks/lib/`: `gate-checks.sh` (common validation), `resolve-task.sh` (task dir resolution), `block-logger.sh` (rejection logging). `stop-bouncer-compat.sh` exists for older-config compatibility (not in `hooks.json`).
 
 ### Task Directory Structure
 
 ```
 .ai-bouncer-tasks/
-└── 2026-04-04/
+└── 2026-05-18/
     └── add-rate-limiting/
         ├── .active                    # session lock (contains session_id)
         ├── state.json                 # workflow state machine
         ├── plan.md                    # approved plan
-        ├── tests.md                   # SIMPLE mode TCs
-        ├── phase-1-auth/              # NORMAL mode
-        │   ├── phase.md               # goals, scope, steps
-        │   ├── step-1.md              # TC + implementation + results
+        ├── phase-1-auth/
+        │   ├── phase.md               # 목표 / 기술 접근 / Steps
+        │   ├── step-1.md              # TC table + 실행출력
         │   └── step-2.md
-        └── verifications/             # NORMAL mode
-            ├── round-1.md
-            ├── round-2.md
-            └── round-3.md
+        ├── phase-2-api/
+        │   └── ...
+        └── verifications/
+            └── e2e-result.md          # critical-reviewer 6-step result
 ```
 
 ### State Machine
 
 ```
-planning ──accept──→ development ──all steps done──→ verification ──3 rounds pass──→ done
-    │                     │                              │
-    │ reject              │ blocking                     │ failure
-    ↓                     ↓                              ↓
- cancelled          escalate to user              back to development
+planning ──accept──→ development ──all phases done──→ verification ──결론 통과──→ done
+    │                     │                               │
+    │ reject              │ blocking                      │ 실패
+    ↓                     ↓                               ↓
+ cancelled          escalate to user               back to development
 ```
+
+### Parallel Execution
+
+`depends_on` between phases is analyzed after doc generation. Independent phases (`depends_on: []`) land in the same `phase_layers` layer and run concurrently. `max_concurrent ≥ 2` auto-selects `subagent`/`team`; `= 1` stays `single`. No user input required.
 
 ---
 
@@ -185,8 +170,10 @@ bash install.sh --config   # change settings after install
 |---|---|---|---|
 | `commit_strategy` | `per-step` · `per-phase` · `none` | `per-step` | When to auto-commit |
 | `enforcement_mode` | `hooks` · `prompt-only` | `hooks` | Hook enforcement or prompt guidance only |
-| `agent_mode` | `team` · `subagent` · `single` | `team` | How agents are spawned |
+| `agent_mode` | `team` · `subagent` · `single` | `team` | Base mode (overridden to single when fully serial) |
 | `docs_git_track` | `true` · `false` | `false` | Track `.ai-bouncer-tasks/` in git |
+
+Config lives at `.claude/ai-bouncer/config.json` (project-local) or `~/.claude/ai-bouncer/config.json` (global).
 
 ---
 
@@ -194,56 +181,53 @@ bash install.sh --config   # change settings after install
 
 ```
 ai-bouncer/
-├── install.sh                 # Interactive installer (supports --ci, --config)
+├── install.sh                 # Interactive installer (--ci, --config)
 ├── update.sh                  # File-level update with manifest diff
 ├── uninstall.sh               # Clean removal
 ├── hooks/
-│   ├── hooks.json             # Hook manifest (dynamic install)
+│   ├── hooks.json             # Hook manifest
 │   ├── plan-gate.sh           # PreToolUse: Write/Edit gate
 │   ├── bash-gate.sh           # PreToolUse: Bash gate
-│   ├── bash-audit.sh          # PostToolUse: Bash audit + revert
 │   ├── completion-gate.sh     # Stop: verification gate
-│   ├── doc-reminder.sh        # PostToolUse: doc nudge
+│   ├── stop-active-cleanup.sh # Stop: stale .active cleanup
 │   ├── subagent-track.sh      # SubagentStart: agent registration
 │   ├── subagent-cleanup.sh    # SubagentStop: agent cleanup
-│   ├── stop-active-cleanup.sh # Stop: stale .active cleanup
+│   ├── stop-bouncer-compat.sh # legacy-config compat
 │   └── lib/
-│       └── resolve-task.sh    # Shared: task directory resolution
+│       ├── gate-checks.sh     # shared gate validation
+│       ├── resolve-task.sh    # task directory resolution
+│       └── block-logger.sh    # rejection event logging
 ├── agents/
 │   ├── intent.md              # Intent classifier
 │   ├── lead.md                # Lead orchestrator
 │   ├── dev.md                 # Developer agent
 │   ├── qa.md                  # QA agent
-│   └── verifier.md            # Integration verifier
+│   ├── e2e-writer.md          # E2E test author
+│   └── guides/tc-guide.md     # TC writing guide
 ├── skills/
 │   ├── dev-bounce/SKILL.md    # Main workflow skill
 │   ├── update-bouncer/SKILL.md
 │   └── bouncer-status/SKILL.md
 ├── scripts/
-│   └── bouncer-update-check.sh        # SessionStart auto-update (24h throttle)
-└── tests/                     # 750+ e2e tests
+│   └── bouncer-update-check.sh  # SessionStart auto-update (24h throttle)
+└── tests/                     # 130+ e2e/unit tests (8 files)
 ```
 
 ---
 
 ## Tests
 
-750+ tests across 13 files. All tests create isolated temp environments with fake `$HOME` — nothing touches your real setup.
+130+ tests across 8 files. Each creates an isolated temp environment with a fake `$HOME` — nothing touches your real setup.
 
 ```bash
-bash tests/e2e-full.sh           # install/update/uninstall lifecycle (74)
-bash tests/e2e-hooks.sh          # hook behavior — all modes (123)
-bash tests/e2e-modes.sh          # enforcement/agent mode combos (106)
-bash tests/e2e-install.sh        # install scenarios + migration (130)
-bash tests/e2e-workflow.sh       # workflow state transitions (105)
-bash tests/e2e-isolation.sh      # multi-session isolation (47)
-bash tests/e2e-recovery.sh       # crash recovery + edge cases (73)
-bash tests/e2e-restore.sh        # context restore logic (17)
-bash tests/e2e-skill.sh          # SKILL.md path logic (8)
-bash tests/test-plan-gate.sh     # plan-gate unit tests (25)
-bash tests/test-bash-gate.sh     # bash-gate unit tests (33)
-bash tests/test-completion-gate.sh # completion-gate unit tests (11)
-bash tests/test-bash-audit.sh    # bash-audit unit tests (10)
+bash tests/test-plan-gate.sh            # plan-gate unit (~23)
+bash tests/test-bash-gate.sh            # bash-gate unit (~14)
+bash tests/test-completion-gate.sh      # completion-gate unit (~31)
+bash tests/test-block-logger.sh         # rejection logger (~10)
+bash tests/test-phase-layers.sh         # Kahn layer computation (~5)
+bash tests/test-delegated-team-bypass.sh # delegated agent allow path (~4)
+bash tests/test-e2e-workflow.sh         # workflow state transitions (~33)
+bash tests/e2e-install.sh               # install/update/uninstall lifecycle (~11)
 ```
 
 ---
@@ -271,13 +255,13 @@ Report the issue. As a workaround, the `! command` prefix in Claude Code runs co
 <details>
 <summary><strong>How does multi-session work?</strong></summary>
 
-Each `/dev-bounce` call creates a task directory with an `.active` file containing the session ID. Hooks check ownership — if another session tries to modify files, it's blocked. When a task completes, `.active` is removed.
+Each `/dev-bounce` call creates a task directory with an `.active` file containing the session ID. Hooks check ownership — if another session tries to modify files, it's blocked. When a task completes, `.active` is removed (and stale locks are auto-cleaned on Stop).
 </details>
 
 <details>
-<summary><strong>Does it support Claude Code teams (TeamCreate)?</strong></summary>
+<summary><strong>How is the agent mode chosen?</strong></summary>
 
-Yes, that's the default `team` mode. Lead orchestrates, Main Claude spawns Dev/QA. For lighter setups, use `subagent` (Agent tool) or `single` (no agents).
+It's automatic. After phase/step docs are generated, `depends_on` is analyzed and `phase_layers` computed via Kahn's algorithm. If the max concurrent phase count is 1, it runs `single`; if ≥ 2, it uses the configured `team`/`subagent` mode. You never pick it manually.
 </details>
 
 ---
@@ -302,7 +286,7 @@ Removes hooks, agents, skills, and config from `settings.json`. Preserves `.ai-b
 
 1. Fork the repository
 2. Create a feature branch
-3. Run the test suite: `bash tests/e2e-full.sh`
+3. Run the test suite (e.g. `bash tests/test-plan-gate.sh`)
 4. Open a Pull Request
 
 ## License
