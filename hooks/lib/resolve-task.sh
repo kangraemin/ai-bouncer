@@ -16,6 +16,45 @@ STATE_FILE=""
 IS_DELEGATED_AGENT=false
 IS_MY_TASK=false
 
+# Helper: dev_phases에서 phase 폴더명 추출 (모든 resolution 경로보다 먼저 정의 — delegated early-return에도 보장)
+# object 포맷 {"folder": "..."} 과 legacy string 포맷 "name" 모두 처리
+_get_phase_folder() {
+  local state_file="$1" phase_idx="$2"
+  local val
+  val=$(jq -r ".dev_phases[\"$phase_idx\"]" "$state_file" 2>/dev/null)
+  if echo "$val" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    local folder
+    folder=$(echo "$val" | jq -r '.folder // ""')
+    local candidate="${folder:-phase-$phase_idx}"
+    # folder 키 없거나 디렉토리 불일치 시 fallback 탐색
+    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
+      local found
+      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
+      if [ -n "$found" ]; then
+        echo "$(basename "$found")"
+        return
+      fi
+    fi
+    echo "$candidate"
+  else
+    # val은 jq -r로 추출된 raw string — 이미 언-쿼트된 상태
+    local candidate="phase-${phase_idx}"
+    if [ -n "$val" ] && [ "$val" != "null" ]; then
+      candidate="phase-${phase_idx}-${val}"
+    fi
+    # 후보 디렉토리가 없으면 phase-N-* 패턴으로 실제 디렉토리 탐색 (한글 name 불일치 대응)
+    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
+      local found
+      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
+      if [ -n "$found" ]; then
+        echo "$(basename "$found")"
+        return
+      fi
+    fi
+    echo "$candidate"
+  fi
+}
+
 # 0. 승인된 sub-agent 확인 — 부모 task로 즉시 resolve
 APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"
 if [ -n "$SESSION_ID" ] && [ -f "$APPROVED_FILE" ]; then
@@ -164,42 +203,3 @@ resolve_config() {
 }
 
 BOUNCER_CONFIG=$(resolve_config)
-
-# Helper: dev_phases에서 phase 폴더명 추출
-# object 포맷 {"folder": "..."} 과 legacy string 포맷 "name" 모두 처리
-_get_phase_folder() {
-  local state_file="$1" phase_idx="$2"
-  local val
-  val=$(jq -r ".dev_phases[\"$phase_idx\"]" "$state_file" 2>/dev/null)
-  if echo "$val" | jq -e 'type == "object"' >/dev/null 2>&1; then
-    local folder
-    folder=$(echo "$val" | jq -r '.folder // ""')
-    local candidate="${folder:-phase-$phase_idx}"
-    # folder 키 없거나 디렉토리 불일치 시 fallback 탐색
-    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
-      local found
-      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
-      if [ -n "$found" ]; then
-        echo "$(basename "$found")"
-        return
-      fi
-    fi
-    echo "$candidate"
-  else
-    # val은 jq -r로 추출된 raw string — 이미 언-쿼트된 상태
-    local candidate="phase-${phase_idx}"
-    if [ -n "$val" ] && [ "$val" != "null" ]; then
-      candidate="phase-${phase_idx}-${val}"
-    fi
-    # 후보 디렉토리가 없으면 phase-N-* 패턴으로 실제 디렉토리 탐색 (한글 name 불일치 대응)
-    if [ -n "$TASK_DIR" ] && [ ! -d "${TASK_DIR}/${candidate}" ]; then
-      local found
-      found=$(find "$TASK_DIR" -maxdepth 1 -type d -name "phase-${phase_idx}-*" 2>/dev/null | head -1)
-      if [ -n "$found" ]; then
-        echo "$(basename "$found")"
-        return
-      fi
-    fi
-    echo "$candidate"
-  fi
-}
