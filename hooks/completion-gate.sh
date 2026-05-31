@@ -29,6 +29,11 @@ source "$SCRIPT_DIR/lib/resolve-task.sh"
 WORKFLOW_PHASE=$(jq -r '.workflow_phase // "done"' "$STATE_FILE" 2>/dev/null)
 PLAN_APPROVED=$(jq -r '.plan_approved // false' "$STATE_FILE" 2>/dev/null)
 
+# dev-incomplete 차단 카운터: verification/done 전환 시 리셋
+case "$WORKFLOW_PHASE" in
+  verification|done) rm -f "${TASK_DIR}/.cg-stop-count-${SESSION_ID}" 2>/dev/null ;;
+esac
+
 # cancelled/planning/pending 상태 → 통과
 case "$WORKFLOW_PHASE" in
   cancelled|planning|pending) exit 0 ;;
@@ -101,14 +106,44 @@ if [ "$WORKFLOW_PHASE" = "development" ] && [ "$PLAN_APPROVED" = "true" ]; then
 
     if [ "$ALL_DONE" = "false" ]; then
       log_block "CG-DEV-PHASE-STEP-INCOMPLETE" "⛔ 개발 미완료 — Phase/Step ✅ 누락."
-      jq -n --arg reason "$BLOCK_REASON" --arg task "$TASK_NAME" '{
+
+      # 세션+작업별 차단 횟수. 파일 = 2줄(count, 직전 BLOCK_REASON).
+      # 같은 지점(BLOCK_REASON 동일)에서 막힐 때만 누적, 블로킹 지점이 바뀌면(=진행됨) 1로 리셋.
+      # 최대 10 cap, 통과는 절대 안 시킴.
+      CG_COUNT_FILE="${TASK_DIR}/.cg-stop-count-${SESSION_ID}"
+      PREV_COUNT=$(sed -n '1p' "$CG_COUNT_FILE" 2>/dev/null)
+      PREV_REASON=$(sed -n '2p' "$CG_COUNT_FILE" 2>/dev/null)
+      case "$PREV_COUNT" in ''|*[!0-9]*) PREV_COUNT=0 ;; esac
+      if [ "$PREV_REASON" = "$BLOCK_REASON" ]; then
+        CG_COUNT=$((PREV_COUNT + 1))   # 같은 지점 정체 → 누적
+      else
+        CG_COUNT=1                     # 블로킹 지점 변경 = 진행됨 → 리셋
+      fi
+      [ "$CG_COUNT" -gt 10 ] && CG_COUNT=10
+      printf '%s\n%s\n' "$CG_COUNT" "$BLOCK_REASON" > "$CG_COUNT_FILE" 2>/dev/null
+
+      case "$CG_COUNT" in
+        1)  ESC="다음 미완료 step으로 즉시 진행하라. 사용자에게 진행 여부를 묻지 마라." ;;
+        2)  ESC="[2회 차단] 방금 또 멈추려 했다. \"계속 갈까/끊을까\" 류 질문은 금지다. 묻지 말고 지금 다음 step을 시작하라." ;;
+        3)  ESC="[3회 차단] 진행 여부를 묻는 것 자체가 dev-bounce 규칙(SKILL 3-1) 위반이다. 요약·체크인 멈추고 다음 step 코드를 작성하라." ;;
+        4)  ESC="[4회 차단] context limit에 실제로 도달하지 않았다. \"컨텍스트가 찼다/한 세션에 무리다\"는 판단은 금지. 즉시 다음 step을 구현하라." ;;
+        5)  ESC="[5회 차단] 중단·컨펌요청·scope 자기제한은 hook 차단과 동급 위반이다. 변명 없이 다음 미완료 step 코드를 작성하라." ;;
+        6)  ESC="[6회 차단] 멈춤 시도가 반복되고 있다. 남은 step을 보고만 하지 말고 지금 Edit/Write로 구현을 시작하라." ;;
+        7)  ESC="[7회 차단] 어떤 질문·체크인·진행상황 요약도 출력하지 마라. 다음 도구 호출은 반드시 다음 step의 Edit/Write/Bash여야 한다." ;;
+        8)  ESC="[8회 차단] 또 멈췄다. 사용자는 끝까지 진행하라고 이미 지시했다. 더 묻지 말고 코드만 작성하라." ;;
+        9)  ESC="[9회 차단] 경고 한계 직전. 다음 step을 구현할 수 있으면 즉시 구현하라. 정말 막혔다면 다음 차단에서 사용자 개입을 요청하게 된다." ;;
+        *)  ESC="[10회 차단 — 한계 도달] 10번 연속 막혔다 = 단순 진행확인 질문이 아니라 실제로 막혔을 가능성이 크다. 단, 통과는 시켜주지 않는다. 다음 step을 구현할 수 있으면 지금 즉시 구현하라. 기술적·기획적으로 정말 해결 불가한 블로커라면 멈춰 있지 말고 AskUserQuestion 도구로 (a) 막힌 지점 (b) 사용자가 골라야 할 구체적 선택지를 제시해 액션을 받아라. '계속할까?'식 단순 진행확인 질문은 여전히 금지 — 반드시 구체적 선택지를 제시할 것." ;;
+      esac
+
+      jq -n --arg reason "$BLOCK_REASON" --arg task "$TASK_NAME" --arg esc "$ESC" '{
         decision: "block",
-        reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요.")
+        reason: ("개발이 완료되지 않았습니다. [" + $task + "] " + $reason + ". 현재 Phase/Step을 완료 후 ✅ 표시하세요. " + $esc)
       }'
       exit 0
     fi
 
     # 모든 step ✅ 완료 → verification 전환 강제 (current_dev_phase 값 무관)
+    rm -f "${TASK_DIR}/.cg-stop-count-${SESSION_ID}" 2>/dev/null
     log_block "CG-DEV-ALL-DONE-AWAIT-VERIFY" "⛔ 모든 Phase/Step 완료 — verification 전환 필요."
     jq -n --arg task "$TASK_NAME" '{
       decision: "block",

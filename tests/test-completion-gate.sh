@@ -19,6 +19,15 @@ check() {
   fi
 }
 
+check_reason() {
+  local label="$1" output="$2" needle="$3"
+  if echo "$output" | jq -r '.reason // ""' 2>/dev/null | grep -qF "$needle"; then
+    echo "✅ $label"; PASS=$((PASS+1))
+  else
+    echo "❌ $label (reason에 '$needle' 없음)"; echo "   output: $output"; FAIL=$((FAIL+1))
+  fi
+}
+
 TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
@@ -264,6 +273,62 @@ check "TC-29: 5컬럼 TC ✅ → block (verification 강제)" "$(run_gate)" "blo
 # TC-30: 5컬럼 TC-2 결과 ⏸️ → block
 printf "| TC-1 | happy | scenario description | expected result | ✅ |\n| TC-2 | e2e | runtime check | correct render | ⏸️ |\n" > "$PHASE_DIR/step-1.md"
 check "TC-30: 5컬럼 TC-2 ⏸️ → block" "$(run_gate)" "block"
+
+# ── escalation 카운터 ──
+ESC_SID="esc-test-sid"
+echo "$ESC_SID" > "$TASK_DIR/.active"
+rm -f "$TASK_DIR/.cg-stop-count-$ESC_SID"
+mkdir -p "$PHASE_DIR"; rm -f "$PHASE_DIR"/step-*.md
+printf "| TC-1 | happy | scenario here | expected here | ❌ |\n" > "$PHASE_DIR/step-1.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"dev_phases":{"1":{"name":"test","steps":{"1":"x"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+
+# TC-31: 1회차 → 기본 메시지("묻지 마라") + block
+check_reason "TC-31: 1회차 escalation 기본 메시지" "$(run_gate "$ESC_SID")" "묻지 마라"
+
+# TC-32: 2회차 → "[2회 차단]"
+check_reason "TC-32: 2회차 escalation" "$(run_gate "$ESC_SID")" "[2회 차단]"
+
+# TC-33: 카운터가 10에서 cap — 13회까지 호출해도 decision=block + 최대 경고
+for _ in 3 4 5 6 7 8 9 10 11 12 13; do run_gate "$ESC_SID" >/dev/null; done
+LAST=$(run_gate "$ESC_SID")
+check "TC-33: cap 후에도 block 유지" "$LAST" "block"
+check_reason "TC-33b: 10회 cap 한계 메시지" "$LAST" "[10회 차단 — 한계 도달]"
+check_reason "TC-33c: cap에서 AskUserQuestion 탈출구 제시" "$LAST" "AskUserQuestion"
+
+# TC-34: 진행 시(블로킹 지점 변경) 카운터 리셋 — cap(10) 상태에서 step-1 ✅ + 신규 step-2 ❌
+# → BLOCK_REASON이 step-2로 바뀜 → count 1로 리셋 → 1회차 기본 메시지 복귀
+printf "| TC-1 | happy | scenario here | expected here | ✅ |\n" > "$PHASE_DIR/step-1.md"
+printf "| TC-1 | happy | second scenario | expected two | ❌ |\n" > "$PHASE_DIR/step-2.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"dev_phases":{"1":{"name":"test","steps":{"1":"x","2":"y"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+check_reason "TC-34: 블로킹 지점 변경 시 카운터 리셋(1회차 복귀)" "$(run_gate "$ESC_SID")" "묻지 마라"
+rm -f "$PHASE_DIR/step-2.md"
+
+# TC-35: 신규 세션이 task 재클레임 → 카운터 독립(1회차 기본 메시지)
+# completion-gate는 .active owner 세션에만 동작하므로, 새 세션은 .active를 소유해야 한다.
+FRESH_SID="fresh-sid-xyz"
+echo "$FRESH_SID" > "$TASK_DIR/.active"
+rm -f "$TASK_DIR/.cg-stop-count-$FRESH_SID"
+printf "| TC-1 | happy | scenario here | expected here | ❌ |\n" > "$PHASE_DIR/step-1.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"development","plan_approved":true,"current_dev_phase":1,"dev_phases":{"1":{"name":"test","steps":{"1":"x"},"depends_on":[],"team_name":""}},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+check_reason "TC-35: 신규 session_id는 카운터 초기화" "$(run_gate "$FRESH_SID")" "묻지 마라"
+
+# TC-36: verification 전환 시 카운터 파일 삭제 (ESC_SID가 task owner여야 reset 도달)
+echo "$ESC_SID" > "$TASK_DIR/.active"
+printf "## 결론\n통과\n" > "$TASK_DIR/verifications/e2e-result.md"
+cat > "$TASK_DIR/state.json" <<'EOF'
+{"workflow_phase":"verification","plan_approved":true,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/test-task","active_file":".ai-bouncer-tasks/2026-01-01/test-task/.active"}
+EOF
+run_gate "$ESC_SID" >/dev/null
+[ ! -f "$TASK_DIR/.cg-stop-count-$ESC_SID" ] && { echo "✅ TC-36: verification 전환 시 카운터 삭제"; PASS=$((PASS+1)); } || { echo "❌ TC-36: 카운터 파일 잔존"; FAIL=$((FAIL+1)); }
+
+# .active 원상복구
+touch "$TASK_DIR/.active"
 
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
