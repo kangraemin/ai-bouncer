@@ -48,11 +48,13 @@ _run_gate_checks() {
 
   # CHECK 3: plan_approved + plan.md 실존
   if [ "${PLAN_APPROVED}" != "true" ]; then
+    log_block "GC-NO-PLAN-APPROVED" "⛔ 계획 미승인 — 소스편집 차단"
     jq -n --arg r "⛔ ${_P}계획이 승인되지 않았습니다. /dev-bounce로 계획을 수립하고 승인 후 개발을 시작하세요." \
        '{decision:"block", reason:$r}'
     exit 0
   fi
   if [ ! -f "${TASK_DIR}/plan.md" ]; then
+    log_block "GC-NO-PLAN-MD" "⛔ plan.md 없음 — 소스편집 차단"
     jq -n --arg r "⛔ ${_P}plan.md 파일이 존재하지 않습니다. 계획 문서가 실제로 작성되어야 합니다." \
        '{decision:"block", reason:$r}'
     exit 0
@@ -70,6 +72,7 @@ _run_gate_checks() {
   case "$AGENT_MODE" in
     team)
       if [ "${WORKFLOW_PHASE}" = "development" ] && [ -z "${TEAM_NAME:-}" ]; then
+        log_block "GC-TEAM-NOT-CREATED" "⛔ 팀 미구성 — 소스편집 차단"
         jq -n --arg r "⛔ ${_P}[team] 팀이 구성되지 않았습니다. TeamCreate로 팀을 먼저 생성하세요." \
            '{decision:"block", reason:$r}'
         exit 0
@@ -79,6 +82,7 @@ _run_gate_checks() {
         local _home="${HOME:-$(eval echo ~"$(id -un)" 2>/dev/null)}"
         local TEAM_CONFIG="${_home}/.claude/teams/${TEAM_NAME:-}/config.json"
         if [ ! -f "$TEAM_CONFIG" ]; then
+          log_block "GC-TEAM-DIR-MISSING" "⛔ 팀 디렉토리 없음 — 소스편집 차단"
           jq -n --arg r "⛔ ${_P}[team] 팀 디렉토리가 존재하지 않습니다. TeamCreate로 팀을 먼저 생성하세요." \
              '{decision:"block", reason:$r}'
           exit 0
@@ -88,6 +92,7 @@ _run_gate_checks() {
         MEMBER_COUNT=$(jq -r '.members | length' "$TEAM_CONFIG" 2>/dev/null)
         MEMBER_COUNT=${MEMBER_COUNT//[^0-9]/}; MEMBER_COUNT=${MEMBER_COUNT:-0}
         if [ "$MEMBER_COUNT" -lt 1 ]; then
+          log_block "GC-TEAM-NO-MEMBERS" "⛔ 팀 멤버 없음 — 소스편집 차단"
           jq -n --arg r "⛔ ${_P}[team] 팀 멤버가 없습니다. Dev/QA를 스폰하세요." \
              '{decision:"block", reason:$r}'
           exit 0
@@ -110,6 +115,7 @@ _run_gate_checks() {
             fi
           fi
           if [ "$_should_block" = "true" ]; then
+            log_block "GC-TEAM-NO-DEVQA" "⛔ Dev/QA 없음 — 소스편집 차단"
             jq -n --arg r "⛔ ${_P}[team] Dev/QA 에이전트가 없습니다. Main Claude가 Dev/QA를 스폰하세요." \
                '{decision:"block", reason:$r}'
             exit 0
@@ -123,6 +129,7 @@ _run_gate_checks() {
   # CHECK 6.5: development + dev_phase/step=0 방어
   if [ "${WORKFLOW_PHASE}" = "development" ]; then
     if [ "${CURRENT_DEV_PHASE}" -le 0 ] || [ "${CURRENT_STEP}" -le 0 ]; then
+      log_block "GC-DEV-PHASE-UNSET" "⛔ dev_phase/step 미설정 — 소스편집 차단"
       jq -n --arg r "⛔ ${_P}development이지만 dev_phase/step 미설정" \
          '{decision:"block", reason:$r}'
       exit 0
@@ -135,6 +142,7 @@ _run_gate_checks() {
     _DPC=$(jq '.dev_phases | length' "${STATE_FILE}" 2>/dev/null)
     _DPC=${_DPC:-0}; _DPC=${_DPC//[^0-9]/}; _DPC=${_DPC:-0}
     if [ "$_DPC" -le 0 ]; then
+      log_block "GC-DEV-PHASES-EMPTY" "⛔ dev_phases 비어있음 — 소스편집 차단"
       jq -n --arg r "⛔ ${_P}dev_phases가 비어있습니다. Main Claude가 phase 구조를 먼저 정의해야 합니다." \
          '{decision:"block", reason:$r}'
       exit 0
@@ -163,6 +171,7 @@ _run_gate_checks() {
         if [ "$_hs" = false ]; then ALL_PHASES_DONE=false; break; fi
       done
       if [ "$ALL_PHASES_DONE" = false ]; then
+        log_block "GC-VERIF-PHASE-INCOMPLETE" "⛔ verification 미완료 Phase — 차단"
         jq -n --arg r "⛔ ${_P}verification 단계이지만 모든 개발 Phase가 완료되지 않았습니다. 미완료 Phase의 개발을 먼저 완료하세요." \
            '{decision:"block", reason:$r}'
         exit 0
@@ -197,6 +206,7 @@ _run_gate_checks() {
       fi
     done
     if [ "$PREV_PHASE_INCOMPLETE" = true ]; then
+      log_block "GC-PREV-PHASE-INCOMPLETE" "⛔ 이전 Phase 미완료 — 소스편집 차단"
       jq -n --arg phase "$PREV_DEV_PHASE" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Phase " + $phase + "의 모든 Step이 완료되지 않았습니다. 이전 Phase를 먼저 완료하세요.")}'
       exit 0
@@ -207,6 +217,7 @@ _run_gate_checks() {
   local _IS_PHASE_BOOTSTRAP=false
   if [ ! -f "${PHASE_DIR}/phase.md" ]; then
     if ! _gate_is_bootstrap_for "${PHASE_DIR}/phase.md"; then
+      log_block "GC-PHASE-MD-MISSING" "⛔ phase.md 없음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + "의 phase.md가 존재하지 않습니다. Main Claude가 phase.md를 먼저 생성해야 합니다.")}'
       exit 0
@@ -219,6 +230,7 @@ _run_gate_checks() {
     local _sec
     for _sec in "## 목표" "## 기술 접근" "## Steps"; do
       if ! LC_ALL=en_US.UTF-8 grep -q "$_sec" "${PHASE_DIR}/phase.md" 2>/dev/null; then
+        log_block "GC-PHASE-MD-SECTION" "⛔ phase.md 섹션 누락 — 소스편집 차단"
         jq -n --arg phase "$DEV_PHASE_KEY" --arg s "$_sec" --arg r "${_P}" \
            '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + "의 phase.md에 필수 섹션 누락: " + $s)}'
         exit 0
@@ -233,6 +245,7 @@ _run_gate_checks() {
 
     # CHECK 7b: 이전 step 파일 미존재
     if [ ! -f "$PREV_STEP_FILE" ]; then
+      log_block "GC-PREV-STEP-MISSING" "⛔ 이전 step.md 없음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + " 문서가 존재하지 않습니다.")}'
       exit 0
@@ -240,6 +253,7 @@ _run_gate_checks() {
 
     # CHECK 7c: 이전 step ✅ 미포함
     if ! grep -q '✅' "$PREV_STEP_FILE" 2>/dev/null; then
+      log_block "GC-PREV-STEP-NOT-PASSED" "⛔ 이전 step 미통과(✅없음) — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + " 테스트가 통과되지 않았습니다 (✅ 없음). 테스트를 먼저 통과시킨 후 진행하세요.")}'
       exit 0
@@ -247,6 +261,7 @@ _run_gate_checks() {
 
     # CHECK 7c-2: 실행출력 섹션 존재
     if ! LC_ALL=en_US.UTF-8 grep -qE '(실행출력|실행 결과|출력:|Output:)' "$PREV_STEP_FILE" 2>/dev/null; then
+      log_block "GC-PREV-STEP-NO-OUTPUT" "⛔ 이전 step 실행출력 섹션 없음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + "의 TC에 실행출력이 없습니다. 테스트 실행 결과를 반드시 기록하세요.")}'
       exit 0
@@ -270,6 +285,7 @@ except:
     print(0)
 " "$PREV_STEP_FILE" 2>/dev/null || echo 0)
     if [ "${_EXEC_LINES:-0}" -lt 2 ]; then
+      log_block "GC-PREV-STEP-EMPTY-OUTPUT" "⛔ 이전 step 실행출력 비어있음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$PREV_STEP" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + "의 실행출력이 비어있습니다. 실제 명령어 실행 결과를 붙여넣으세요.")}'
       exit 0
@@ -282,6 +298,7 @@ except:
   # CHECK 7d: 현재 step 파일 미존재 (bootstrap 허용)
   if [ ! -f "$CURRENT_STEP_FILE" ]; then
     if ! _gate_is_bootstrap_for "$CURRENT_STEP_FILE"; then
+      log_block "GC-STEP-MD-MISSING" "⛔ 현재 step.md 없음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + " 의 step.md가 존재하지 않습니다. Main Claude가 step.md를 먼저 생성해야 합니다.")}'
       exit 0
@@ -291,6 +308,7 @@ except:
   # CHECK 7e: TC 미정의 (bootstrap 허용)
   if ! _gate_is_bootstrap_for "$CURRENT_STEP_FILE"; then
     if ! grep -E '^\| *TC-[0-9]+ *\| *[^ |]' "$CURRENT_STEP_FILE" >/dev/null 2>&1; then
+      log_block "GC-TC-UNDEFINED" "⛔ TC 미정의 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + " 의 테스트 기준이 정의되지 않았습니다. QA가 TC를 먼저 작성해야 합니다.")}'
       exit 0
@@ -314,6 +332,7 @@ for line in sys.stdin:
 print(shallow)
 " 2>/dev/null || echo 0)
     if [ "${_TC_SHALLOW:-0}" -gt 0 ]; then
+      log_block "GC-TC-SHALLOW" "⛔ TC 부실(5자 미만) — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg n "$_TC_SHALLOW" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + ": TC " + $n + "개의 시나리오/기대결과가 너무 짧습니다 (5자 미만). 구체적으로 작성하세요.")}'
       exit 0
@@ -321,6 +340,7 @@ print(shallow)
 
     # CHECK 7e-3: 검증 명령어(backtick) 존재
     if ! LC_ALL=en_US.UTF-8 grep -q '`' "$CURRENT_STEP_FILE" 2>/dev/null; then
+      log_block "GC-TC-NO-COMMAND" "⛔ 검증명령어(backtick) 없음 — 소스편집 차단"
       jq -n --arg phase "$DEV_PHASE_KEY" --arg step "$STEP_KEY" --arg r "${_P}" \
          '{decision:"block", reason:("⛔ " + $r + "Dev Phase " + $phase + " Step " + $step + "에 검증 명령어(backtick)가 없습니다. 실행 가능한 명령어를 포함하세요.")}'
       exit 0
