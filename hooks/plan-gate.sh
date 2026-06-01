@@ -37,6 +37,13 @@ fi
 # SPAWNED_COUNT(/tmp/ 파일 기반) 검증이 fragile하여 정상 Dev 에이전트도 차단하는 버그 수정.
 # Lead 제거에 따라 이 검증은 불필요.
 
+# defense-in-depth: 빈 SESSION_ID로는 task resolve 금지 (cross-session hijack 방지)
+if [ -z "$SESSION_ID" ]; then
+  log_block "PG-NO-SESSION" "⛔ [plan-gate] session_id 없이 hook 호출 불가."
+  jq -n '{decision:"block", reason:"⛔ [plan-gate] session_id 없이 hook 호출 불가. 호출자가 SESSION_ID를 설정해야 합니다."}'
+  exit 0
+fi
+
 # resolve_task_dir: 공유 라이브러리 사용
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/resolve-task.sh"

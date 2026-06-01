@@ -4,7 +4,8 @@
 #
 # 사용법: 호출 전 SESSION_ID 환경변수 설정 (hook stdin에서 추출)
 # SESSION_ID가 있으면 해당 세션의 태스크만 매칭
-# SESSION_ID가 없으면 첫 번째 활성 태스크 사용 (하위 호환)
+# SESSION_ID 없이는 .active 매칭 안 함 (cross-session hijack 방지)
+# 호출자는 반드시 hook stdin에서 추출한 session_id를 SESSION_ID 환경변수로 설정해야 함
 
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
@@ -87,12 +88,9 @@ _resolve_from_base() {
     local state_file="${base}/${task_folder}/state.json"
     [ -f "$state_file" ] || continue
 
-    # SESSION_ID가 없으면 첫 번째 활성 태스크 사용
+    # 빈 SESSION_ID는 매칭 skip (cross-session hijack 방지)
     if [ -z "$SESSION_ID" ]; then
-      TASK_NAME="$task_folder"
-      DOCS_BASE="$base"
-      IS_MY_TASK=true
-      return 0
+      continue   # 빈 SESSION_ID로는 어떤 .active도 자기 owner로 인정 안 함
     fi
 
     # SESSION_ID 매칭

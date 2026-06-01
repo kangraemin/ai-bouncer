@@ -46,11 +46,13 @@ cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
 EOF
 
 TASK_DIR="$TMPDIR/.ai-bouncer-tasks/2026-01-01/e2e-test"
+OWNER_SID="e2e-owner-sess"
 mkdir -p "$TASK_DIR/verifications"
 
 # 헬퍼 함수
 run_plan() {
   local file="$1" sid="${2:-}" content="${3:-x}"
+  [ -z "$sid" ] && sid="$OWNER_SID"
   (cd "$TMPDIR" && jq -n --arg file "$file" --arg sid "$sid" --arg content "$content" \
     '{"tool_name":"Write","session_id":$sid,"tool_input":{"file_path":$file,"content":$content}}' \
     | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
@@ -58,6 +60,7 @@ run_plan() {
 
 run_bash() {
   local cmd="$1" sid="${2:-}"
+  [ -z "$sid" ] && sid="$OWNER_SID"
   (cd "$TMPDIR" && jq -n --arg cmd "$cmd" --arg sid "$sid" \
     '{"tool_name":"Bash","session_id":$sid,"tool_input":{"command":$cmd}}' \
     | bash "$HOOKS_DIR/bash-gate.sh" 2>/dev/null) || true
@@ -65,6 +68,7 @@ run_bash() {
 
 run_stop() {
   local sid="${1:-}"
+  [ -z "$sid" ] && sid="$OWNER_SID"
   (cd "$TMPDIR" && jq -n --arg sid "$sid" \
     '{"session_id":$sid}' \
     | bash "$HOOKS_DIR/completion-gate.sh" 2>/dev/null) || true
@@ -77,7 +81,7 @@ echo "=== SCENARIO A: Planning 단계 ==="
 cat > "$TASK_DIR/state.json" <<'EOF'
 {"workflow_phase":"planning","plan_approved":false,"dev_phases":{}}
 EOF
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # A-01: planning + 소스코드 수정 → block (plan 없음)
 OUT=$(run_plan "$TMPDIR/src/app.py" "")
@@ -366,7 +370,7 @@ check "H-02: no .active → bash gate allow" "$OUT" "allow"
 OUT=$(run_stop "")
 check_stop "H-03: no .active → stop continue" "$OUT" "continue"
 
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # ===== SCENARIO I: 전환 - state.json workflow_phase 갱신 =====
 echo ""
@@ -567,23 +571,24 @@ cat > "$TMPDIR2/.claude/ai-bouncer/config.json" <<'EOF'
 EOF
 
 TASK2="$TMPDIR2/.ai-bouncer-tasks/2026-01-01/full-flow"
+OWNER_SID2="e2e-owner-sess2"
 mkdir -p "$TASK2/verifications"
-touch "$TASK2/.active"
+echo "$OWNER_SID2" > "$TASK2/.active"
 
 run_plan2() {
   local file="$1"
-  (cd "$TMPDIR2" && jq -n --arg file "$file" \
-    '{"tool_name":"Write","session_id":"","tool_input":{"file_path":$file,"content":"x"}}' \
+  (cd "$TMPDIR2" && jq -n --arg file "$file" --arg sid "$OWNER_SID2" \
+    '{"tool_name":"Write","session_id":$sid,"tool_input":{"file_path":$file,"content":"x"}}' \
     | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 run_bash2() {
   local cmd="$1"
-  (cd "$TMPDIR2" && jq -n --arg cmd "$cmd" \
-    '{"tool_name":"Bash","session_id":"","tool_input":{"command":$cmd}}' \
+  (cd "$TMPDIR2" && jq -n --arg cmd "$cmd" --arg sid "$OWNER_SID2" \
+    '{"tool_name":"Bash","session_id":$sid,"tool_input":{"command":$cmd}}' \
     | bash "$HOOKS_DIR/bash-gate.sh" 2>/dev/null) || true
 }
 run_stop2() {
-  (cd "$TMPDIR2" && jq -n '{"session_id":""}' \
+  (cd "$TMPDIR2" && jq -n --arg sid "$OWNER_SID2" '{"session_id":$sid}' \
     | bash "$HOOKS_DIR/completion-gate.sh" 2>/dev/null) || true
 }
 

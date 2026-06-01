@@ -10,6 +10,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/block-logger.sh"
 INPUT=$(cat)
 export SESSION_ID
 SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
+# 빈 SESSION_ID면 owner 판정 없이 통과 (Stop hook은 차단 시 세션 wedge → exit 0)
+[ -z "$SESSION_ID" ] && exit 0
 
 # 승인된 sub-agent는 completion-gate 스킵 (부모 세션이 관리)
 APPROVED_FILE="/tmp/.ai-bouncer-approved-agents"

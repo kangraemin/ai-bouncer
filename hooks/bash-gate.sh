@@ -69,6 +69,13 @@ if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
     exit 0
   fi
 
+  # defense-in-depth: 빈 SESSION_ID로는 task resolve 금지 (cross-session hijack 방지)
+  if [ -z "$SESSION_ID" ]; then
+    log_block "BG-NO-SESSION" "⛔ [bash-gate] session_id 없이 hook 호출 불가."
+    jq -n '{decision:"block", reason:"⛔ [bash-gate] session_id 없이 hook 호출 불가. 호출자가 SESSION_ID를 설정해야 합니다."}'
+    exit 0
+  fi
+
   # .active 탐색 (resolve-task.sh)
   SCRIPT_DIR_CS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   source "$SCRIPT_DIR_CS/lib/resolve-task.sh"
@@ -370,6 +377,13 @@ fi
 # 4.5. PRE-CHECK 제거됨
 # SPAWNED_COUNT(/tmp/ 파일 기반) 검증이 fragile하여 정상 Dev 에이전트도 차단하는 버그 수정.
 # Lead 차단은 team 모드 CHECK 6-DEV (NON_LEAD_COUNT) 에서 처리.
+
+# defense-in-depth: 빈 SESSION_ID로는 task resolve 금지 (cross-session hijack 방지)
+if [ -z "$SESSION_ID" ]; then
+  log_block "BG-NO-SESSION" "⛔ [bash-gate] session_id 없이 hook 호출 불가."
+  jq -n '{decision:"block", reason:"⛔ [bash-gate] session_id 없이 hook 호출 불가. 호출자가 SESSION_ID를 설정해야 합니다."}'
+  exit 0
+fi
 
 # 5. Gate 검증 (plan-gate.sh CHECK 2~7 동일)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

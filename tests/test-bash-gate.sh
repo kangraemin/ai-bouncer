@@ -30,14 +30,17 @@ cat > "$TMPDIR/.claude/ai-bouncer/config.json" <<'EOF'
 EOF
 
 TASK_DIR="$TMPDIR/.ai-bouncer-tasks/2026-01-01/test-task"
+OWNER_SID="bg-owner-sess"
 mkdir -p "$TASK_DIR/verifications"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 cat > "$TASK_DIR/state.json" <<'EOF'
 {"workflow_phase":"planning","plan_approved":false,"dev_phases":{}}
 EOF
 
 run_gate() {
   local cmd="$1" sid="${2:-}"
+  # sid 미지정/빈값이면 .active owner로 폴백 (빈 SESSION_ID hijack 방지 후 정상 매칭 유지)
+  [ -z "$sid" ] && sid=$(cat "$TASK_DIR/.active" 2>/dev/null | tr -d '[:space:]')
   (cd "$TMPDIR" && jq -n --arg cmd "$cmd" --arg sid "$sid" \
     '{"tool_name":"Bash","session_id":$sid,"tool_input":{"command":$cmd}}' \
     | bash "$HOOKS_DIR/bash-gate.sh" 2>/dev/null) || true
@@ -81,7 +84,7 @@ check "TC-05: development → cancelled (bash) → block" "$OUT" "block"
 # TC-06: rm .active + workflow_phase=development → block
 OUT=$(run_gate "rm -f .ai-bouncer-tasks/2026-01-01/test-task/.active" "")
 check "TC-06: rm .active + phase=development → block" "$OUT" "block"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 cat > "$TASK_DIR/state.json" <<'EOF'
 {"workflow_phase":"planning","plan_approved":false,"dev_phases":{}}
 EOF
@@ -303,7 +306,7 @@ cat > "$TASK_DIR/state.json" <<'EOF'
 EOF
 OUT=$(run_gate "rm -f .ai-bouncer-tasks/2026-01-01/test-task/.active" "")
 check "TC-50: rm .active + done → allow" "$OUT" "allow"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # TC-51: rm .active + cancelled 상태 → allow
 cat > "$TASK_DIR/state.json" <<'EOF'
@@ -311,7 +314,7 @@ cat > "$TASK_DIR/state.json" <<'EOF'
 EOF
 OUT=$(run_gate "rm -f .ai-bouncer-tasks/2026-01-01/test-task/.active" "")
 check "TC-51: rm .active + cancelled → allow" "$OUT" "allow"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # TC-52: rm .active + verification 상태 → block
 cat > "$TASK_DIR/state.json" <<'EOF'
@@ -319,7 +322,7 @@ cat > "$TASK_DIR/state.json" <<'EOF'
 EOF
 OUT=$(run_gate "rm -f .ai-bouncer-tasks/2026-01-01/test-task/.active" "")
 check "TC-52: rm .active + verification → block" "$OUT" "block"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # ── verifications/ 접근 제어 ──
 

@@ -31,8 +31,9 @@ EOF
 
 TASK_DIR="$TMPDIR/.ai-bouncer-tasks/2026-01-01/test-task"
 PHASE_DIR="$TASK_DIR/phase-1-test"
+OWNER_SID="pg-owner-sess"
 mkdir -p "$TASK_DIR" "$PHASE_DIR" "$TASK_DIR/verifications"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 cat > "$TASK_DIR/plan.md" <<'EOF'
 # Plan
 ## 목표
@@ -50,14 +51,14 @@ EOF
 
 run_gate() {
   local file="$1"
-  (cd "$TMPDIR" && echo "{\"tool_name\":\"Edit\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$file\",\"old_string\":\"x\",\"new_string\":\"y\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
+  (cd "$TMPDIR" && echo "{\"tool_name\":\"Edit\",\"session_id\":\"$OWNER_SID\",\"tool_input\":{\"file_path\":\"$file\",\"old_string\":\"x\",\"new_string\":\"y\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
 run_gate_state() {
   local new_content="$1"
   local encoded
   encoded=$(echo "$new_content" | jq -Rs .)
-  (cd "$TMPDIR" && echo "{\"tool_name\":\"Write\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$TASK_DIR/state.json\",\"content\":$encoded}}" \
+  (cd "$TMPDIR" && echo "{\"tool_name\":\"Write\",\"session_id\":\"$OWNER_SID\",\"tool_input\":{\"file_path\":\"$TASK_DIR/state.json\",\"content\":$encoded}}" \
     | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
@@ -65,7 +66,7 @@ run_gate_write() {
   local file="$1" content="$2"
   local encoded
   encoded=$(echo "$content" | jq -Rs .)
-  (cd "$TMPDIR" && echo "{\"tool_name\":\"Write\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$file\",\"content\":$encoded}}" \
+  (cd "$TMPDIR" && echo "{\"tool_name\":\"Write\",\"session_id\":\"$OWNER_SID\",\"tool_input\":{\"file_path\":\"$file\",\"content\":$encoded}}" \
     | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 }
 
@@ -461,25 +462,26 @@ EOF
 rm -f "$TASK_DIR/.active"
 write_state "$BASE_STATE"
 check "TC-41: .active 없음 → allow" "$(run_gate "$DUMMY")" "allow"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # ── nested sub-project: git toplevel ≠ 작업 디렉토리 ──
 # (sub-dir이 자체 git repo가 아니면 git rev-parse가 상위 repo를 반환 →
 #  .ai-bouncer-tasks/가 toplevel 바로 아래가 아니어도 task 파일로 인식해야 함)
 
 NESTED_TASK="$TMPDIR/subproj/.ai-bouncer-tasks/2026-01-01/nested-task"
+NESTED_SID="pg-nested-sess"
 mkdir -p "$NESTED_TASK"
-touch "$NESTED_TASK/.active"
+echo "$NESTED_SID" > "$NESTED_TASK/.active"
 NESTED_STATE='{"workflow_phase":"planning","plan_approved":false,"current_dev_phase":0,"current_step":0,"dev_phases":{},"task_dir":".ai-bouncer-tasks/2026-01-01/nested-task","active_file":".ai-bouncer-tasks/2026-01-01/nested-task/.active"}'
 echo "$NESTED_STATE" > "$NESTED_TASK/state.json"
 NESTED_ENC=$(echo "$NESTED_STATE" | jq -Rs .)
 
 # TC-42: nested sub-project의 .ai-bouncer-tasks/ 하위 state.json (planning) → allow
-NESTED_OUT=$(cd "$TMPDIR/subproj" && echo "{\"tool_name\":\"Write\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$NESTED_TASK/state.json\",\"content\":$NESTED_ENC}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
+NESTED_OUT=$(cd "$TMPDIR/subproj" && echo "{\"tool_name\":\"Write\",\"session_id\":\"$NESTED_SID\",\"tool_input\":{\"file_path\":\"$NESTED_TASK/state.json\",\"content\":$NESTED_ENC}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 check "TC-42: nested sub-project planning state.json write → allow" "$NESTED_OUT" "allow"
 
 # TC-43: nested sub-project의 .ai-bouncer-tasks/ 밖 일반 소스 파일 (planning) → block (정상 차단 유지)
-NESTED_SRC_OUT=$(cd "$TMPDIR/subproj" && echo "{\"tool_name\":\"Write\",\"session_id\":\"\",\"tool_input\":{\"file_path\":\"$TMPDIR/subproj/foo.sh\",\"content\":\"echo hi\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
+NESTED_SRC_OUT=$(cd "$TMPDIR/subproj" && echo "{\"tool_name\":\"Write\",\"session_id\":\"$NESTED_SID\",\"tool_input\":{\"file_path\":\"$TMPDIR/subproj/foo.sh\",\"content\":\"echo hi\"}}" | bash "$HOOKS_DIR/plan-gate.sh" 2>/dev/null) || true
 check "TC-43: nested sub-project non-task source file → block" "$NESTED_SRC_OUT" "block"
 
 echo ""

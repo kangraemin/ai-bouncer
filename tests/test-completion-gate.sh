@@ -32,8 +32,9 @@ TMPDIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR'" EXIT
 
 TASK_DIR="$TMPDIR/.ai-bouncer-tasks/2026-01-01/test-task"
+OWNER_SID="cg-owner-sess"
 mkdir -p "$TASK_DIR/verifications"
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 write_state() {
   cat > "$TASK_DIR/state.json" <<EOF
@@ -42,7 +43,7 @@ EOF
 }
 
 run_gate() {
-  local sid="${1:-}"
+  local sid="${1:-$(cat "$TASK_DIR/.active" 2>/dev/null | tr -d '[:space:]')}"
   (cd "$TMPDIR" && echo "{\"session_id\":\"$sid\",\"stop_hook_active\":false}" | bash "$HOOKS_DIR/completion-gate.sh" 2>/dev/null) || true
 }
 
@@ -197,7 +198,7 @@ check "TC-22: 타 session_id → IS_MY_TASK=false → allow" \
   "$(run_gate "$OTHER_SID")" "allow"
 
 # .active 원상복구
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 # ── subagent 우회 ──
 
@@ -328,7 +329,7 @@ run_gate "$ESC_SID" >/dev/null
 [ ! -f "$TASK_DIR/.cg-stop-count-$ESC_SID" ] && { echo "✅ TC-36: verification 전환 시 카운터 삭제"; PASS=$((PASS+1)); } || { echo "❌ TC-36: 카운터 파일 잔존"; FAIL=$((FAIL+1)); }
 
 # .active 원상복구
-touch "$TASK_DIR/.active"
+echo "$OWNER_SID" > "$TASK_DIR/.active"
 
 echo ""
 echo "결과: PASS=$PASS FAIL=$FAIL"
