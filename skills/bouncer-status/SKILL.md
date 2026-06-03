@@ -114,8 +114,13 @@ grep -q 'ai-bouncer-rule' "$TARGET_DIR/CLAUDE.md"
 #### 2-5. 활성 태스크
 
 ```bash
+# 로컬(같은 트리) 태스크
 find .ai-bouncer-tasks -name ".active" 2>/dev/null
+# 병렬(worktree) 태스크 — ~/.ai-bouncer/worktrees/<repo>/ 밑
+_RN=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); _RN=$(basename "$(dirname "${_RN%/.git}")")
+find "$HOME/.ai-bouncer/worktrees/$_RN" -name ".active" 2>/dev/null
 ```
+> state.json에 `worktree_path`가 있는 태스크는 **"병렬(worktree)"**로 표시한다 (예: `활성 태스크: my-task (development/병렬-worktree)`).
 
 #### 진단 결과 출력
 

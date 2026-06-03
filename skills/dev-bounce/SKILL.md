@@ -120,9 +120,16 @@ print(json.dumps(results, ensure_ascii=False))
   2. 기존 작업 중단하고 새 작업 시작 (전환)
   3. 기존 작업 이어서 진행
   ```
-  - 선택 1 → 기존 .active 그대로 두고, 새 TASK_DIR 생성 + 새 .active 생성. Phase 0 진행.
-  - 선택 2 → 기존 task `state.json`의 `workflow_phase = "cancelled"` 업데이트 후 `.active` 삭제. 새 TASK_DIR 생성. Phase 0 진행.
+  - 선택 1 (병렬) → **git worktree로 격리해서 새 작업을 거기서 진행한다** (같은 트리에서 두 작업 동시 진행 시 state/.active 충돌·파일 경합 방지):
+    1. 기존 .active는 그대로 둔다 (다른 세션 작업).
+    2. worktree 생성: `bash {BOUNCER_SCRIPTS}/worktree-helper.sh create "{REPO_ROOT}" "{TASK_NAME}"` → 출력 `WT=`/`BRANCH=`/`BASE=` 파싱.
+    3. **`WORK_ROOT` = 그 `WT` 경로로 설정.** 이후 Phase 0-A부터 모든 TASK_DIR·파일·git을 `WORK_ROOT` 기준으로 한다 (TASK_DIR = `{WORK_ROOT}/.ai-bouncer-tasks/YYYY-MM-DD/{TASK_NAME}`).
+    4. state.json에 `worktree_path`(WT)·`base_branch`(BASE)·`branch`(BRANCH) 기록.
+    > worktree는 `~/.ai-bouncer/worktrees/<repo>/<branch>/`(레포 밖)에 생성됨 — Metro/빌드툴이 안 긁고 권한 프롬프트도 없음. done 시 Phase 4에서 base로 rebase→FF머지→정리(finalize).
+  - 선택 2 (전환) → 기존 task `state.json`의 `workflow_phase = "cancelled"` 업데이트 후 `.active` 삭제. 새 TASK_DIR 생성(WORK_ROOT=프로젝트 루트). Phase 0 진행.
   - 선택 3 → Case A-1과 동일하게 재개.
+
+  > **WORK_ROOT 규칙 (전 Phase 공통)**: 병렬(worktree) 작업이면 WORK_ROOT=worktree 경로, 그 외엔 프로젝트 루트. Phase 0-A TASK_DIR 생성, Phase 1~3 문서, **3-4 커밋(`git -C "$WORK_ROOT"` 또는 cwd=WORK_ROOT)**, Phase 4 done 모두 WORK_ROOT 기준. state.json에 `worktree_path`가 있으면 WORK_ROOT=worktree_path로 간주.
 
 **Case B: `active`는 없고 `incomplete`가 1개 이상**
 → **반드시 AskUserQuestion으로 사용자에게 확인** 후 진행. 임의로 선택 금지.
@@ -767,6 +774,8 @@ Phase N 완료 → state.json current_dev_phase++, current_step=1 업데이트 �
 
 #### 3-4. Step/Phase 완료 시 커밋
 
+> ⚠️ **병렬(worktree) 작업이면 커밋은 worktree에서.** state.json에 `worktree_path`가 있으면 모든 커밋(`/commit` 스킬이든 `git add/commit/push`든)을 **WORK_ROOT(=worktree_path)에서** 실행한다(`cd "$WORK_ROOT"` 또는 `git -C "$WORK_ROOT"`). 그래야 커밋이 worktree 브랜치(`branch`)에 쌓이고, done 시 base로 FF머지된다. 비-병렬이면 프로젝트 루트에서 평소대로.
+
 `.claude/ai-bouncer/config.json`에서 커밋 전략 확인 (프로젝트 로컬 경로):
 
 ```bash
@@ -938,7 +947,16 @@ Phase 4 시작 전 state.json `workflow_phase`를 `"verification"`으로 업데�
    - state.json `workflow_phase`를 `"done"`으로 업데이트  ← 먼저 (crash 시 done+active → 다음 세션에서 자동 정리)
    - dev_phases의 모든 팀에 대해 TeamDelete (등록된 팀 이름별로 순서대로)
      ⚠️ TeamDelete 실패 시 `rm -r ~/.claude/teams/{TEAM_NAME}`으로 직접 정리.
-   - active_file 삭제: `rm -f {active_file}`             ← 그 다음
+   - **병렬(worktree) 작업이면 — `.active` 삭제 직전에 worktree finalize:**
+     state.json에 `worktree_path`가 있으면:
+     ```bash
+     bash {BOUNCER_SCRIPTS}/worktree-helper.sh finalize \
+       "{REPO_ROOT}" "{worktree_path}" "{branch}" "{base_branch}" "{TASK_DIR}" "$(bash {BOUNCER_SCRIPTS}/bouncer-config.sh docs_git_track false)"
+     ```
+     → worktree에서 base로 rebase → 메인에서 `git merge --ff-only` → (docs_git_track=false면) task 문서 메인 복귀(.active·.cg-stop-count-* 제외) → worktree·브랜치 제거.
+     ⚠️ **rebase 충돌로 finalize가 비-0 종료하면**: worktree·브랜치는 보존된다. **done 처리를 보류하고** 사용자에게 "base와 충돌 — worktree({worktree_path})에서 수동 rebase 후 재시도" 보고. 자동으로 worktree 삭제하지 않는다.
+     ⚠️ REPO_ROOT는 메인 레포 루트(worktree 경로 아님).
+   - active_file 삭제: `rm -f {active_file}`             ← 그 다음 (병렬이면 finalize가 worktree 내부 .active도 정리)
      ⚠️ task_dir 자체는 절대 삭제하지 않는다. 모든 문서 보존.
    - 사용자에게 완료 보고
 
