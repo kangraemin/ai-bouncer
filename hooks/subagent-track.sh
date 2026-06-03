@@ -11,6 +11,9 @@ AGENT_SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""')
 
 # 부모의 활성 task 찾기: development/verification phase인 .active task 검색
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+# 메인 레포 루트 (config·persistent 키용 — worktree에서도 메인 가리킴). 로컬 .ai-bouncer-tasks 스캔은 REPO_ROOT(worktree-local) 유지.
+MAIN_ROOT=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); MAIN_ROOT="${MAIN_ROOT%/.git}"
+[ -z "$MAIN_ROOT" ] && MAIN_ROOT="$REPO_ROOT"
 FOUND_TASK_DIR=""
 
 # 날짜별 구조 스캔
@@ -45,8 +48,8 @@ fi
 
 # persistent 경로도 확인 (local에서 못 찾은 경우만)
 if [ -z "$FOUND_TASK_DIR" ] && [ "$_CANDIDATE_COUNT" -eq 0 ]; then
-  REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
-  PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
+  REPO_NAME=$(basename "$MAIN_ROOT" 2>/dev/null)
+  PERSISTENT_BASE="$HOME/.ai-bouncer/worktrees/${REPO_NAME}/.ai-bouncer-tasks"
   _PERSIST_COUNT=0
   if [ -d "$PERSISTENT_BASE" ]; then
     for active_file in "$PERSISTENT_BASE"/*/.active; do
@@ -71,7 +74,7 @@ fi
 [ -z "$FOUND_TASK_DIR" ] && exit 0
 
 # team 모드에서 team_name 없으면 등록 거부 (팀 미구성 서브에이전트 차단)
-_BCFG="${REPO_ROOT}/.claude/ai-bouncer/config.json"
+_BCFG="${MAIN_ROOT}/.claude/ai-bouncer/config.json"
 [ -f "$_BCFG" ] || _BCFG="${HOME}/.claude/ai-bouncer/config.json"
 _AGENT_MODE=$(jq -r '.agent_mode // "team"' "$_BCFG" 2>/dev/null || echo "team")
 if [ "$_AGENT_MODE" = "team" ]; then

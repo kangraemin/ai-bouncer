@@ -53,7 +53,10 @@ fi
 
 # 2-1. commit_strategy 검증 (git commit/push)
 if echo "$CMD" | grep -qE '^\s*git\s+(commit|push)\b'; then
-  REPO_ROOT_CS=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
+  # config는 메인 레포 기준 (worktree엔 .claude 없을 수 있음 → git-common-dir로 메인루트)
+  REPO_ROOT_CS=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  REPO_ROOT_CS="${REPO_ROOT_CS%/.git}"
+  [ -z "$REPO_ROOT_CS" ] && REPO_ROOT_CS=$(git rev-parse --show-toplevel 2>/dev/null || echo ".")
   CONFIG_CS="${REPO_ROOT_CS}/.claude/ai-bouncer/config.json"
   [ ! -f "$CONFIG_CS" ] && CONFIG_CS="$HOME/.claude/ai-bouncer/config.json"
 

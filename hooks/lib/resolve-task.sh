@@ -7,7 +7,11 @@
 # SESSION_ID 없이는 .active 매칭 안 함 (cross-session hijack 방지)
 # 호출자는 반드시 hook stdin에서 추출한 session_id를 SESSION_ID 환경변수로 설정해야 함
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+# 메인 레포 루트 — worktree 안에서도 메인을 가리킴(git-common-dir 기반).
+# config·REPO_NAME(persistent 키) 해석용. 비-worktree에선 show-toplevel과 동일 루트.
+REPO_ROOT=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+REPO_ROOT="${REPO_ROOT%/.git}"
+[ -z "$REPO_ROOT" ] && REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 REPO_NAME=$(basename "$REPO_ROOT" 2>/dev/null)
 
 TASK_NAME=""
@@ -120,7 +124,7 @@ _resolve_date_dirs() {
 }
 
 # 1. persistent dir (worktree용)
-PERSISTENT_BASE="$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
+PERSISTENT_BASE="$HOME/.ai-bouncer/worktrees/${REPO_NAME}/.ai-bouncer-tasks"
 _resolve_from_base "$PERSISTENT_BASE"
 
 # 2. local .ai-bouncer-tasks/ — 날짜별 구조 (.ai-bouncer-tasks/YYYY-MM-DD/task-name/.active)
@@ -178,7 +182,7 @@ if [ -z "$TASK_NAME" ] && [ -n "$SESSION_ID" ]; then
 
   # persistent 경로
   if [ -z "$TASK_NAME" ]; then
-    _fallback_find_active "$HOME/.claude/ai-bouncer/sessions/${REPO_NAME}/.ai-bouncer-tasks"
+    _fallback_find_active "$HOME/.ai-bouncer/worktrees/${REPO_NAME}/.ai-bouncer-tasks"
   fi
 
   # flat 구조 (하위 호환)
