@@ -626,6 +626,11 @@ GITIGNORE_BLOCK="${GITIGNORE_START}
 if [ "$DOCS_TRACK_BOOL" = "false" ]; then
   GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
 .ai-bouncer-tasks/"
+else
+  # docs_git_track=true: task 문서는 추적하되, 휘발성 파일(.active/카운터)은 항상 ignore
+  GITIGNORE_BLOCK="${GITIGNORE_BLOCK}
+.ai-bouncer-tasks/**/.active
+.ai-bouncer-tasks/**/.cg-stop-count-*"
 fi
 
 # bouncer installed files (manifest 기반 — 사용자 파일과 정확히 구분)
@@ -956,10 +961,13 @@ if not is_registered(ss_list, 'bouncer-update-check.sh'):
 else:
     print(f"  · SessionStart hook 이미 등록됨: bouncer-update-check.sh")
 
-# permissions.allow에 Read/Glob/Grep 추가 (multi-agent 권한 프롬프트 방지)
+# permissions.allow에 Read/Glob/Grep + worktree git 추가
+# (multi-agent 권한 프롬프트 방지 + 병렬 worktree 생성/머지/정리 프롬프트 제거.
+#  broad git push:*/fetch:* 는 금지 — FF는 merge --ff-only로만)
 perms = cfg.setdefault('permissions', {})
 allow = perms.setdefault('allow', [])
-for tool in ['Read', 'Glob', 'Grep']:
+for tool in ['Read', 'Glob', 'Grep',
+             'Bash(git worktree:*)', 'Bash(git rebase:*)', 'Bash(git merge --ff-only:*)']:
     if tool not in allow:
         allow.append(tool)
         print(f"  ✓ permissions.allow 추가: {tool}")

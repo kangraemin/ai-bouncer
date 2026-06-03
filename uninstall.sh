@@ -212,6 +212,19 @@ fi
 # ai-bouncer 디렉토리 통째 삭제 (hooks, scripts, config, manifest 포함)
 rm -rf "$BOUNCER_DATA_DIR"
 
+# 병렬 worktree 정리: ~/.ai-bouncer/worktrees 의 worktree들을 원 레포에서 등록 해제 후 삭제.
+# (원 레포 git worktree 등록을 끊지 않으면 'git worktree list'에 유령으로 남음)
+if [ -d "$HOME/.ai-bouncer/worktrees" ]; then
+  for _wt in "$HOME/.ai-bouncer/worktrees"/*/*/; do
+    [ -d "$_wt" ] || continue
+    _wtmain=$(git -C "$_wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+    _wtmain="${_wtmain%/.git}"
+    [ -n "$_wtmain" ] && git -C "$_wtmain" worktree remove --force "$_wt" 2>/dev/null
+  done
+  rm -rf "$HOME/.ai-bouncer/worktrees"
+  echo "  ai-bouncer worktree 정리됨 (~/.ai-bouncer/worktrees). 남은 유령은 각 레포 'git worktree prune'으로 정리하세요."
+fi
+
 # 빈 디렉토리 정리 (agents/skills는 manifest 기반 개별 삭제 후 빈 디렉토리만 정리)
 for dir in "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents"; do
   rmdir "$dir" 2>/dev/null || true
