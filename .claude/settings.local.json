@@ -43,7 +43,15 @@
       "Skill(browse)",
       "Skill(worklog)",
       "Skill(session-review)",
-      "Skill(dev-bounce)"
+      "Skill(dev-bounce)",
+      "Bash(cp scripts/claim-active.sh .claude/ai-bouncer/scripts/claim-active.sh)",
+      "Bash(bash tests/test-claim-active.sh)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(python3 -c 'import json;p='\\\\''__TRACKED_VAR__/state.json'\\\\'';s=json.load\\(open\\(p\\)\\);s['\\\\''current_step'\\\\'']=3;json.dump\\(s,open\\(p,'\\\\''w'\\\\''\\),ensure_ascii=False,indent=2\\);print\\('\\\\''current_step=3'\\\\''\\)')",
+      "Read(//Users/ram/.claude/ai-bouncer/scripts/**)",
+      "Bash(cp scripts/claim-active.sh ~/.claude/ai-bouncer/scripts/claim-active.sh)",
+      "Bash(rm -rf /tmp/_chk)",
+      "Bash(echo \"OTHER-CONTAM\")"
     ]
   }
 }
