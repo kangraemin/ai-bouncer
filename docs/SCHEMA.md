@@ -46,7 +46,7 @@
 
 | 값 | 실행 주체 | 시간 제약 | 용도 |
 |---|---|---|---|
-| `model` (기본) | 모델이 `bouncer run <id>`로 실행. 명령은 엔진이 소유 | 없음 | 테스트·빌드·e2e |
+| `model` (기본) | 모델이 `bouncer run <id>`로 실행. 명령은 엔진이 소유 | step의 `timeout`만 (기본 600초) | 테스트·빌드·e2e |
 | `engine` | Stop hook 안에서 엔진이 실행 | **60초 상한 (컴파일 강제)** | 1초짜리 상태 확인 |
 
 > `by: engine`에 60초 넘는 `timeout`을 주면 컴파일이 거부한다. hook이 타임아웃되면
@@ -61,6 +61,8 @@
 | `true` | `inject` | 사용자 턴 발생 + `bouncer done` | 불가 |
 | `plan_approved` | `inject` | PostToolUse가 ExitPlanMode 승인 관찰 | 불가 |
 | `skill:<이름>` | `inject` | PostToolUse가 스킬 호출 관찰 | 불가 |
+
+플러그인 스킬처럼 이름에 `:`가 들어가는 경우도 그대로 쓴다 — `skill:telegram:access`.
 
 뒤의 셋은 `inject` 전용이다. `run`에 쓰면 컴파일이 거부한다.
 
@@ -85,7 +87,14 @@ glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]`
 | 체인에 정의 없는 스테이지 | 오타로 단계가 조용히 사라진다 |
 | `on_fail`이 뒤쪽/체인 밖 | 되돌아가기만 허용 (무한 전진 방지) |
 | `blocking`·`optional`인데 `label` 없음 | 진행 상태를 위치가 아닌 이름으로 추적 |
-| `blocking` 값이 목록 밖 | |
+| `blocking` 값이 목록 밖 | `true` / `plan_approved` / `skill:<이름>` 외 |
+| 같은 스테이지에 중복된 `label` | step id가 겹쳐 진행 기록이 엉킨다 |
+| 한 체인에 같은 스테이지가 두 번 | |
+| `version`이 1이 아님 | |
+| 빈 `inject` | |
+| `optional`이 boolean이 아님 | |
+| `forbid.bash`의 정규식이 컴파일 안 됨 | |
+| 알 수 없는 키 (root / workflows / stages / step / forbid 어디든) | 오타로 설정이 조용히 무시되는 것을 막는다 |
 | `run`에 `plan_approved`·`skill:` | hook 관찰 방식이라 셸 명령엔 부적용 |
 | `by`가 model/engine 아님 | |
 | `by: engine` + timeout > 60초 | hook 타임아웃 → 판정 없이 정지 |

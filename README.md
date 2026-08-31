@@ -156,8 +156,9 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 3. **자기 보고는 게이트가 아니다.** 통과 판정은 위 4가지로만 한다.
 4. **설정 파일은 하나다.** 기본값은 코드에 있어 새 설정이 생겨도 yaml을 안 고쳐도 된다.
 5. **런타임 의존성은 `jq`뿐이다.** yaml은 설치·변경 시점에 json으로 컴파일된다.
-6. **fail-open 금지.** 오타난 스테이지 이름, 없는 프롬프트 파일, 해석이 갈리는 YAML
-   앵커는 전부 컴파일 단계에서 거부한다.
+6. **fail-open 금지.** 오타난 스테이지 이름, 없는 프롬프트 파일, 중복된 키(가드가
+   조용히 덮어써진다), 뒤로 못 가는 `on_fail` 등을 컴파일 단계에서 거부한다.
+   YAML 앵커는 pyyaml이 없는 환경에서 해석이 갈리므로 **내장 파서를 쓸 때** 거부한다.
 
 <br>
 
@@ -176,6 +177,13 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 └── CLAUDE.md                      ← 규칙 블록 (마커 밖 내용은 보존)
 ```
 
+프로젝트 밖에도 두 가지가 생긴다:
+
+- `~/.local/bin/bouncer` — 셸에서 부를 수 있게 하는 심볼릭 링크.
+  현재 디렉토리에서 위로 올라가며 프로젝트를 찾으므로 어느 레포에서든 그 레포의 엔진이 돈다.
+- `~/.ai-bouncer/worktrees/<repo>/<branch>/` — 병렬 작업용 worktree.
+  레포 밖에 두는 이유는 빌드 도구가 긁지 않고 권한 프롬프트도 뜨지 않게 하기 위해서다.
+
 hook 경로는 `${CLAUDE_PROJECT_DIR}` 기준이라 팀원과 커밋을 공유해도 깨지지 않는다.
 
 | hook | 역할 |
@@ -184,7 +192,7 @@ hook 경로는 `${CLAUDE_PROJECT_DIR}` 기준이라 팀원과 커밋을 공유�
 | `PreToolUse` | `forbid` 강제 — 타임아웃되면 차단이 안 되므로 극단적으로 가볍다 |
 | `PostToolUse` | ExitPlanMode·Skill 관찰 |
 | `Stop` | **엔진 본체** — step 수행, 통과 판정, 단계 전이 |
-| `SessionEnd` | 자기 잠금만 해제 (예산 1.5초) |
+| `SessionEnd` | 자기 잠금만 해제 (Claude Code 기본 예산이 1.5초라 이 일만 한다) |
 
 <br>
 
@@ -196,8 +204,8 @@ bash tests/run-all.sh
 
 케이스별로 나뉘어 있다 — plan/simple 전 구간, `on_fail` 반송, optional 건너뛰기,
 `skill:` 게이트, 무한루프 상한, 다중 세션 격리, worktree 병렬·FF 머지, `forbid` 경로
-스코프, 컴파일 거부 12종, 파서 동등성, 방치 잠금 정리, `bouncer run`, abort·재시도,
-재컴파일, 설치·제거.
+스코프, 컴파일 거부 14종, 파서 동등성, 방치 잠금 정리, `bouncer run`, abort·재시도,
+재컴파일, Stop 재진입 가드, 설치·제거.
 
 <br>
 

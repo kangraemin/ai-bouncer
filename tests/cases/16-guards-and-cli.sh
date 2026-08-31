@@ -55,10 +55,23 @@ printf 'blocking: 이상\n' >> .claude/ai-bouncer/workflow.yaml
 says '유효하지 않' bouncer check && ok "깨진 yaml은 거부" || no "check 거부"
 git checkout -q .claude/ai-bouncer/workflow.yaml 2>/dev/null || sed -i '' '$d' .claude/ai-bouncer/workflow.yaml
 
-echo "[uninstall의 .gitignore 복원]"
-grep -qxF '.ai-bouncer/' .gitignore && ok "설치가 .gitignore에 넣음" || no "설치 gitignore"
+echo "[uninstall의 .gitignore 복원 — 우리가 넣은 줄만]"
+# ① 사용자가 원래 갖고 있던 줄은 건드리면 안 된다 (setup이 미리 넣어둔 상태)
+grep -qxF '.ai-bouncer/' .gitignore && ok "사용자 .gitignore에 이미 있음" || no "전제"
 printf '내-규칙.txt\n' >> .gitignore
 bash "$R/uninstall.sh" >/dev/null 2>&1
-grep -qxF '.ai-bouncer/' .gitignore && no ".ai-bouncer/ 제거" "남음" || ok "제거 시 .ai-bouncer/ 줄도 되돌림"
-grep -qxF '내-규칙.txt' .gitignore && ok "내가 쓴 줄은 보존" || no "사용자 줄 보존"
+grep -qxF '.ai-bouncer/' .gitignore && ok "사용자가 원래 갖던 줄은 보존" || no "사용자 줄 삭제됨"
+grep -qxF '내-규칙.txt' .gitignore && ok "다른 줄도 보존" || no "다른 줄 보존"
+
+# ② 우리가 넣은 경우엔 되돌린다
+T2="$(mktemp -d)"; ( cd "$T2" && git init -q . && git config user.email t@t && git config user.name t \
+  && echo x > a && git add a && git commit -qm i \
+  && printf 'node_modules/\n' > .gitignore \
+  && bash "$R/install.sh" --ci >/dev/null 2>&1 )
+[ "$(jq -r '.gitignore_added' "$T2/.claude/ai-bouncer/manifest.json")" = true ] \
+  && ok "install이 넣었으면 그렇게 기록" || no "gitignore_added=true"
+( cd "$T2" && bash "$R/uninstall.sh" >/dev/null 2>&1 )
+grep -qxF '.ai-bouncer/' "$T2/.gitignore" && no "우리가 넣은 줄 제거" "남음" || ok "우리가 넣은 줄은 되돌림"
+grep -qxF 'node_modules/' "$T2/.gitignore" && ok "사용자 줄은 그대로" || no "사용자 줄 보존"
+rm -rf "$T2"
 finish

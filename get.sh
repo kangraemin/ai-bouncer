@@ -20,9 +20,14 @@ TMP="$(mktemp -d)"; trap 'rm -rf "$TMP"' EXIT
 git clone --depth 1 -b "$BRANCH" "https://github.com/$REPO.git" "$TMP/src" -q 2>/dev/null \
   || { printf 'ai-bouncer: 저장소를 받지 못했습니다 (%s@%s).\n' "$REPO" "$BRANCH" >&2; exit 1; }
 
+# exec을 쓰면 trap이 실행되지 않아 clone 디렉토리가 남는다. 실행 후 직접 정리한다.
+rc=0
 case "$ACTION" in
-  install|update) exec bash "$TMP/src/install.sh" --ci "$@" ;;
-  uninstall)      exec bash "$TMP/src/uninstall.sh" "$@" ;;
-  migrate)        exec bash "$TMP/src/migrate.sh" "$@" ;;
-  *) printf 'ai-bouncer: 알 수 없는 동작: %s (install|update|uninstall|migrate)\n' "$ACTION" >&2; exit 1 ;;
+  # 받아온 브랜치를 설치에도 그대로 넘긴다. 안 넘기면 다음 자동 업데이트에
+  # main으로 조용히 되돌아간다.
+  install|update) bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$? ;;
+  uninstall)      bash "$TMP/src/uninstall.sh" "$@" || rc=$? ;;
+  migrate)        bash "$TMP/src/migrate.sh" "$@" || rc=$? ;;
+  *) printf 'ai-bouncer: 알 수 없는 동작: %s (install|update|uninstall|migrate)\n' "$ACTION" >&2; rc=1 ;;
 esac
+exit "$rc"

@@ -18,7 +18,9 @@ while [ $# -gt 0 ]; do
       printf 'ai-bouncer: %s 는 더 이상 지원하지 않는다. 설치는 프로젝트별로만 한다.\n' "$1" >&2
       exit 1 ;;
     --ci)     CI=1; shift ;;
-    --branch) BRANCH="${2:-main}"; shift 2 ;;
+    --branch)
+      [ $# -ge 2 ] || { printf 'ai-bouncer: --branch 에 값이 필요합니다.\n' >&2; exit 1; }
+      BRANCH="$2"; shift 2 ;;
     -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
   esac
@@ -28,7 +30,10 @@ die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
 command -v jq      >/dev/null 2>&1 || die "jq가 필요하다. brew install jq"
 command -v python3 >/dev/null 2>&1 || die "python3가 필요하다."
 
-PROJECT="$PWD"; ROOT="$PWD/.claude"; DIR="$ROOT/ai-bouncer"
+# git 레포 안이면 루트에 설치한다. 서브디렉토리에 설치하면 Claude Code가 읽지 않는다.
+PROJECT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
+[ "$PROJECT" = "$PWD" ] || printf 'ai-bouncer: git 루트에 설치합니다 → %s\n' "$PROJECT"
+ROOT="$PROJECT/.claude"; DIR="$ROOT/ai-bouncer"
 SETTINGS="$ROOT/settings.json"
 
 printf 'ai-bouncer 설치 → %s\n' "$DIR"
@@ -41,13 +46,22 @@ hooks/subagent-track.sh hooks/subagent-cleanup.sh hooks/stop-active-cleanup.sh
 hooks/stop-bouncer-compat.sh hooks/doc-reminder.sh
 hooks/lib/resolve-task.sh hooks/lib/gate-checks.sh hooks/lib/block-logger.sh
 scripts/bouncer-update-check.sh scripts/claim-active.sh scripts/worktree-helper.sh
-scripts/bouncer-config.sh scripts/update-check.sh config.json
+scripts/bouncer-config.sh config.json
 hooks/hooks.json .version-checked"
 MIGRATED=0
 for f in $OLD_FILES; do
   [ -f "$DIR/$f" ] && { rm -f "$DIR/$f"; MIGRATED=$((MIGRATED+1)); }
 done
 rmdir "$DIR/hooks/lib" 2>/dev/null
+# 구버전이 깔던 위임 에이전트 정의 — 신규엔 위임 구조가 없어 참조 대상이 사라진 파일이다
+for ag in dev.md e2e-writer.md intent.md lead.md qa.md guides/tc-guide.md; do
+  [ -f "$ROOT/agents/$ag" ] && { rm -f "$ROOT/agents/$ag"; MIGRATED=$((MIGRATED+1)); }
+done
+rmdir "$ROOT/agents/guides" "$ROOT/agents" 2>/dev/null
+# 구버전이 프로젝트 루트에 복사해두던 제거 스크립트
+if [ -f "$PROJECT/uninstall.sh" ] && grep -q 'ai-bouncer uninstall' "$PROJECT/uninstall.sh" 2>/dev/null; then
+  rm -f "$PROJECT/uninstall.sh"; MIGRATED=$((MIGRATED+1))
+fi
 # 구버전 전용 스킬
 for sk in bouncer-status update-bouncer; do
   [ -d "$ROOT/skills/$sk" ] && { rm -rf "$ROOT/skills/$sk"; MIGRATED=$((MIGRATED+1)); }
@@ -154,7 +168,7 @@ esac
 
 # ── 4. hook 등록 (남의 hook은 건드리지 않는다) ───────────────
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-python3 - "$SETTINGS" <<'PY'
+python3 - "$SETTINGS" <<'PY' || die "hook 등록을 건너뛰고 설치를 중단했습니다."
 import json, sys
 settings_path = sys.argv[1]
 # 절대경로를 박으면 이 settings.json을 커밋했을 때 다른 사람 컴퓨터에서 깨진다.
@@ -170,8 +184,21 @@ spec = [
 ]
 try:
     cfg = json.load(open(settings_path))
-except Exception:
-    cfg = {}
+except Exception as exc:
+    # 파싱 실패한 설정을 {}로 덮어쓰면 env/permissions/남의 hook이 전부 사라진다.
+    import shutil, time
+    bak = settings_path + ".bak-" + time.strftime("%Y%m%d%H%M%S")
+    try:
+        shutil.copy2(settings_path, bak)
+    except Exception:
+        bak = "(백업 실패)"
+    sys.stderr.write(
+        "ai-bouncer: settings.json 을 읽지 못했습니다 - %s\n"
+        "  파일: %s\n  백업: %s\n"
+        "  덮어쓰면 env/permissions/다른 도구의 hook이 사라지므로 설치를 중단합니다.\n"
+        "  JSON 문법을 고친 뒤 다시 실행하세요 (주석/후행 콤마/BOM은 허용되지 않습니다).\n"
+        % (exc, settings_path, bak))
+    sys.exit(3)
 hooks = cfg.setdefault("hooks", {})
 
 # 먼저 모든 이벤트에서 ai-bouncer hook을 걷어낸다.
@@ -180,7 +207,7 @@ hooks = cfg.setdefault("hooks", {})
 for event, arr in list(hooks.items()):
     for entry in list(arr):
         entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "/ai-bouncer/" not in str(h.get("command", ""))]
+                          if "/.claude/ai-bouncer/" not in str(h.get("command", ""))]
         if not entry["hooks"]:
             arr.remove(entry)
     if not arr:
@@ -202,6 +229,7 @@ GI="$PROJECT/.gitignore"
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
   if ! grep -qxF '.ai-bouncer/' "$GI" 2>/dev/null; then
     printf '\n# ai-bouncer 런타임 상태\n.ai-bouncer/\n' >> "$GI"
+    GITIGNORE_ADDED=1
     printf '  .gitignore에 .ai-bouncer/ 추가\n'
   fi
   printf 'workflow.compiled.json\n' > "$DIR/.gitignore"
@@ -252,7 +280,23 @@ python3 "$DIR/engine/compile.py" "$DIR/workflow.yaml" "$DIR/workflow.compiled.js
 COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 jq -n --arg c "$COMMIT" --arg b "$BRANCH" --arg t "$(date -u +%FT%TZ)" \
   '{commit:$c, branch:$b, installed_at:$t}' > "$DIR/installed.json"
-printf '%s\n' "$MANIFEST" | jq '{files: .}' > "$DIR/manifest.json"
+# 경로는 프로젝트 기준 상대경로로 저장한다. 절대경로면 clone한 다른 위치에서
+# 제거할 때 아무것도 못 지우면서 "제거했다"고 보고하게 된다.
+printf '%s\n' "$MANIFEST" \
+  | jq --arg root "$PROJECT/" --argjson gi "${GITIGNORE_ADDED:-0}" \
+      '{files: (map(if startswith($root) then .[($root|length):] else . end)),
+        gitignore_added: ($gi == 1)}' > "$DIR/manifest.json"
+
+OLD_GLOBAL_HOOKS=0
+if [ -f "$HOME/.claude/settings.json" ]; then
+  OLD_GLOBAL_HOOKS="$(jq '[.hooks // {} | to_entries[] | .value[] | .hooks[]
+    | select(.command | contains("/.claude/ai-bouncer/"))] | length' "$HOME/.claude/settings.json" 2>/dev/null || echo 0)"
+fi
+if [ "${OLD_GLOBAL_HOOKS:-0}" -gt 0 ] 2>/dev/null; then
+  printf '\n  ⚠️ 전역 ~/.claude/settings.json 에 구버전 hook %s개가 아직 등록돼 있다.\n' "$OLD_GLOBAL_HOOKS"
+  printf '     그대로 두면 구 hook과 신규 hook이 동시에 돌아 작업이 차단될 수 있다.\n'
+  printf '     정리: bash <ai-bouncer>/migrate.sh --apply\n'
+fi
 
 if [ "${OLD_GLOBAL_RULE:-0}" = 1 ]; then
   printf '\n  ℹ️ 전역 ~/.claude/CLAUDE.md에 구버전 규칙 블록이 남아 있다.\n'
