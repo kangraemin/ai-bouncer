@@ -1,0 +1,103 @@
+# ─────────────────────────────────────────────────────────────
+# 웹 프론트엔드 (Next.js) — 자동 검증을 최대한 엔진에 맡기는 형태.
+#
+# 핵심: `run` + `blocking: true` 는 실제 종료코드로 판정하므로
+#       모델이 "테스트 통과했습니다"라고 말해도 넘어가지 못한다.
+# ─────────────────────────────────────────────────────────────
+version: 1
+
+workflows:
+  plan:
+    label: 계획을 세우고 승인받은 뒤 구현
+    stages: [plan, implement, verify, finalize, done]
+
+  simple:
+    label: 계획 없이 바로 구현 (오타·문구 수정용)
+    stages: [implement, verify, finalize, done]
+
+stages:
+
+  plan:
+    steps:
+      - label: 계획 승인
+        # 긴 프롬프트는 파일로 뺀다. 컴파일 시점에 내용이 json에 박히므로
+        # 런타임 파일 I/O는 없고, 이 파일만 고쳐도 재컴파일된다.
+        inject_file: prompts/plan.md
+        # plan 전용 특수 게이트 — ExitPlanMode가 실제로 승인된 경우에만 통과한다.
+        # hook이 도구 사용을 직접 관찰하므로 모델이 우길 수 없다.
+        blocking: plan_approved
+    forbid:
+      edit_files: true          # 모든 파일 수정 차단 (셸 우회 포함)
+      push: true
+      reason: 계획 승인 전에는 코드를 수정할 수 없다.
+
+  implement:
+    steps:
+      - label: 구현
+        inject: |
+          승인된 계획의 After 코드를 그대로 구현해라.
+          범위를 임의로 넓히거나 줄이지 않는다. 끝나도 멈추지 말고 검증까지 간다.
+
+      # 타입이 깨진 채로 검증 단계에 넘어가지 못하게 한다.
+      # by 기본값은 model — 모델이 `bouncer run`으로 실행하고 출력이 스트리밍된다.
+      - label: 타입 체크
+        run: "npx tsc --noEmit"
+        timeout: 180
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증 전에는 push할 수 없다.
+
+  verify:
+    # 여기서 막히면 구현 단계로 되돌아간다.
+    # 아래 forbid가 파일 수정을 막으므로 제자리 재시도가 무의미 → 1회 실패로 즉시 반송된다.
+    on_fail: implement
+    steps:
+      - label: 린트
+        run: "npm run lint"
+        timeout: 120
+        blocking: true
+
+      - label: 유닛 테스트
+        run: "npm test -- --run"
+        timeout: 900
+        blocking: true
+
+      - label: 프로덕션 빌드
+        run: "npm run build"
+        timeout: 900
+        blocking: true
+
+      # optional: 시작할 때 "이번 작업에서 할까요?"를 묻고 답을 state.json에 기록한다.
+      # 이후에는 다시 묻지 않는다. 질문 문구는 label에서 자동 생성된다.
+      - label: e2e
+        run: "npx playwright test"
+        timeout: 1800
+        blocking: true
+        optional: true
+    forbid:
+      # 수정은 구현 단계에서만 하도록 강제한다. 이 줄을 빼면 제자리에서 고칠 수 있다.
+      edit_files: true
+      push: true
+      reason: 검증 단계에서는 코드를 고칠 수 없다. 수정은 구현 단계에서 한다.
+
+  finalize:
+    steps:
+      - label: 커밋과 푸시
+        inject: |
+          변경 파일을 개별 git add 한다 (`git add .` / `-A` 금지).
+          커밋(type 영어 + 설명 한글, 50자 이내) 후 push한다.
+
+      # 1초짜리 상태 확인은 엔진이 직접 돌린다.
+      # by: engine 은 Stop hook 안에서 실행되므로 timeout 상한이 60초다.
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        by: engine
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: |
+          무엇을 바꿨는지 한 번 요약해 보고하고 멈춰라.
+          사용자 지시 없이 새 작업을 시작하지 않는다.

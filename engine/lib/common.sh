@@ -8,28 +8,25 @@ BOUNCER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BOUNCER_ROOT="$(cd "$BOUNCER_LIB_DIR/../.." && pwd)"
 
 # ── 경로 ─────────────────────────────────────────────────────
-# 프로젝트 로컬 설치를 우선하고, 없으면 전역으로 폴백한다.
-bouncer_data_dir() {
-  local project="${1:-$PWD}"
-  if [ -d "$project/.claude/ai-bouncer" ]; then
-    printf '%s' "$project/.claude/ai-bouncer"
-  else
-    printf '%s' "$HOME/.claude/ai-bouncer"
-  fi
-}
-bouncer_config_file()   { printf '%s/config.json'            "$(bouncer_data_dir "${1:-$PWD}")"; }
-bouncer_workflow_yaml() { printf '%s/workflow.yaml'          "$(bouncer_data_dir "${1:-$PWD}")"; }
-bouncer_compiled_file() { printf '%s/workflow.compiled.json' "$(bouncer_data_dir "${1:-$PWD}")"; }
+# 설치는 프로젝트별로만 한다. 전역 설치는 없다 —
+# 레포마다 워크플로우가 다른 게 정상이고, 전역을 두면 "어느 설정이 이겼나"를
+# 매번 따져야 한다. 필요해지면 그때 더한다.
+#
+#   <프로젝트>/.claude/ai-bouncer/   설정 + 엔진 (workflow.yaml, hooks, engine)
+#   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
+bouncer_data_dir()      { printf '%s/.claude/ai-bouncer'                    "${1:-$PWD}"; }
+bouncer_workflow_yaml() { printf '%s/.claude/ai-bouncer/workflow.yaml'      "${1:-$PWD}"; }
+bouncer_compiled_file() { printf '%s/.claude/ai-bouncer/workflow.compiled.json' "${1:-$PWD}"; }
+bouncer_tasks_dir()     { printf '%s/.ai-bouncer/tasks'                     "${1:-$PWD}"; }
 
-# 런타임 상태는 항상 프로젝트 로컬. 전역에 태스크 상태를 두지 않는다.
-bouncer_tasks_dir() { printf '%s/.ai-bouncer/tasks' "${1:-$PWD}"; }
-
+# 설정은 workflow.yaml의 settings 섹션에 있고, 컴파일되어 compiled.json에 들어간다.
+# 별도 config 파일은 없다.
 bouncer_config() {
-  local key="$1" default="${2:-}" project="${3:-$PWD}" file val
-  file="$(bouncer_config_file "$project")"
-  [ -f "$file" ] || { printf '%s' "$default"; return; }
-  val="$(jq -r --arg k "$key" '.[$k] // empty' "$file" 2>/dev/null)"
-  [ -n "$val" ] && printf '%s' "$val" || printf '%s' "$default"
+  local key="$1" default="${2:-}" project="${3:-$PWD}" f val
+  f="$(bouncer_compiled_file "$project")"
+  [ -f "$f" ] || { printf '%s' "$default"; return; }
+  val="$(jq -r --arg k "$key" '.settings[$k] // empty' "$f" 2>/dev/null)"
+  [ -n "${val:-}" ] && printf '%s' "$val" || printf '%s' "$default"
 }
 
 # ── 활성 태스크 ──────────────────────────────────────────────

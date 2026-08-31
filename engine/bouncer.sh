@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ai-bouncer CLI — 스킬과 사용자가 쓰는 진입점.
 #
+#   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
 #   bouncer workflows                 모드 목록 (모드 선택 질문을 만들 때 쓴다)
 #   bouncer options <workflow>        그 체인의 optional step 목록 (스테이지별)
 #   bouncer start <workflow> <slug> [--on id --off id ...]
@@ -30,6 +31,22 @@ need_task() {
   STAGE="$(bouncer_state "$TASK" '.current_stage')"
 }
 step_json() { bouncer_stage "$PROJECT" "$2" | jq -c --arg i "$1" '.steps[]? | select(.id == $i)'; }
+
+# ── check ────────────────────────────────────────────────────
+# workflow.yaml을 고친 뒤 검증용. 컴파일만 해보고 결과 파일은 만들지 않는다.
+cmd_check() {
+  local y; y="$(bouncer_workflow_yaml "$PROJECT")"
+  [ -f "$y" ] || die "워크플로우 파일이 없다: $y"
+  local err
+  if err="$(python3 "$_D/compile.py" "$y" 2>&1 >/dev/null)"; then
+    printf 'OK\t%s\n' "$y"
+    python3 "$_D/compile.py" "$y" | jq -r '
+      "  워크플로우: " + (.workflows | to_entries | map("\(.key) [\(.value.stages | join(" → "))]") | join("\n              "))'
+  else
+    printf '%s\n' "$err" >&2
+    die "workflow.yaml이 유효하지 않다. 고치기 전 상태로 되돌리거나 위 오류를 수정하라."
+  fi
+}
 
 # ── 목록 조회 (스킬이 질문을 만들 때 쓴다) ────────────────────
 cmd_workflows() {
@@ -235,6 +252,7 @@ $dirty"
 }
 
 case "${1:-}" in
+  check)     shift; cmd_check "$@" ;;
   workflows) shift; cmd_workflows "$@" ;;
   options)   shift; cmd_options "$@" ;;
   start)     shift; cmd_start "$@" ;;
@@ -248,6 +266,6 @@ case "${1:-}" in
                finalize) shift; cmd_wt_finalize "$@" ;;
                *) die "usage: bouncer worktree {create|finalize}" ;;
              esac ;;
-  ""|-h|--help) sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

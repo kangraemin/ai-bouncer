@@ -345,11 +345,40 @@ def _compile_forbid(stage, forbid):
             'bash': list(patterns), 'reason': forbid.get('reason', '')}
 
 
+ROOT_KEYS = {'version', 'settings', 'workflows', 'stages'}
+
+# 기본값은 코드에 둔다. yaml은 덮어쓰기만 한다 —
+# 그래야 새 설정이 생겨도 기존 yaml을 고칠 필요가 없다.
+SETTINGS = {
+    'update_branch': 'main',
+    'update_check': True,
+    'update_check_interval_hours': 6,
+    'max_attempts': 3,
+    'max_continue': 10,
+    'stale_lock_hours': 12,
+    'repo': 'kangraemin/ai-bouncer',
+}
+
+
 def compile_config(raw, base_dir, sources):
     if not isinstance(raw, dict):
         _err('root', '최상위는 매핑이어야 한다')
+    unknown = set(raw) - ROOT_KEYS
+    if unknown:
+        _err('root', '알 수 없는 최상위 키: %s (가능: %s)'
+             % (', '.join(sorted(unknown)), ', '.join(sorted(ROOT_KEYS))))
     if raw.get('version') != 1:
         _err('version', '지원하지 않는 버전 %r (1이어야 한다)' % raw.get('version'))
+
+    settings = dict(SETTINGS)
+    given = raw.get('settings') or {}
+    if not isinstance(given, dict):
+        _err('settings', '매핑이어야 한다')
+    unknown = set(given) - set(SETTINGS)
+    if unknown:
+        _err('settings', '알 수 없는 설정: %s (가능: %s)'
+             % (', '.join(sorted(unknown)), ', '.join(sorted(SETTINGS))))
+    settings.update(given)
 
     stages_raw = raw.get('stages')
     if not isinstance(stages_raw, dict) or not stages_raw:
@@ -412,7 +441,7 @@ def compile_config(raw, base_dir, sources):
     if orphans:
         _err('stages', '어떤 워크플로우에도 쓰이지 않는 스테이지: %s' % ', '.join(orphans))
 
-    return {'version': 1, 'workflows': workflows, 'stages': stages}
+    return {'version': 1, 'settings': settings, 'workflows': workflows, 'stages': stages}
 
 
 def main(argv):

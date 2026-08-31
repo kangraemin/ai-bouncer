@@ -1,0 +1,66 @@
+# ─────────────────────────────────────────────────────────────
+# 다른 스킬을 워크플로우에 끼워넣는 형태.
+#
+# `blocking: skill:<이름>` 은 그 스킬이 **실제로 호출된 것**을 hook이 관찰해야 통과한다.
+# 모델이 "실행했습니다"라고 말하거나 `bouncer done`을 쳐도 넘어가지 못한다.
+# ─────────────────────────────────────────────────────────────
+version: 1
+
+workflows:
+  plan:
+    label: 계획 승인 후 구현 (커밋·기록까지 스킬로)
+    stages: [plan, implement, verify, wrapup, done]
+
+stages:
+
+  plan:
+    steps:
+      - label: 계획 승인
+        inject: 계획 단계다. EnterPlanMode 먼저.
+        blocking: plan_approved
+    forbid:
+      edit_files: true
+      reason: 계획 승인 전 코드 수정 금지.
+
+  implement:
+    steps:
+      - label: 구현
+        inject: 계획대로 구현해라.
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  verify:
+    on_fail: implement
+    steps:
+      - label: 검증 보고
+        inject: 테스트·빌드를 실행하고 결과를 보고해라. 추측 금지.
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  wrapup:
+    steps:
+      # /commit 스킬을 반드시 거치게 한다
+      - label: 커밋 스킬
+        inject: |
+          /commit 스킬로 변경을 커밋하고 푸시해라.
+        blocking: skill:commit
+
+      # /session-review 스킬로 배운 것을 기록하게 한다
+      - label: 배운 것 기록
+        inject: |
+          이번 작업에서 다음에 또 쓸 만한 것을 배웠는지 판단하고,
+          있으면 /session-review 스킬로 기록해라.
+        blocking: skill:session-review
+
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        by: engine
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: 요약해 보고하고 멈춰라.

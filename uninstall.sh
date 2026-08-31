@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 # ai-bouncer 제거.
-#   ./uninstall.sh            설치 위치를 자동 감지 (로컬 우선)
-#   ./uninstall.sh --global   전역에서 제거
+#   ./uninstall.sh            이 프로젝트에서 제거
 #   ./uninstall.sh --purge    워크플로우·프롬프트·진행 중 작업까지 전부 삭제
 #
 # 기본은 사용자 자산(workflow.yaml, prompts/, 진행 중 작업)을 남긴다.
 
 set -uo pipefail
-SCOPE=auto; PURGE=0
+PURGE=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --global) SCOPE=global; shift ;;
-    --local)  SCOPE=local;  shift ;;
+    --global|--local)
+      printf 'ai-bouncer: %s 는 더 이상 지원하지 않는다. 제거는 프로젝트별로만 한다.\n' "$1" >&2
+      exit 1 ;;
     --purge)  PURGE=1; shift ;;
     -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
@@ -21,17 +21,7 @@ done
 die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || die "jq가 필요하다."
 
-pick() {
-  case "$SCOPE" in
-    local)  ROOT="$PWD/.claude" ;;
-    global) ROOT="$HOME/.claude" ;;
-    auto)
-      if [ -d "$PWD/.claude/ai-bouncer" ]; then ROOT="$PWD/.claude"
-      elif [ -d "$HOME/.claude/ai-bouncer" ]; then ROOT="$HOME/.claude"
-      else die "설치된 ai-bouncer를 찾지 못했다."; fi ;;
-  esac
-}
-pick
+ROOT="$PWD/.claude"
 DIR="$ROOT/ai-bouncer"; SETTINGS="$ROOT/settings.json"
 [ -d "$DIR" ] || die "설치된 ai-bouncer가 없다: $DIR"
 printf 'ai-bouncer 제거 ← %s\n' "$DIR"
@@ -51,7 +41,7 @@ for event, arr in list(hooks.items()):
     for entry in list(arr):
         before = len(entry.get("hooks", []))
         entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "/ai-bouncer/hooks/" not in str(h.get("command", ""))]
+                          if "/ai-bouncer/" not in str(h.get("command", ""))]
         removed += before - len(entry["hooks"])
         if not entry["hooks"]:
             arr.remove(entry)
