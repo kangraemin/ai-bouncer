@@ -67,6 +67,20 @@ PYM
   printf '  CLAUDE.md 규칙 블록 제거 (나머지 내용은 그대로)\n'
 fi
 
+# ── 1-c. install이 .gitignore에 넣은 줄 되돌리기 ─────────────
+GI="$PWD/.gitignore"
+if [ -f "$GI" ] && grep -qxF '.ai-bouncer/' "$GI"; then
+  python3 - "$GI" <<'PYG'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'\n*# ai-bouncer 런타임 상태\n\.ai-bouncer/\n', '\n', s)
+s = re.sub(r'(?m)^\.ai-bouncer/$\n?', '', s)
+open(p, 'w').write(s)
+PYG
+  printf '  .gitignore에서 .ai-bouncer/ 제거\n'
+fi
+
 # ── 2. manifest 기반 파일 제거 ───────────────────────────────
 # 목록에 있는 것만 지운다. 사용자가 나중에 넣은 파일은 건드리지 않는다.
 if [ -f "$DIR/manifest.json" ]; then

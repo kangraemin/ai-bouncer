@@ -13,6 +13,12 @@ command -v jq >/dev/null 2>&1 || exit 0
 
 SESSION="$(jq -r '.session_id // empty' <<<"$INPUT")"
 CWD="$(jq -r '.cwd // empty'        <<<"$INPUT")"
+
+# 이 Stop이 직전 Stop hook의 차단 때문에 재진입한 것이면 true다.
+# 여기서 또 차단하면 사용자 개입 없이 영원히 도는 구간이 생긴다.
+# continue_streak 상한이 1차 방어지만, 그 카운터가 어떤 이유로 리셋되면
+# 그것만으로는 못 막는다. 그래서 재진입 자체를 별도로 센다.
+REENTRY="$(jq -r '.stop_hook_active // false' <<<"$INPUT")"
 [ -n "$CWD" ] || CWD="$PWD"
 [ -n "$SESSION" ] || exit 0
 
@@ -140,6 +146,7 @@ if [ -z "$FAILURES" ]; then
   bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
     '.current_stage = $n
      | .continue_streak = 0
+     | .reentry_count = 0
      | .allowed_stop = false
      | .history += [{stage:$n, at:$t}]'
   bouncer_block "✅ [$STAGE] 완료 → [$NEXT] 진입${INJECT:+$'\n\n'}$INJECT"
@@ -192,6 +199,25 @@ fi
 if [ "$HUMAN_WAIT" = "1" ]; then
   # 사람이 답해야 하는데 Stop을 막으면 답할 기회가 없다 — 반드시 멈추게 둔다.
   bouncer_state_update "$TASK" '.allowed_stop = true'
+  exit 0
+fi
+
+# 재진입 상태에서 상한의 두 배를 넘겼다면 카운터가 어딘가에서 리셋되고 있다는 뜻이다.
+# 그 경우 워크플로우 진행보다 세션을 사용자에게 돌려주는 쪽이 안전하다.
+REENTRY_N="$(jq -r '.reentry_count // 0' "$TASK/state.json" 2>/dev/null)"
+if [ "$REENTRY" = "true" ]; then
+  REENTRY_N=$(( REENTRY_N + 1 ))
+  bouncer_state_update "$TASK" --argjson n "$REENTRY_N" '.reentry_count = $n'
+else
+  bouncer_state_update "$TASK" '.reentry_count = 0'; REENTRY_N=0
+fi
+if [ "$REENTRY_N" -gt $(( MAX_CONTINUE * 2 )) ] 2>/dev/null; then
+  bouncer_state_update "$TASK" '.allowed_stop = true | .continue_streak = 0 | .reentry_count = 0'
+  jq -n --arg c "⛔ [$STAGE] Stop hook 재진입이 비정상적으로 반복됐다 (${REENTRY_N}회).
+워크플로우를 더 밀지 않고 세션을 사용자에게 돌려준다.
+
+미충족 조건:
+$FAILURES" '{hookSpecificOutput:{additionalContext:$c}}'
   exit 0
 fi
 
