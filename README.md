@@ -26,13 +26,35 @@ stages:
 ## 설치
 
 ```bash
-git clone https://github.com/kangraemin/ai-bouncer && cd ai-bouncer
-./install.sh                # 프로젝트 로컬 (.claude/)
-./install.sh --global       # 전역 (~/.claude/)
-./install.sh --branch dev   # 업데이트 기준 브랜치 지정
+git clone https://github.com/kangraemin/ai-bouncer
+cd <설치할-프로젝트>
+bash <클론경로>/install.sh                # 이 프로젝트에 설치
+bash <클론경로>/install.sh --branch dev   # 업데이트 기준 브랜치 지정
+```
+
+설치는 **프로젝트별로만** 한다. 레포마다 워크플로우가 다른 게 정상이고,
+전역을 두면 "어느 설정이 이겼나"를 매번 따져야 하기 때문이다.
+
+설치되는 것:
+
+```
+<프로젝트>/
+├── .claude/
+│   ├── ai-bouncer/
+│   │   ├── workflow.yaml          ← 유일한 설정 파일. 이것만 고치면 된다
+│   │   ├── prompts/plan.md
+│   │   ├── engine/ hooks/ scripts/
+│   │   └── workflow.compiled.json ← 자동 생성 (gitignore)
+│   ├── settings.json              ← hook 5개 등록 (남의 hook은 건드리지 않는다)
+│   └── skills/dev-bounce/
+├── .ai-bouncer/                   ← 런타임 상태 (gitignore)
+└── .gitignore                     ← .ai-bouncer/ 자동 추가
 ```
 
 제거: `./uninstall.sh` (워크플로우와 진행 중 작업은 남는다) / `--purge` (전부 삭제)
+
+구버전에서 올라오면 install이 구 hook 7개와 구 파일을 자동으로 정리하고,
+읽을 수 없는 구 작업(`.ai-bouncer-tasks/`)이 남아 있으면 알려준다.
 
 ## 쓰는 법
 
@@ -41,6 +63,7 @@ git clone https://github.com/kangraemin/ai-bouncer && cd ai-bouncer
 
 ```bash
 bouncer status                 # 현재 단계와 남은 조건
+bouncer check                  # workflow.yaml을 고친 뒤 유효한지 검사
 bouncer run <step-id>          # 검증 명령 실행 (명령은 엔진이 소유한다)
 bouncer done <step-id>         # 사람 확인이 필요한 항목 완료 처리
 bouncer worktree create        # 병렬 작업 — 별도 브랜치 + 레포 밖 worktree
@@ -55,10 +78,12 @@ bouncer worktree finalize      # base로 rebase → FF 머지 → 정리
    `state.json` 직접 수정은 차단된다.
 3. **자기신고는 게이트가 아니다.** 통과 판정은 셋 중 하나로만 한다 —
    실제 종료코드, hook이 관찰한 도구 사용(`plan_approved` / `skill:`), 실제 사용자 턴.
-4. **런타임 의존성은 `jq`뿐이다.** yaml은 설치·변경 시점에 json으로 컴파일된다.
+4. **설정 파일은 하나다.** `workflow.yaml`에 설정·워크플로우가 다 들어간다.
+   기본값은 코드에 있어서, 새 설정이 생겨도 기존 yaml을 고칠 필요가 없다.
+5. **런타임 의존성은 `jq`뿐이다.** yaml은 설치·변경 시점에 json으로 컴파일된다.
    pyyaml이 없는 머신에서도 같은 결과가 나오도록 내장 파서를 함께 검증한다.
-5. **상태는 `state.json` 하나다.** 별도 문서 트리·TC 파일 없음.
-6. **fail-open 금지.** 오타난 스테이지 이름, 존재하지 않는 프롬프트 파일,
+6. **상태는 `state.json` 하나다.** 별도 문서 트리·TC 파일 없음.
+7. **fail-open 금지.** 오타난 스테이지 이름, 존재하지 않는 프롬프트 파일,
    해석이 갈리는 YAML 앵커는 전부 컴파일 단계에서 거부한다.
 
 ## 구성
@@ -66,6 +91,7 @@ bouncer worktree finalize      # base로 rebase → FF 머지 → 정리
 | 경로 | 역할 |
 |---|---|
 | `config/default.yaml` | 기본 워크플로우. 설치 시 프로젝트로 복사되고 이후 보존된다 |
+| `config/prompts/plan.md` | plan 단계 프롬프트 |
 | `config/prompts/` | 긴 프롬프트 (`inject_file`로 참조) |
 | `engine/compile.py` | yaml → compiled.json + 스키마 검증 |
 | `engine/bouncer.sh` | CLI |

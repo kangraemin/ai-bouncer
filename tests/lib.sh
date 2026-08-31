@@ -15,7 +15,8 @@ setup() {
   mkdir -p .claude/ai-bouncer/prompts
   cp "$1" .claude/ai-bouncer/workflow.yaml
   [ -n "${2:-}" ] && cp "$2"/*.md .claude/ai-bouncer/prompts/ 2>/dev/null
-  printf '{"max_continue":3,"max_attempts":2}\n' > .claude/ai-bouncer/config.json
+  # 설정은 yaml의 settings 섹션에 넣는다 (별도 config 파일 없음)
+  python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2
   printf 'workflow.compiled.json\n' > .claude/ai-bouncer/.gitignore
   python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml \
           .claude/ai-bouncer/workflow.compiled.json >/dev/null || return 1

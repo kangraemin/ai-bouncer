@@ -1,20 +1,30 @@
+# ─────────────────────────────────────────────────────────────
+# 백엔드 (Python) — 커스텀 스테이지를 끼워넣는 예시.
+#
+# `policy`는 기본 제공 스테이지가 아니다. 체인 배열에 이름을 넣고
+# stages에 정의를 하나 추가하면 그게 전부다. 엔진 코드는 건드리지 않는다.
+# ─────────────────────────────────────────────────────────────
 version: 1
 
 workflows:
   plan:
     label: 계획 승인 후 구현 (정책 정리 포함)
+    #                              ↓ 여기 한 단어 추가한 게 전부다
     stages: [plan, implement, verify, policy, finalize, done]
+
   hotfix:
     label: 긴급 수정 — 최소 검증만
+    # 같은 스테이지를 다른 순서/조합으로 재사용할 수 있다.
     stages: [implement, verify, finalize, done]
 
 stages:
+
   plan:
     steps:
       - label: 계획 승인
         inject: |
-          계획 단계다. EnterPlanMode 먼저. 변경 파일별 Before/After를 실제 코드로.
-          DB 스키마가 바뀌면 마이그레이션 되돌리는 방법까지 적어라.
+          계획 단계다. EnterPlanMode 먼저.
+          DB 스키마가 바뀌면 마이그레이션을 되돌리는 방법까지 계획에 적어라.
         blocking: plan_approved
     forbid:
       edit_files: true
@@ -23,9 +33,10 @@ stages:
   implement:
     steps:
       - label: 구현
-        inject: "계획대로 구현해라."
+        inject: 계획대로 구현해라.
     forbid:
       push: true
+      # 내장 어휘로 표현 안 되는 것은 정규식으로 직접 막는다.
       bash: ['(^|\s)alembic\s+upgrade\s+head']
       reason: 검증 전에는 push와 프로덕션 마이그레이션이 금지된다.
 
@@ -44,7 +55,6 @@ stages:
       push: true
       reason: 검증 전 push 금지.
 
-  # 유저가 신설한 스테이지 — 체인 배열에 이름만 넣으면 된다
   policy:
     on_fail: implement
     steps:
@@ -54,25 +64,30 @@ stages:
             - 디버그 print / 임시 주석 제거
             - 새 엔드포인트가 있으면 OpenAPI 스펙 갱신
             - CHANGELOG 한 줄 추가
+
+      # `!`를 붙이면 셸이 종료코드를 뒤집는다.
+      # "무엇이 성공인가"는 셸의 일이라 스키마에 exit/stdout 키를 두지 않았다.
       - label: 디버그 잔재 없음
         run: "! grep -rn 'print(' src/ --include='*.py'"
         blocking: true
+
       - label: CHANGELOG 갱신됨
         run: "git diff --name-only HEAD | grep -q CHANGELOG"
         blocking: true
     forbid:
       push: true
-      reason: 정리 끝나고 finalize에서 push한다.
+      reason: 정리가 끝나고 finalize에서 push한다.
 
   finalize:
     steps:
       - label: 커밋과 푸시
-        inject: "변경 파일을 개별 add → 커밋 → push."
+        inject: 변경 파일을 개별 add → 커밋 → push.
       - label: 워킹트리 정리 확인
         run: 'test -z "$(git status --porcelain)"'
+        by: engine
         blocking: true
 
   done:
     steps:
       - label: 완료 보고
-        inject: "요약 보고하고 멈춰라."
+        inject: 요약해 보고하고 멈춰라.

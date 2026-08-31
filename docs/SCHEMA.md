@@ -5,8 +5,12 @@
 | 키 | 필수 | 설명 |
 |---|:---:|---|
 | `version` | ✅ | 현재 `1` |
+| `settings` | | 엔진 설정. 적지 않으면 기본값 |
 | `workflows` | ✅ | 시작할 때 뜨는 모드 선택지 |
 | `stages` | ✅ | 스테이지 정의. 체인에 쓰인 이름은 **전부** 정의돼야 한다 |
+
+설정 파일은 이것 하나다. 별도 `config.json`은 없고, 설치는 **프로젝트별로만** 한다
+(`<프로젝트>/.claude/ai-bouncer/workflow.yaml`). 전역 설치는 지원하지 않는다.
 
 ## `workflows.<이름>`
 
@@ -90,7 +94,16 @@ glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]`
 | 고아 스테이지 | 어떤 워크플로우에도 안 쓰임 |
 | 내장 파서 + YAML 앵커 | pyyaml 없는 머신에서 `stages`가 통째로 사라진다 |
 
-## `config.json`
+## `settings`
+
+기본값은 엔진 코드에 있다. yaml에는 바꾸고 싶은 것만 적으면 된다 —
+새 설정이 생겨도 기존 yaml을 고칠 필요가 없다.
+
+```yaml
+settings:
+  update_branch: dev
+  max_continue: 20
+```
 
 | 키 | 기본 | 설명 |
 |---|---|---|
@@ -100,6 +113,9 @@ glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]`
 | `max_attempts` | `3` | blocking 실패 재시도 후 `on_fail` 발동 |
 | `max_continue` | `10` | Stop 연속 차단 상한. 초과 시 사용자에게 질문 |
 | `stale_lock_hours` | `12` | 이 시간 넘게 하트비트가 멈춘 잠금을 정리 |
+| `repo` | `kangraemin/ai-bouncer` | 업데이트를 받아올 저장소 |
+
+알 수 없는 키는 컴파일이 거부한다 (오타로 설정이 조용히 무시되는 것을 막는다).
 
 ## `state.json`
 

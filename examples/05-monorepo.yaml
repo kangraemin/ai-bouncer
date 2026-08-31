@@ -1,0 +1,82 @@
+# ─────────────────────────────────────────────────────────────
+# 모노레포 — 어느 패키지를 검증할지 시작할 때 고르는 형태.
+#
+# `${패키지}` 같은 변수 치환은 일부러 없다. 모델이 제어하는 문자열이
+# 셸 명령이 되면 강제 도구가 자기 게이트에 인젝션 구멍을 내는 셈이라,
+# 명령은 전부 yaml에 고정하고 optional로 켜고 끈다.
+# ─────────────────────────────────────────────────────────────
+version: 1
+
+workflows:
+  plan:
+    label: 계획을 세우고 승인받은 뒤 구현
+    stages: [plan, implement, verify, finalize, done]
+
+stages:
+
+  plan:
+    steps:
+      - label: 계획 승인
+        inject: |
+          계획 단계다. EnterPlanMode 먼저.
+          어느 패키지가 영향을 받는지, 패키지 간 의존이 있는지 명시해라.
+        blocking: plan_approved
+    forbid:
+      # 계획 문서는 써야 하므로 docs/ 만 예외로 뚫는다.
+      # `!` 접두가 예외, 배열은 위에서 아래로 평가한다.
+      edit_files: ["**", "!docs/**"]
+      push: true
+      reason: 계획 승인 전에는 코드를 수정할 수 없다 (계획 문서는 docs/ 아래에 써라).
+
+  implement:
+    steps:
+      - label: 구현
+        inject: 계획대로 구현해라.
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  verify:
+    on_fail: implement
+    steps:
+      # 루트 검증은 항상 실행
+      - label: 전체 타입 체크
+        run: "pnpm -r typecheck"
+        timeout: 600
+        blocking: true
+
+      # 패키지별 검증은 시작할 때 골라서 켠다
+      - label: api 패키지
+        run: "pnpm --filter @app/api test"
+        timeout: 600
+        blocking: true
+        optional: true
+
+      - label: web 패키지
+        run: "pnpm --filter @app/web test"
+        timeout: 600
+        blocking: true
+        optional: true
+
+      - label: shared 패키지
+        run: "pnpm --filter @app/shared test"
+        timeout: 600
+        blocking: true
+        optional: true
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  finalize:
+    steps:
+      - label: 커밋과 푸시
+        inject: 변경 파일을 개별 add → 커밋 → push.
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        by: engine
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: 요약해 보고하고 멈춰라.
