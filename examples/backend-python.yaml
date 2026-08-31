@@ -1,0 +1,78 @@
+version: 1
+
+workflows:
+  plan:
+    label: 계획 승인 후 구현 (정책 정리 포함)
+    stages: [plan, implement, verify, policy, finalize, done]
+  hotfix:
+    label: 긴급 수정 — 최소 검증만
+    stages: [implement, verify, finalize, done]
+
+stages:
+  plan:
+    steps:
+      - label: 계획 승인
+        inject: |
+          계획 단계다. EnterPlanMode 먼저. 변경 파일별 Before/After를 실제 코드로.
+          DB 스키마가 바뀌면 마이그레이션 되돌리는 방법까지 적어라.
+        blocking: plan_approved
+    forbid:
+      edit_files: true
+      reason: 계획 승인 전 코드 수정 금지.
+
+  implement:
+    steps:
+      - label: 구현
+        inject: "계획대로 구현해라."
+    forbid:
+      push: true
+      bash: ['(^|\s)alembic\s+upgrade\s+head']
+      reason: 검증 전에는 push와 프로덕션 마이그레이션이 금지된다.
+
+  verify:
+    on_fail: implement
+    steps:
+      - label: 타입 체크
+        run: "mypy src/"
+        timeout: 300
+        blocking: true
+      - label: 테스트
+        run: "pytest -q"
+        timeout: 900
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  # 유저가 신설한 스테이지 — 체인 배열에 이름만 넣으면 된다
+  policy:
+    on_fail: implement
+    steps:
+      - label: 정리 지시
+        inject: |
+          기능은 검증됐다. 이제 넘길 상태로 만든다:
+            - 디버그 print / 임시 주석 제거
+            - 새 엔드포인트가 있으면 OpenAPI 스펙 갱신
+            - CHANGELOG 한 줄 추가
+      - label: 디버그 잔재 없음
+        run: "! grep -rn 'print(' src/ --include='*.py'"
+        blocking: true
+      - label: CHANGELOG 갱신됨
+        run: "git diff --name-only HEAD | grep -q CHANGELOG"
+        blocking: true
+    forbid:
+      push: true
+      reason: 정리 끝나고 finalize에서 push한다.
+
+  finalize:
+    steps:
+      - label: 커밋과 푸시
+        inject: "변경 파일을 개별 add → 커밋 → push."
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: "요약 보고하고 멈춰라."

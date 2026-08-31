@@ -1,0 +1,59 @@
+version: 1
+
+workflows:
+  plan:
+    label: 계획을 세우고 승인받은 뒤 구현
+    stages: [plan, implement, verify, finalize, done]
+
+stages:
+  plan:
+    steps:
+      - label: 계획 승인
+        inject: |
+          계획 단계다. EnterPlanMode를 먼저 호출하고, 변경 파일별 Before/After를 실제 코드로 적어라.
+        blocking: plan_approved
+    forbid:
+      edit_files: true
+      reason: 계획 승인 전 코드 수정 금지.
+
+  implement:
+    steps:
+      - label: 구현
+        inject: "계획대로 구현해라."
+      - label: 타입 체크
+        run: "npx tsc --noEmit"
+        timeout: 180
+        blocking: true
+
+  verify:
+    on_fail: implement
+    steps:
+      - label: 유닛 테스트
+        run: "npm test -- --ci"
+        timeout: 600
+        blocking: true
+      - label: 시뮬레이터 e2e
+        run: "npx maestro test .maestro/"
+        timeout: 900
+        blocking: true
+      - label: 실기기 확인
+        inject: |
+          시뮬레이터로 못 잡는 것을 실기기에서 직접 확인해라 — 햅틱, 권한 팝업, 딥링크, 백그라운드 복귀.
+          확인한 내용을 구체적으로 보고해라.
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  finalize:
+    steps:
+      - label: 커밋과 푸시
+        inject: "변경 파일을 개별 add → 커밋 → push."
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: "요약 보고하고 멈춰라."

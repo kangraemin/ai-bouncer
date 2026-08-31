@@ -1,0 +1,113 @@
+# workflow.yaml 스키마
+
+## 최상위
+
+| 키 | 필수 | 설명 |
+|---|:---:|---|
+| `version` | ✅ | 현재 `1` |
+| `workflows` | ✅ | 시작할 때 뜨는 모드 선택지 |
+| `stages` | ✅ | 스테이지 정의. 체인에 쓰인 이름은 **전부** 정의돼야 한다 |
+
+## `workflows.<이름>`
+
+| 키 | 필수 | 설명 |
+|---|:---:|---|
+| `label` | ✅ | 모드 선택지에 표시될 설명 |
+| `stages` | ✅ | 진행 순서 배열. 마지막이 종단 |
+
+## `stages.<이름>` — 키 3개
+
+| 키 | 값 | 설명 |
+|---|---|---|
+| `steps` | 리스트 | 이 단계에서 할 일. 순서 보장 |
+| `forbid` | 매핑 | 이 단계에 머무는 동안 금지되는 것 |
+| `on_fail` | 앞선 스테이지 \| `abort` | blocking 실패가 누적되면 되돌아갈 곳 |
+
+## `steps` 항목
+
+| 키 | 필수 | 기본 | 설명 |
+|---|:---:|---|---|
+| `label` | △ | | `blocking`·`optional` 있으면 필수. step id의 근거 |
+| `inject` / `inject_file` / `run` | ✅ | | **정확히 하나** |
+| `by` | | `model` | `run` 전용. 누가 실행하나 |
+| `timeout` | | model 600 / engine 30 | `run` 전용 (초) |
+| `blocking` | | | 통과 조건 |
+| `optional` | | `false` | 시작할 때 할지 말지 물어봄 |
+
+`inject_file`은 config 디렉토리 기준 상대경로다. 내용은 컴파일 시점에 읽혀
+`workflow.compiled.json`에 박히므로 런타임 파일 I/O가 없다.
+프롬프트 파일만 고쳐도 해시가 바뀌어 재컴파일된다.
+
+### `by`
+
+| 값 | 실행 주체 | 시간 제약 | 용도 |
+|---|---|---|---|
+| `model` (기본) | 모델이 `bouncer run <id>`로 실행. 명령은 엔진이 소유 | 없음 | 테스트·빌드·e2e |
+| `engine` | Stop hook 안에서 엔진이 실행 | **60초 상한 (컴파일 강제)** | 1초짜리 상태 확인 |
+
+> `by: engine`에 60초 넘는 `timeout`을 주면 컴파일이 거부한다. hook이 타임아웃되면
+> 판정 없이 워크플로우가 멈추기 때문이다.
+
+### `blocking`
+
+| 값 | 적용 | 판정 주체 | 모델 위조 |
+|---|---|---|:---:|
+| (없음) | 둘 다 | — | 강제 안 함 |
+| `true` | `run` | 실제 종료코드 | 불가 |
+| `true` | `inject` | 사용자 턴 발생 + `bouncer done` | 불가 |
+| `plan_approved` | `inject` | PostToolUse가 ExitPlanMode 승인 관찰 | 불가 |
+| `skill:<이름>` | `inject` | PostToolUse가 스킬 호출 관찰 | 불가 |
+
+뒤의 셋은 `inject` 전용이다. `run`에 쓰면 컴파일이 거부한다.
+
+## `forbid`
+
+| 키 | 값 | 막는 것 |
+|---|---|---|
+| `edit_files` | `true` \| glob 배열 | Edit/Write/MultiEdit/NotebookEdit **+ bash 우회**(`>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `touch`) |
+| `push` | `true` | `git push` |
+| `bash` | 정규식 배열 | 임의 명령 (탈출구) |
+| `reason` | 문자열 | **필수** — 차단당한 모델에게 표시 |
+
+glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]`
+
+> PreToolUse는 타임아웃되면 차단이 **아예 안 된다**(공식 문서: *"don't count on a
+> stalled hook to act as a gate"*). 그래서 이 검사는 `jq` 한 번만 하고 명령을 실행하지 않는다.
+
+## 컴파일이 거부하는 것
+
+| 상황 | 이유 |
+|---|---|
+| 체인에 정의 없는 스테이지 | 오타로 단계가 조용히 사라진다 |
+| `on_fail`이 뒤쪽/체인 밖 | 되돌아가기만 허용 (무한 전진 방지) |
+| `blocking`·`optional`인데 `label` 없음 | 진행 상태를 위치가 아닌 이름으로 추적 |
+| `blocking` 값이 목록 밖 | |
+| `run`에 `plan_approved`·`skill:` | hook 관찰 방식이라 셸 명령엔 부적용 |
+| `by`가 model/engine 아님 | |
+| `by: engine` + timeout > 60초 | hook 타임아웃 → 판정 없이 정지 |
+| `forbid`에 `reason` 없음 | 모델이 이유를 몰라 헤맨다 |
+| `inject_file` 경로 없음 | 빈 프롬프트로 조용히 진행 |
+| 고아 스테이지 | 어떤 워크플로우에도 안 쓰임 |
+| 내장 파서 + YAML 앵커 | pyyaml 없는 머신에서 `stages`가 통째로 사라진다 |
+
+## `config.json`
+
+| 키 | 기본 | 설명 |
+|---|---|---|
+| `update_branch` | `main` | 자동 업데이트 기준 브랜치 |
+| `update_check` | `true` | 업데이트 확인 on/off |
+| `update_check_interval_hours` | `6` | 확인 주기 |
+| `max_attempts` | `3` | blocking 실패 재시도 후 `on_fail` 발동 |
+| `max_continue` | `10` | Stop 연속 차단 상한. 초과 시 사용자에게 질문 |
+| `stale_lock_hours` | `12` | 이 시간 넘게 하트비트가 멈춘 잠금을 정리 |
+
+## `state.json`
+
+| 필드 | writer | 설명 |
+|---|---|---|
+| `workflow` · `current_stage` · `choices` | **hook 전용** | 모델이 못 바꾼다 (PreToolUse가 차단) |
+| `worktree` · `base_branch` · `base_sha` | **hook 전용** | worktree 생성 시점에 확정 기록 |
+| `evidence` | `bouncer run` / `bouncer done` / PostToolUse | blocking 통과 기록 |
+| `shown` | Stop hook | 주입 완료 표시 (중복 주입 방지) |
+| `continue_streak` · `allowed_stop` | Stop hook | 연속 진행 제어 |
+| `history` | Stop hook | 전이 이력 |

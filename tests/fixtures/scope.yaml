@@ -1,0 +1,17 @@
+version: 1
+workflows:
+  plan:
+    label: 테스트용
+    stages: [plan, done]
+stages:
+  plan:
+    steps:
+      - label: 계획
+        inject: "계획을 docs/에 써라."
+    forbid:
+      edit_files: ["**", "!docs/**"]
+      reason: 계획 문서는 docs/ 아래에만 쓸 수 있다.
+  done:
+    steps:
+      - label: 완료
+        inject: "끝."

@@ -1,0 +1,21 @@
+# 런타임 상태 (프로젝트에 설치됐을 때 생기는 것)
+.ai-bouncer/
+.claude/ai-bouncer/*.compiled.json
+
+# 개발 환경
+.idea/
+.gstack/
+.worklogs/
+*.log
+.DS_Store
+
+# 구버전 런타임 잔재
+.ai-bouncer-tasks/
+
+# python 캐시
+__pycache__/
+*.pyc
+
+# 이 레포에 설치했을 때 생기는 것
+.claude/ai-bouncer/
+.claude/skills/dev-bounce/
