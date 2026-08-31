@@ -41,7 +41,8 @@ hooks/subagent-track.sh hooks/subagent-cleanup.sh hooks/stop-active-cleanup.sh
 hooks/stop-bouncer-compat.sh hooks/doc-reminder.sh
 hooks/lib/resolve-task.sh hooks/lib/gate-checks.sh hooks/lib/block-logger.sh
 scripts/bouncer-update-check.sh scripts/claim-active.sh scripts/worktree-helper.sh
-scripts/bouncer-config.sh scripts/update-check.sh config.json"
+scripts/bouncer-config.sh scripts/update-check.sh config.json
+hooks/hooks.json .version-checked"
 MIGRATED=0
 for f in $OLD_FILES; do
   [ -f "$DIR/$f" ] && { rm -f "$DIR/$f"; MIGRATED=$((MIGRATED+1)); }
@@ -52,6 +53,26 @@ for sk in bouncer-status update-bouncer; do
   [ -d "$ROOT/skills/$sk" ] && { rm -rf "$ROOT/skills/$sk"; MIGRATED=$((MIGRATED+1)); }
 done
 [ "$MIGRATED" -gt 0 ] && printf '  구버전 파일 %d개 정리 (설정은 workflow.yaml의 settings로 옮겼다)\n' "$MIGRATED"
+
+# 구버전은 프로젝트 .claude/CLAUDE.md 에도 규칙 블록을 넣었다.
+# 신규는 프로젝트 루트 CLAUDE.md를 쓰므로, 그대로 두면 같은 지시가 두 군데 남아
+# 서로 다른 버전의 규칙을 가리키게 된다.
+OLD_CMD="$ROOT/CLAUDE.md"
+if [ -f "$OLD_CMD" ] && grep -q 'ai-bouncer-rule start' "$OLD_CMD"; then
+  python3 - "$OLD_CMD" <<'PYC'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'\n*# --- ai-bouncer-rule start ---.*?# --- ai-bouncer-rule end ---\n*', '\n', s, flags=re.S)
+open(p, 'w').write(s)
+PYC
+  if [ -n "$(tr -d '[:space:]' < "$OLD_CMD" 2>/dev/null)" ]; then
+    printf '  .claude/CLAUDE.md 의 구 규칙 블록 제거 (나머지 내용은 유지)\n'
+  else
+    rm -f "$OLD_CMD"
+    printf '  .claude/CLAUDE.md 제거 (구 규칙 블록뿐이었다)\n'
+  fi
+fi
 
 # 구버전은 전역 ~/.claude/CLAUDE.md에도 규칙을 넣었다. 전역 파일은 건드리지 않고 알리기만 한다.
 OLD_GLOBAL_RULE=0
