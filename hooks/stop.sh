@@ -141,6 +141,8 @@ if [ -z "$FAILURES" ]; then
     bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" \
       '.finished_at = $t | .allowed_stop = false'
     rm -f "$TASK/.active"
+    [ -n "$INJECT" ] && jq -n --arg c "$INJECT" \
+      '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
     exit 0
   fi
   bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
@@ -197,8 +199,15 @@ $FAILURES${INJECT:+$'\n\n'}$INJECT"
 fi
 
 if [ "$HUMAN_WAIT" = "1" ]; then
-  # 사람이 답해야 하는데 Stop을 막으면 답할 기회가 없다 — 반드시 멈추게 둔다.
+  # 사람이 답해야 하는데 Stop을 막으면 답할 기회가 없다 — 멈추게 둔다.
+  # 다만 지시와 미충족 사유는 반드시 전달해야 한다. 여기서 버리면
+  # 이 스테이지의 프롬프트가 모델에게 한 번도 도달하지 않는다.
   bouncer_state_update "$TASK" '.allowed_stop = true'
+  if [ -n "$INJECT" ] || [ -n "$FAILURES" ]; then
+    jq -n --arg c "[$STAGE] 아직 끝나지 않았다.${FAILURES:+$'\n\n'}${FAILURES:+미충족 조건:
+}$FAILURES${INJECT:+$'\n\n'}$INJECT" \
+      '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+  fi
   exit 0
 fi
 

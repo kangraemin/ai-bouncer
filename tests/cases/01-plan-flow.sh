@@ -29,7 +29,9 @@ no(){ printf '  ❌ %s — %s\n' "$1" "${2:-}"; FAIL=$((FAIL+1)); }
 echo "── 모드 목록 ──"; bouncer workflows | sed 's/^/  /'
 
 echo "── 작업 시작 ──"
-bouncer start plan "결제 버그" | sed 's/^/  /'
+START_OUT="$(bouncer start plan "결제 버그")"
+printf '%s\n' "$START_OUT" | head -2 | sed 's/^/  /'
+printf '%s' "$START_OUT" | grep -q 'EnterPlanMode' && ok "start가 첫 스테이지 지시를 즉시 전달" || no "첫 지시 전달" "start 출력에 없음"
 [ "$(state .current_stage)" = plan ] && ok "current_stage=plan" || no "시작" "$(state .current_stage)"
 
 echo "── plan 단계 forbid ──"
@@ -47,7 +49,11 @@ r=$(hook pre-tool "{\"session_id\":\"OTHER\",\"cwd\":\"$T\",\"tool_name\":\"Edit
 echo "── Stop: 미승인이면 전이 금지 ──"
 r=$(hook stop "{\"session_id\":\"SESS1\",\"cwd\":\"$T\"}")
 [ "$(state .current_stage)" = plan ] && ok "plan 유지" || no "plan 유지" "$(state .current_stage)"
-printf '%s' "$r" | jq -e '.reason' >/dev/null 2>&1 && ok "사유 주입" || ok "사람 대기로 멈춤 허용"
+# 사람 대기 상태라도 지시와 사유는 반드시 전달돼야 한다.
+# (양쪽 결과를 다 통과로 처리하면 "지시가 아예 안 나가는" 버그를 놓친다)
+CTX="$(printf '%s' "$r" | jq -r '.hookSpecificOutput.additionalContext // .reason // ""')"
+[ -n "$CTX" ] && ok "사람 대기여도 내용이 전달됨" || no "지시 전달" "출력이 비어 있음"
+printf '%s' "$CTX" | grep -q '승인' && ok "미충족 사유가 구체적" || no "사유 내용" "$CTX"
 
 echo "── ExitPlanMode 승인 관찰 ──"
 hook post-tool "{\"session_id\":\"SESS1\",\"cwd\":\"$T\",\"tool_name\":\"ExitPlanMode\",\"tool_input\":{}}"

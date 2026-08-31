@@ -155,6 +155,16 @@ cmd_start() {
   printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
   # 병렬이면 곧바로 격리한다. base 브랜치는 이 시점에 확정 기록된다.
   [ "$parallel" = 1 ] && cmd_wt_create "$slug"
+
+  # 첫 스테이지 지시를 바로 돌려준다. Stop을 기다리면 첫 응답이 지시 없이 나간다.
+  local txt
+  txt="$(bouncer_stage "$PROJECT" "$first" | jq -r '[.steps[]? | select(.kind=="inject") | .text] | join("\n\n")')"
+  if [ -n "$txt" ]; then
+    printf '\n%s\n' "$txt"
+    while IFS= read -r id; do
+      [ -n "$id" ] && bouncer_state_update "$dir" --arg k "$id" '.shown[$k] = true'
+    done < <(bouncer_stage "$PROJECT" "$first" | jq -r '.steps[]? | select(.kind=="inject") | .id')
+  fi
   return 0
 }
 

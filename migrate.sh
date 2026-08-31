@@ -18,12 +18,16 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --apply)   APPLY=1; shift ;;
     --install) INSTALL=1; shift ;;
-    --scan)    SCAN_DIRS+=("${2:-}"); shift 2 ;;
+    --scan)
+      [ $# -ge 2 ] || { printf 'ai-bouncer: --scan 에 경로가 필요합니다.\n' >&2; exit 1; }
+      SCAN_DIRS+=("$2"); shift 2 ;;
     -h|--help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
-[ ${#SCAN_DIRS[@]} -eq 0 ] && SCAN_DIRS=("$HOME/programming")
+# 전역 설치는 모든 프로젝트에 걸려 있었다. 탐색 범위가 좁으면 조용히 빠지는 레포가 생긴다.
+[ ${#SCAN_DIRS[@]} -eq 0 ] && SCAN_DIRS=("$HOME/programming" "$HOME/dev" "$HOME/src" "$HOME/work" "$HOME/Projects")
+SCAN_DEPTH="${BOUNCER_SCAN_DEPTH:-6}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 G="$HOME/.claude"
@@ -140,11 +144,12 @@ for base in "${SCAN_DIRS[@]}"; do
     # 이미 신규가 설치된 곳은 건너뛴다
     [ -f "$p/.claude/ai-bouncer/workflow.yaml" ] && continue
     PROJECTS+=("$p")
-  done < <(find "$base" -maxdepth 4 -name ".ai-bouncer-tasks" -type d 2>/dev/null | sort)
+  done < <(find "$base" -maxdepth "$SCAN_DEPTH" -name ".ai-bouncer-tasks" -type d 2>/dev/null | sort)
 done
 
 if [ ${#PROJECTS[@]} -gt 0 ]; then
   say "구버전을 쓰던 프로젝트 ${#PROJECTS[@]}개 (신규 미설치):"
+  say "  (탐색 범위: ${SCAN_DIRS[*]/#$HOME/~}, 깊이 ${SCAN_DEPTH}. 다른 위치는 --scan 으로 추가)"
   for p in "${PROJECTS[@]}"; do
     last="$(cd "$p" && git log -1 --format=%cd --date=short 2>/dev/null)"
     printf '    %-52s %s\n' "${p/#$HOME/~}" "${last:+마지막 커밋 $last}"
@@ -153,11 +158,14 @@ if [ ${#PROJECTS[@]} -gt 0 ]; then
   if [ "$INSTALL" = 1 ] && [ "$APPLY" = 1 ]; then
     OKN=0; FAILN=0
     for p in "${PROJECTS[@]}"; do
-      if ( cd "$p" && bash "$SRC/install.sh" --ci >/dev/null 2>&1 ); then
+      out="$( cd "$p" && bash "$SRC/install.sh" --ci 2>&1 )" && rc=0 || rc=$?
+      if [ "$rc" = 0 ]; then
         printf '  ✔ %s\n' "${p/#$HOME/~}"; OKN=$((OKN+1))
       else
-        printf '  ✘ %s (설치 실패 — 직접 확인 필요)\n' "${p/#$HOME/~}"; FAILN=$((FAILN+1))
+        printf '  ✘ %s (설치 실패)\n' "${p/#$HOME/~}"; FAILN=$((FAILN+1))
       fi
+      # 설치가 낸 경고는 삼키지 않는다 — 미완료 구작업 안내가 여기 들어 있다.
+      printf '%s\n' "$out" | grep -E '⚠️|✘' | sed 's/^/      /'
     done
     say ""
     say "설치 완료 ${OKN}개 / 실패 ${FAILN}개"

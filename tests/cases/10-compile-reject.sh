@@ -60,6 +60,11 @@ version: 1
 workflows: {p: {stages: [a]}}
 stages: {a: {steps: [{label: s, inject: "x"}]}}
 Y
+try "blocking: 1 (정수는 true가 아니다)" <<'Y'
+version: 1
+workflows: {p: {label: x, stages: [a]}}
+stages: {a: {steps: [{label: s, inject: "x", blocking: 1}]}}
+Y
 try "중복 키 (pyyaml)" <<'Y'
 version: 1
 workflows: {p: {label: x, stages: [a]}}

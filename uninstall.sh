@@ -19,7 +19,11 @@ while [ $# -gt 0 ]; do
 done
 
 die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
-command -v jq >/dev/null 2>&1 || die "jq가 필요하다."
+command -v jq      >/dev/null 2>&1 || die "jq가 필요하다."
+command -v python3 >/dev/null 2>&1 || die "python3가 필요하다. 없으면 hook 등록 해제와 CLAUDE.md 정리를 할 수 없다."
+# PATH에 있어도 실행이 깨져 있으면 정리가 조용히 실패한다. 실제로 돌려본다.
+python3 -c 'import json,re,sys' >/dev/null 2>&1 \
+  || die "python3가 정상 동작하지 않는다. 제거를 중단한다 — 반쯤 제거된 상태로 남는 것이 더 나쁘다."
 
 ROOT="$PWD/.claude"
 DIR="$ROOT/ai-bouncer"; SETTINGS="$ROOT/settings.json"
@@ -28,7 +32,7 @@ printf 'ai-bouncer 제거 ← %s\n' "$DIR"
 
 # ── 1. hook 등록 해제 (우리 것만) ────────────────────────────
 if [ -f "$SETTINGS" ]; then
-  python3 - "$SETTINGS" <<'PY'
+  python3 - "$SETTINGS" <<'PY' || die "hook 등록 해제 실패 — settings.json을 확인하라."
 import json, sys
 p = sys.argv[1]
 try:
@@ -57,7 +61,7 @@ fi
 # ── 1-b. CLAUDE.md 규칙 블록 제거 (마커 사이만) ──────────────
 CMD_FILE="$PWD/CLAUDE.md"
 if [ -f "$CMD_FILE" ] && grep -q '<!-- ai-bouncer:start -->' "$CMD_FILE"; then
-  python3 - "$CMD_FILE" <<'PYM'
+  python3 - "$CMD_FILE" <<'PYM' || die "CLAUDE.md 정리 실패."
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
@@ -68,9 +72,11 @@ PYM
 fi
 
 # ── 1-c. install이 .gitignore에 넣은 줄 되돌리기 ─────────────
+# 우리가 넣은 줄만 되돌린다. 사용자가 원래 갖고 있던 줄을 지우면 파일 손상이다.
 GI="$PWD/.gitignore"
-if [ -f "$GI" ] && grep -qxF '.ai-bouncer/' "$GI"; then
-  python3 - "$GI" <<'PYG'
+GI_MINE="$(jq -r '.gitignore_added // false' "$DIR/manifest.json" 2>/dev/null)"
+if [ "$GI_MINE" = "true" ] && [ -f "$GI" ] && grep -qxF '.ai-bouncer/' "$GI"; then
+  python3 - "$GI" <<'PYG' || die ".gitignore 정리 실패."
 import re, sys
 p = sys.argv[1]
 s = open(p).read()
@@ -85,13 +91,17 @@ fi
 # 목록에 있는 것만 지운다. 사용자가 나중에 넣은 파일은 건드리지 않는다.
 if [ -f "$DIR/manifest.json" ]; then
   n=0
+  miss=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
-    case "$f" in */CLAUDE.md) continue ;; esac   # 사용자 파일 — 블록만 위에서 제거했다
+    case "$f" in */CLAUDE.md|CLAUDE.md) continue ;; esac   # 사용자 파일 — 블록만 위에서 제거했다
     [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/prompts/*) continue ;; esac
-    rm -f "$f" && n=$((n+1))
+    # manifest는 프로젝트 기준 상대경로다 (구버전 매니페스트는 절대경로일 수 있다)
+    case "$f" in /*) t="$f" ;; *) t="$PWD/$f" ;; esac
+    if [ -e "$t" ]; then rm -f "$t" && n=$((n+1)); else miss=$((miss+1)); fi
   done < <(jq -r '.files[]?' "$DIR/manifest.json")
   printf '  파일 %d개 제거\n' "$n"
+  [ "$miss" -gt 0 ] && printf '  ⚠️ 매니페스트에 있으나 찾지 못한 파일 %d개 — 다른 경로에 설치됐을 수 있다\n' "$miss"
 fi
 rm -f "$DIR/workflow.compiled.json" "$DIR/installed.json" "$DIR/manifest.json" \
       "$DIR/.update-check" "$DIR/.gitignore" "$DIR/bin/bouncer"
@@ -105,6 +115,19 @@ else
   rmdir "$DIR" 2>/dev/null && printf '  디렉토리 제거\n' \
     || printf '  사용자 자산 유지: %s (workflow.yaml, prompts/)\n' "$DIR"
   [ -d "$PWD/.ai-bouncer" ] && printf '  진행 중 작업 유지: %s/.ai-bouncer\n' "$PWD"
+fi
+
+# 우리가 만들어놓고 내용이 비게 된 파일은 남기지 않는다.
+for f in "$PWD/CLAUDE.md" "$PWD/.gitignore"; do
+  [ -f "$f" ] && [ -z "$(tr -d '[:space:]' < "$f")" ] && rm -f "$f"
+done
+[ -f "$SETTINGS" ] && [ "$(jq -c . "$SETTINGS" 2>/dev/null)" = "{}" ] && rm -f "$SETTINGS"
+rmdir "$ROOT/skills" "$ROOT" 2>/dev/null
+
+# 다른 프로젝트가 아직 쓰고 있으면 심볼릭 링크를 살려둔다. 아니면 끊어진 링크가 남는다.
+BINLINK="$HOME/.local/bin/bouncer"
+if [ -L "$BINLINK" ] && [ ! -e "$BINLINK" ]; then
+  rm -f "$BINLINK"; printf '  끊어진 bouncer 링크 제거\n'
 fi
 
 printf '\n제거 완료.\n'
