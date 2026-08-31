@@ -2,10 +2,10 @@
 # 케이스 12 — 강제 종료로 SessionEnd가 못 뜬 경우, 오래 멈춘 잠금만 정리한다
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 setup "$R/config/default.yaml" "$R/config/prompts" || exit 1
-trap cleanup EXIT
+trap 'git -C "$T" worktree prune 2>/dev/null; cleanup' EXIT
 
 CLAUDE_CODE_SESSION_ID=DEAD bouncer start plan "dead" >/dev/null
-CLAUDE_CODE_SESSION_ID=LIVE bouncer start plan "live" >/dev/null 2>&1
+CLAUDE_CODE_SESSION_ID=LIVE bouncer start plan "live" --parallel >/dev/null 2>&1
 # 정렬 순서에 의존하지 말고 소유자로 찾는다
 find_task(){ for d in "$T"/.ai-bouncer/tasks/*/; do
   [ "$(jq -r '.session_id // empty' "$d/.active" 2>/dev/null)" = "$1" ] && { printf '%s' "${d%/}"; return; }

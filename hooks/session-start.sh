@@ -49,14 +49,30 @@ if [ -d "$TASKS" ]; then
   done
 fi
 
-# ── 3. 진행 중 작업 복원 ─────────────────────────────────────
-if [ -n "$SESSION" ] && TASK="$(bouncer_my_task "$CWD" "$SESSION")"; then
-  STAGE="$(bouncer_state "$TASK" '.current_stage')"
-  WF="$(bouncer_state "$TASK" '.workflow')"
-  printf '진행 중인 ai-bouncer 작업이 있다: %s\n워크플로우 %s / 현재 단계 %s\n체인: %s\n' \
-    "$(bouncer_state "$TASK" '.task_id')" "$WF" "$STAGE" \
-    "$(bouncer_chain "$CWD" "$WF" | tr '\n' ' ')"
-  printf '`bouncer status`로 남은 조건을 확인하고 이어서 진행해라.\n'
+# ── 3. 시작 전에 알아야 할 것을 주입 ─────────────────────────
+# 모델이 `bouncer scan`을 부를 필요가 없도록 여기서 미리 준다.
+COMPILED_OK=0
+[ -f "$COMPILED" ] && jq -e . "$COMPILED" >/dev/null 2>&1 && COMPILED_OK=1
+
+if [ "$COMPILED_OK" = 1 ]; then
+  if [ -n "$SESSION" ] && TASK="$(bouncer_my_task "$CWD" "$SESSION")"; then
+    WF="$(bouncer_state "$TASK" '.workflow')"
+    printf '\n[ai-bouncer] 이 세션에 진행 중인 작업이 있다: %s\n' "$(bouncer_state "$TASK" '.task_id')"
+    printf '  워크플로우 %s / 현재 단계 %s\n  체인: %s\n' \
+      "$WF" "$(bouncer_state "$TASK" '.current_stage')" "$(bouncer_chain "$CWD" "$WF" | tr '\n' ' ')"
+    printf '  `bouncer status`로 남은 조건을 확인하고 이어서 진행해라.\n'
+  else
+    OTHERS=""
+    for d in $(bouncer_live_locks "$CWD"); do
+      OTHERS="$OTHERS  - $(basename "$d") ($(bouncer_state "$d" '.current_stage'))"$'\n'
+    done
+    printf '\n[ai-bouncer] 개발 작업은 /dev-bounce 로 시작한다. 사용 가능한 모드:\n'
+    jq -r '.workflows | to_entries[] | "  \(.key) — \(.value.label)"' "$COMPILED"
+    if [ -n "$OTHERS" ]; then
+      printf '  ⚠️ 다른 세션이 잡고 있는 작업:\n%s' "$OTHERS"
+      printf '  같은 트리에서 동시에 진행하면 충돌한다 — 병렬로 하려면 --parallel 을 쓴다.\n'
+    fi
+  fi
 fi
 
 # ── 4. 업데이트 확인 ─────────────────────────────────────────

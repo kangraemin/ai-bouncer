@@ -6,8 +6,7 @@ trap 'git -C "$T" worktree prune 2>/dev/null; cleanup' EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 BASE=$(git -C "$T" symbolic-ref --short HEAD)
 
-bouncer start plan "병렬 작업" >/dev/null
-bouncer worktree create >/dev/null 2>&1 || no "worktree 생성"
+bouncer start plan "병렬 작업" --parallel >/dev/null 2>&1 || no "병렬 시작"
 WT=$(state .worktree.path); BR=$(state .worktree.branch)
 [ -d "$WT" ] && ok "레포 밖에 worktree 생성 ($WT)" || no "worktree 생성"
 case "$WT" in "$T"/*) no "레포 밖 배치" "레포 안에 생성됨" ;; *) ok "레포 밖 배치" ;; esac

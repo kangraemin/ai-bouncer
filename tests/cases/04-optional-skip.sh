@@ -5,8 +5,10 @@ setup "$R/tests/fixtures/optional.yaml" || exit 1
 trap cleanup EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 
-OPTS="$(bouncer options plan)"
-printf '%s' "$OPTS" | grep -q '선택검사' && ok "options가 선택 항목을 나열" || no "options"
+SCAN="$(bouncer scan)"
+printf '%s' "$SCAN" | grep -q '^OPTION.*선택검사' && ok "scan이 선택 항목을 나열" || no "scan OPTION"
+printf '%s' "$SCAN" | grep -q '^WORKFLOW' && ok "scan이 모드도 함께 나열" || no "scan WORKFLOW"
+printf '%s' "$SCAN" | grep -q '^STATE	NONE' && ok "scan이 상태도 보고" || no "scan STATE"
 
 # 끈 채로 시작 — 실패하는 선택검사를 건너뛰므로 통과해야 한다
 bouncer start plan "옵션 끔" --off "verify/선택검사" >/dev/null
