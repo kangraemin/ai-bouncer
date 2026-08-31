@@ -11,10 +11,18 @@ cd "$T"; git init -q .; git config user.email t@t; git config user.name t
 echo hi > app.js; git add app.js; git commit -qm init
 printf '# 내 프로젝트\n\n기존 내용은 보존돼야 한다.\n' > CLAUDE.md
 
-# 남의 hook이 이미 있는 상태를 만든다 — 제거 때 살아남아야 한다
+# 남의 hook + 구버전 ai-bouncer hook이 이미 있는 상태를 만든다.
+# 남의 hook은 살아남아야 하고, 구 hook은 (신규가 안 쓰는 이벤트에 있어도) 전부 사라져야 한다.
 mkdir -p .claude
 cat > .claude/settings.json <<'J'
-{ "hooks": { "Stop": [ { "hooks": [ { "type": "command", "command": "/other/tool.sh" } ] } ] } }
+{ "hooks": {
+  "Stop": [
+    { "hooks": [ { "type": "command", "command": "/other/tool.sh" } ] },
+    { "hooks": [ { "type": "command", "command": "/old/.claude/ai-bouncer/hooks/completion-gate.sh" } ] }
+  ],
+  "SubagentStart": [ { "hooks": [ { "type": "command", "command": "/old/.claude/ai-bouncer/hooks/subagent-track.sh" } ] } ],
+  "SubagentStop":  [ { "hooks": [ { "type": "command", "command": "/old/.claude/ai-bouncer/hooks/subagent-cleanup.sh" } ] } ]
+} }
 J
 
 echo "── 설치 ──"
@@ -29,9 +37,19 @@ grep -qxF '.ai-bouncer/' .gitignore && ok ".gitignore에 런타임 상태 추가
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 5 ] && ok "hook 5개 등록" || no "hook 등록" "$n개"
+[ "$n" = 5 ] && ok "hook 5개 등록" || no "hook 등록" "${n}개"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \
   && ok "남의 hook 보존" || no "남의 hook 보존"
+
+# 구버전은 신규가 쓰지 않는 이벤트(SubagentStart/Stop)에도 hook을 등록했다.
+# 그 등록이 남으면 이미 지워진 스크립트를 계속 호출하게 된다.
+jq -e '(.hooks.SubagentStart // []) == [] and (.hooks.SubagentStop // []) == []' .claude/settings.json >/dev/null \
+  && ok "신규가 안 쓰는 이벤트의 구 hook도 제거" || no "구 hook 잔재" "SubagentStart/Stop 남음"
+DANGLING=0
+while IFS= read -r c; do
+  case "$c" in *ai-bouncer*) [ -f "$c" ] || DANGLING=$((DANGLING+1)) ;; esac
+done < <(jq -r '.hooks//{}|to_entries[]|.value[]|.hooks[]|.command' .claude/settings.json)
+[ "$DANGLING" = 0 ] && ok "없는 파일을 가리키는 등록 없음" || no "dangling hook" "${DANGLING}개"
 
 echo "── CLAUDE.md 규칙 블록 ──"
 grep -q 'ai-bouncer:start' CLAUDE.md 2>/dev/null && ok "CLAUDE.md에 블록 추가" || no "블록 추가"
