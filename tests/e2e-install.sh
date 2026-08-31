@@ -10,6 +10,11 @@ no(){ printf '  ❌ %s — %s\n' "$1" "${2:-}"; FAIL=$((FAIL+1)); }
 cd "$T"; git init -q .; git config user.email t@t; git config user.name t
 echo hi > app.js; git add app.js; git commit -qm init
 printf '# 내 프로젝트\n\n기존 내용은 보존돼야 한다.\n' > CLAUDE.md
+# 구버전 잔재 재현 — 마이그레이션이 치워야 한다
+mkdir -p .claude/ai-bouncer/hooks
+printf '# --- ai-bouncer-rule start ---\n구 규칙\n# --- ai-bouncer-rule end ---\n' > .claude/CLAUDE.md
+printf '{}\n' > .claude/ai-bouncer/hooks/hooks.json
+printf '0\n' > .claude/ai-bouncer/.version-checked
 
 # 남의 hook + 구버전 ai-bouncer hook이 이미 있는 상태를 만든다.
 # 남의 hook은 살아남아야 하고, 구 hook은 (신규가 안 쓰는 이벤트에 있어도) 전부 사라져야 한다.
@@ -56,6 +61,9 @@ done < <(jq -r '.hooks//{}|to_entries[]|.value[]|.hooks[]|.command' .claude/sett
 
 echo "── CLAUDE.md 규칙 블록 ──"
 grep -q 'ai-bouncer:start' CLAUDE.md 2>/dev/null && ok "CLAUDE.md에 블록 추가" || no "블록 추가"
+[ -f .claude/CLAUDE.md ] && no "구 .claude/CLAUDE.md 정리" "남음" || ok "구 .claude/CLAUDE.md 정리 (규칙 중복 방지)"
+[ -f .claude/ai-bouncer/hooks/hooks.json ] && no "구 hooks.json 정리" "남음" || ok "구 hooks.json 정리"
+[ -f .claude/ai-bouncer/.version-checked ] && no "구 .version-checked 정리" "남음" || ok "구 .version-checked 정리"
 grep -q '기존 내용' CLAUDE.md && ok "기존 내용 보존" || no "기존 내용 보존"
 
 echo "── 재설치(멱등성) ──"
