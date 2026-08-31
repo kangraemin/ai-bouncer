@@ -47,7 +47,10 @@ jq -e '(.hooks.SubagentStart // []) == [] and (.hooks.SubagentStop // []) == []'
   && ok "신규가 안 쓰는 이벤트의 구 hook도 제거" || no "구 hook 잔재" "SubagentStart/Stop 남음"
 DANGLING=0
 while IFS= read -r c; do
-  case "$c" in *ai-bouncer*) [ -f "$c" ] || DANGLING=$((DANGLING+1)) ;; esac
+  case "$c" in *ai-bouncer*)
+    r="${c//\$\{CLAUDE_PROJECT_DIR\}/$T}"     # placeholder를 실제 경로로 풀어서 확인
+    [ -f "$r" ] || DANGLING=$((DANGLING+1)) ;;
+  esac
 done < <(jq -r '.hooks//{}|to_entries[]|.value[]|.hooks[]|.command' .claude/settings.json)
 [ "$DANGLING" = 0 ] && ok "없는 파일을 가리키는 등록 없음" || no "dangling hook" "${DANGLING}개"
 
@@ -73,6 +76,7 @@ bash .claude/ai-bouncer/engine/bouncer.sh start plan test >/dev/null 2>&1
 r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s/app.js"}}' "$T" "$T" \
     | bash .claude/ai-bouncer/hooks/pre-tool.sh)
 [ -n "$r" ] && ok "설치본 hook이 차단" || no "설치본 hook 차단"
+grep -q 'CLAUDE_PROJECT_DIR' .claude/settings.json && ok "hook 경로가 이식 가능 (절대경로 아님)" || no "이식성" "절대경로 박힘"
 
 echo "── 제거 ──"
 bash "$R/uninstall.sh" >/dev/null 2>&1 || no "제거 실행"

@@ -133,9 +133,13 @@ esac
 
 # ── 4. hook 등록 (남의 hook은 건드리지 않는다) ───────────────
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-python3 - "$SETTINGS" "$DIR" <<'PY'
+python3 - "$SETTINGS" <<'PY'
 import json, sys
-settings_path, d = sys.argv[1], sys.argv[2]
+settings_path = sys.argv[1]
+# 절대경로를 박으면 이 settings.json을 커밋했을 때 다른 사람 컴퓨터에서 깨진다.
+# ${CLAUDE_PROJECT_DIR}는 세션이 시작된 프로젝트 루트로 치환된다.
+# 경로 placeholder에는 exec form(args 포함)이 권장된다 — 셸 개입 없이 그대로 치환된다.
+d = "${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer"
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
@@ -163,7 +167,7 @@ for event, arr in list(hooks.items()):
 
 for event, matcher, cmd, timeout in spec:
     arr = hooks.setdefault(event, [])
-    e = {"hooks": [{"type": "command", "command": cmd, "timeout": timeout}]}
+    e = {"hooks": [{"type": "command", "command": cmd, "args": [], "timeout": timeout}]}
     if matcher:
         e["matcher"] = matcher
     arr.append(e)
