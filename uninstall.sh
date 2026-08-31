@@ -1,283 +1,92 @@
-#!/bin/bash
-# ai-bouncer uninstall
-# Usage: bash uninstall.sh
+#!/usr/bin/env bash
+# ai-bouncer 제거.
+#   ./uninstall.sh            설치 위치를 자동 감지 (로컬 우선)
+#   ./uninstall.sh --global   전역에서 제거
+#   ./uninstall.sh --purge    워크플로우·프롬프트·진행 중 작업까지 전부 삭제
+#
+# 기본은 사용자 자산(workflow.yaml, prompts/, 진행 중 작업)을 남긴다.
 
-set -euo pipefail
+set -uo pipefail
+SCOPE=auto; PURGE=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --global) SCOPE=global; shift ;;
+    --local)  SCOPE=local;  shift ;;
+    --purge)  PURGE=1; shift ;;
+    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
 
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-BOLD='\033[1m'
-NC='\033[0m'
+die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || die "jq가 필요하다."
 
-ok()     { echo -e "${GREEN}✓${NC}  $*"; }
-info()   { echo -e "${BLUE}ℹ${NC}  $*"; }
-warn()   { echo -e "${YELLOW}⚠${NC}  $*"; }
-err()    { echo -e "${RED}✗${NC}  $*"; }
-header() { echo -e "\n${BOLD}── $* ──${NC}\n"; }
-
-header "ai-bouncer 제거"
-
-# 설치 범위 감지: 로컬(.claude/ai-bouncer/) → 글로벌(~/.claude/ai-bouncer/) 순서
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-TARGET_DIR=""
-
-# 1. 로컬 설치 확인
-if [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/.claude/ai-bouncer/manifest.json" ]; then
-  TARGET_DIR="$REPO_ROOT/.claude"
-fi
-
-# 2. 글로벌 설치 확인 (하위 호환)
-if [ -z "$TARGET_DIR" ] && [ -f "$HOME/.claude/ai-bouncer/manifest.json" ]; then
-  TARGET_DIR="$HOME/.claude"
-fi
-
-if [ -z "$TARGET_DIR" ]; then
-  err "설치된 ai-bouncer를 찾을 수 없습니다."
-  exit 1
-fi
-
-BOUNCER_DATA_DIR="$TARGET_DIR/ai-bouncer"
-MANIFEST="$BOUNCER_DATA_DIR/manifest.json"
-info "매니페스트에서 설치 파일 목록 읽는 중... ($MANIFEST)"
-
-python3 - "$MANIFEST" "$TARGET_DIR" <<'PYEOF'
-import json, os, sys
-
-manifest_path = sys.argv[1]
-target_dir = sys.argv[2]
-
-try:
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError) as e:
-    print(f"  ⚠ 매니페스트 읽기 실패: {e}")
-    print("  파일 삭제를 건너뛰고 설정 정리를 계속합니다.")
-    sys.exit(0)
-
-removed = 0
-for rel_path in manifest.get('files', []):
-    abs_path = os.path.join(target_dir, rel_path)
-    if os.path.exists(abs_path):
-        os.remove(abs_path)
-        print(f"  삭제: {rel_path}")
-        removed += 1
-
-print(f"\n  {removed}개 파일 삭제됨 (백업 파일은 유지)")
-PYEOF
-
-# Stop hook에서 ai-bouncer 블록 제거 (settings.json 정리 전에 수행)
-remove_bouncer_block() {
-  local file="$1"
-  [ -f "$file" ] || return 0
-  python3 - "$file" <<'PYEOF'
-import sys
-f = sys.argv[1]
-START = "# --- ai-bouncer start ---"
-END = "# --- ai-bouncer end ---"
-content = open(f, encoding='utf-8').read()
-s = content.find(START)
-e = content.find(END)
-if s == -1 or e == -1:
-    sys.exit(0)
-before = content[:s].rstrip('\n')
-after = content[e + len(END):].lstrip('\n')
-new = (before + '\n\n' + after).strip('\n') + '\n'
-open(f, 'w', encoding='utf-8').write(new)
-print(f"  {f}: ai-bouncer 블록 제거됨")
-PYEOF
+pick() {
+  case "$SCOPE" in
+    local)  ROOT="$PWD/.claude" ;;
+    global) ROOT="$HOME/.claude" ;;
+    auto)
+      if [ -d "$PWD/.claude/ai-bouncer" ]; then ROOT="$PWD/.claude"
+      elif [ -d "$HOME/.claude/ai-bouncer" ]; then ROOT="$HOME/.claude"
+      else die "설치된 ai-bouncer를 찾지 못했다."; fi ;;
+  esac
 }
+pick
+DIR="$ROOT/ai-bouncer"; SETTINGS="$ROOT/settings.json"
+[ -d "$DIR" ] || die "설치된 ai-bouncer가 없다: $DIR"
+printf 'ai-bouncer 제거 ← %s\n' "$DIR"
 
-for settings_file in "$HOME/.claude/settings.json" "$TARGET_DIR/settings.json"; do
-  [ -f "$settings_file" ] || continue
-  python3 -c "
+# ── 1. hook 등록 해제 (우리 것만) ────────────────────────────
+if [ -f "$SETTINGS" ]; then
+  python3 - "$SETTINGS" <<'PY'
 import json, sys
-cfg = json.load(open(sys.argv[1]))
-for g in cfg.get('hooks', {}).get('Stop', []):
-    for h in g.get('hooks', []):
-        cmd = h.get('command', '')
-        if cmd: print(cmd)
-" "$settings_file" 2>/dev/null | while IFS= read -r hook_path; do
-    remove_bouncer_block "$hook_path"
-  done
-done
-
-# settings.json에서 hook 제거
-SETTINGS_FILE="$TARGET_DIR/settings.json"
-if [ -f "$SETTINGS_FILE" ]; then
-  python3 - "$SETTINGS_FILE" <<'PYEOF'
-import json, sys
-
-settings_file = sys.argv[1]
-
-with open(settings_file) as f:
-    cfg = json.load(f)
-
-import os as _os
-
-# hooks.json에서 동적으로 읽기, fallback으로 하드코딩
-_hooks_json = _os.path.join(_os.path.dirname(settings_file), 'ai-bouncer', 'hooks', 'hooks.json')
-if _os.path.exists(_hooks_json):
-    _manifest = json.load(open(_hooks_json))
-    BOUNCER_HOOKS = set()
-    for _entries in _manifest.values():
-        for _e in _entries:
-            BOUNCER_HOOKS.add(_e.get('file', ''))
-else:
-    BOUNCER_HOOKS = {
-        'plan-gate.sh', 'bash-gate.sh', 'completion-gate.sh',
-        'subagent-track.sh', 'subagent-cleanup.sh',
-        'stop-active-cleanup.sh',
-    }
-
-def is_bouncer_hook(group):
-    for h in group.get('hooks', []):
-        cmd = h.get('command', '')
-        # 파일명 기준 매칭 (경로 무관)
-        import os
-        if os.path.basename(cmd) in BOUNCER_HOOKS:
-            return True
-    return False
-
-hooks = cfg.get('hooks', {})
-BOUNCER_HOOKS.add('bouncer-update-check.sh')
-BOUNCER_HOOKS.add('update-check.sh')  # 하위 호환
-
-for hook_type in ['PreToolUse', 'PostToolUse', 'Stop', 'SubagentStart', 'SubagentStop', 'SessionStart']:
-    if hook_type in hooks:
-        original = hooks[hook_type]
-        filtered = [g for g in original if not is_bouncer_hook(g)]
-        if len(filtered) != len(original):
-            hooks[hook_type] = filtered
-            print(f"  {hook_type} hook 제거됨")
-
-# 빈 hook 타입 정리
-hooks = {k: v for k, v in hooks.items() if v}
-if hooks:
-    cfg['hooks'] = hooks
-else:
-    cfg.pop('hooks', None)
-
-# AGENT_TEAMS env 제거
-env = cfg.get('env', {})
-env.pop('CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS', None)
-if not env:
-    cfg.pop('env', None)
-else:
-    cfg['env'] = env
-
-with open(settings_file, 'w') as f:
-    json.dump(cfg, f, indent=2, ensure_ascii=False)
-    f.write('\n')
-PYEOF
-fi
-
-# CLAUDE.md 블록 제거
-CLAUDE_FILE="$TARGET_DIR/CLAUDE.md"
-if [ -f "$CLAUDE_FILE" ]; then
-  python3 - "$CLAUDE_FILE" <<'PYEOF'
-import sys
-
-claude_file = sys.argv[1]
-START = "# --- ai-bouncer-rule start ---"
-END   = "# --- ai-bouncer-rule end ---"
-
-content = open(claude_file, encoding='utf-8').read()
-s = content.find(START)
-e = content.find(END)
-
-if s == -1 or e == -1:
-    print("  CLAUDE.md 블록 없음 (no-op)")
+p = sys.argv[1]
+try:
+    cfg = json.load(open(p))
+except Exception:
     sys.exit(0)
-
-# 마커 포함 블록 제거, 앞뒤 빈줄 정리 (섹션 간 이중 개행 보존)
-before = content[:s].rstrip('\n')
-after  = content[e + len(END):].lstrip('\n')
-new_content = (before + '\n\n' + after).strip('\n')
-if new_content:
-    new_content += '\n'
-else:
-    # CLAUDE.md가 bouncer 규칙만 있었으면 파일 삭제
-    import os
-    os.remove(claude_file)
-    print("  CLAUDE.md 삭제됨 (bouncer 규칙만 있었음)")
-    sys.exit(0)
-
-open(claude_file, 'w', encoding='utf-8').write(new_content)
-print("  CLAUDE.md ai-bouncer 규칙 블록 제거됨")
-PYEOF
+hooks = cfg.get("hooks", {})
+removed = 0
+for event, arr in list(hooks.items()):
+    for entry in list(arr):
+        before = len(entry.get("hooks", []))
+        entry["hooks"] = [h for h in entry.get("hooks", [])
+                          if "/ai-bouncer/hooks/" not in str(h.get("command", ""))]
+        removed += before - len(entry["hooks"])
+        if not entry["hooks"]:
+            arr.remove(entry)
+    if not arr:
+        del hooks[event]
+if not hooks:
+    cfg.pop("hooks", None)
+json.dump(cfg, open(p, "w"), ensure_ascii=False, indent=2)
+print(f"  hook {removed}개 등록 해제 (다른 도구의 hook은 유지)")
+PY
 fi
 
-# ai-bouncer 디렉토리 통째 삭제 (hooks, scripts, config, manifest 포함)
-rm -rf "$BOUNCER_DATA_DIR"
+# ── 2. manifest 기반 파일 제거 ───────────────────────────────
+# 목록에 있는 것만 지운다. 사용자가 나중에 넣은 파일은 건드리지 않는다.
+if [ -f "$DIR/manifest.json" ]; then
+  n=0
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/prompts/*) continue ;; esac
+    rm -f "$f" && n=$((n+1))
+  done < <(jq -r '.files[]?' "$DIR/manifest.json")
+  printf '  파일 %d개 제거\n' "$n"
+fi
+rm -f "$DIR/workflow.compiled.json" "$DIR/installed.json" "$DIR/manifest.json" \
+      "$DIR/.update-check" "$DIR/.gitignore" "$DIR/bin/bouncer"
+rmdir "$DIR"/bin "$DIR"/hooks "$DIR"/scripts "$DIR"/engine/lib "$DIR"/engine 2>/dev/null
+rmdir "$ROOT/skills/dev-bounce" 2>/dev/null
 
-# 병렬 worktree 정리: ~/.ai-bouncer/worktrees 의 worktree들을 원 레포에서 등록 해제 후 삭제.
-# (원 레포 git worktree 등록을 끊지 않으면 'git worktree list'에 유령으로 남음)
-if [ -d "$HOME/.ai-bouncer/worktrees" ]; then
-  for _wt in "$HOME/.ai-bouncer/worktrees"/*/*/; do
-    [ -d "$_wt" ] || continue
-    _wtmain=$(git -C "$_wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
-    _wtmain="${_wtmain%/.git}"
-    [ -n "$_wtmain" ] && git -C "$_wtmain" worktree remove --force "$_wt" 2>/dev/null
-  done
-  rm -rf "$HOME/.ai-bouncer/worktrees"
-  echo "  ai-bouncer worktree 정리됨 (~/.ai-bouncer/worktrees). 남은 유령은 각 레포 'git worktree prune'으로 정리하세요."
+if [ "$PURGE" = 1 ]; then
+  rm -rf "$DIR" "$PWD/.ai-bouncer"
+  printf '  워크플로우·프롬프트·진행 중 작업까지 삭제 (--purge)\n'
+else
+  rmdir "$DIR" 2>/dev/null && printf '  디렉토리 제거\n' \
+    || printf '  사용자 자산 유지: %s (workflow.yaml, prompts/)\n' "$DIR"
+  [ -d "$PWD/.ai-bouncer" ] && printf '  진행 중 작업 유지: %s/.ai-bouncer\n' "$PWD"
 fi
 
-# 빈 디렉토리 정리 (agents/skills는 manifest 기반 개별 삭제 후 빈 디렉토리만 정리)
-for dir in "$TARGET_DIR/agents/guides" "$TARGET_DIR/agents"; do
-  rmdir "$dir" 2>/dev/null || true
-done
-for skill_dir in "$TARGET_DIR/skills"/*/; do
-  [ -d "$skill_dir" ] && rmdir "$skill_dir" 2>/dev/null || true
-done
-rmdir "$TARGET_DIR/skills" 2>/dev/null || true
-
-# .gitignore managed block 제거
-GITIGNORE_FILE="$REPO_ROOT/.gitignore"
-if [ -f "$GITIGNORE_FILE" ]; then
-  python3 - "$GITIGNORE_FILE" <<'PYEOF'
-import sys
-f = sys.argv[1]
-START = "# --- ai-bouncer start ---"
-END   = "# --- ai-bouncer end ---"
-content = open(f, encoding='utf-8').read()
-s = content.find(START)
-e = content.find(END)
-if s == -1 or e == -1:
-    sys.exit(0)
-before = content[:s].rstrip('\n')
-after  = content[e + len(END):].lstrip('\n')
-new = (before + ('\n\n' if before and after else '') + after)
-if new and not new.endswith('\n'):
-    new += '\n'
-open(f, 'w', encoding='utf-8').write(new)
-print("  .gitignore ai-bouncer 블록 제거됨")
-PYEOF
-fi
-
-# 프로젝트 루트의 uninstall.sh 삭제
-if [ -n "$REPO_ROOT" ]; then
-  rm -f "$REPO_ROOT/uninstall.sh"
-fi
-
-# 전역 gitignore에서 ai-bouncer 블록 제거 (전역 설치)
-if [ -z "$REPO_ROOT" ]; then
-  GLOBAL_GITIGNORE=$(git config --global core.excludesfile 2>/dev/null || true)
-  GLOBAL_GITIGNORE="${GLOBAL_GITIGNORE/#\~/$HOME}"
-  if [ -n "$GLOBAL_GITIGNORE" ] && [ -f "$GLOBAL_GITIGNORE" ]; then
-    python3 - "$GLOBAL_GITIGNORE" <<'PYEOF'
-import sys, re
-f = sys.argv[1]
-content = open(f, encoding='utf-8').read()
-new = re.sub(r'\n# ai-bouncer\n\.ai-bouncer-tasks/\n?', '', content)
-if new != content:
-    open(f, 'w', encoding='utf-8').write(new)
-    print("  전역 gitignore에서 .ai-bouncer-tasks/ 제거됨")
-PYEOF
-  fi
-fi
-
-echo ""
-ok "ai-bouncer 제거 완료"
+printf '\n제거 완료.\n'

@@ -1,0 +1,21 @@
+version: 1
+workflows:
+  plan:
+    label: 테스트용
+    stages: [verify, done]
+stages:
+  verify:
+    steps:
+      - label: 필수검사
+        run: 'true'
+        by: engine
+        blocking: true
+      - label: 선택검사
+        run: 'exit 1'
+        by: engine
+        blocking: true
+        optional: true
+  done:
+    steps:
+      - label: 완료
+        inject: "끝."

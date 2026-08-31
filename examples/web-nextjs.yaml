@@ -1,0 +1,71 @@
+version: 1
+
+workflows:
+  plan:
+    label: 계획을 세우고 승인받은 뒤 구현
+    stages: [plan, implement, verify, finalize, done]
+  simple:
+    label: 계획 없이 바로 구현
+    stages: [implement, verify, finalize, done]
+
+stages:
+  plan:
+    steps:
+      - label: 계획 승인
+        inject_file: prompts/plan.md
+        blocking: plan_approved
+    forbid:
+      edit_files: true
+      push: true
+      reason: 계획 승인 전에는 코드를 수정할 수 없다.
+
+  implement:
+    steps:
+      - label: 구현
+        inject: |
+          승인된 계획의 After 코드를 그대로 구현해라. 끝나도 멈추지 말고 검증까지 간다.
+      - label: 타입 체크
+        run: "npx tsc --noEmit"
+        timeout: 180
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증 전 push 금지.
+
+  verify:
+    on_fail: implement
+    steps:
+      - label: 린트
+        run: "npm run lint"
+        timeout: 120
+        blocking: true
+      - label: 유닛 테스트
+        run: "npm test -- --run"
+        timeout: 600
+        blocking: true
+      - label: 프로덕션 빌드
+        run: "npm run build"
+        timeout: 900
+        blocking: true
+      - label: e2e
+        run: "npx playwright test"
+        timeout: 900
+        blocking: true
+    forbid:
+      push: true
+      reason: 검증이 끝나기 전에는 push할 수 없다.
+
+  finalize:
+    steps:
+      - label: 커밋과 푸시
+        inject: |
+          변경 파일을 개별 add → 커밋(type 영어 + 설명 한글, 50자) → push.
+      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        blocking: true
+
+  done:
+    steps:
+      - label: 완료 보고
+        inject: |
+          무엇을 바꿨는지 요약해 보고하고 멈춰라.

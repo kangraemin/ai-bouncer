@@ -1,0 +1,15 @@
+version: 1
+workflows:
+  plan:
+    label: 테스트용
+    stages: [policy, done]
+stages:
+  policy:
+    steps:
+      - label: 정책 정리
+        inject: "/policy-cleanup 스킬을 실행해라."
+        blocking: skill:policy-cleanup
+  done:
+    steps:
+      - label: 완료
+        inject: "끝."

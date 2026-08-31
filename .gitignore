@@ -1,36 +1,21 @@
-HANDOFF.md
-.idea/
+# 런타임 상태 (프로젝트에 설치됐을 때 생기는 것)
+.ai-bouncer/
+.claude/ai-bouncer/*.compiled.json
 
-# --- ai-bouncer start ---
-# ai-bouncer runtime artifacts
-.claude/ai-bouncer/.version-checked
-.claude/ai-bouncer/config.json
-.claude/ai-bouncer/manifest.json
-.claude/**/*.backup-*
-.claude/settings.json
-.ai-bouncer-tasks/
-# ai-bouncer installed files
-.claude/agents/dev.md
-.claude/agents/e2e-writer.md
-.claude/agents/intent.md
-.claude/agents/lead.md
-.claude/agents/qa.md
-.claude/agents/guides/tc-guide.md
-.claude/skills/bouncer-status/SKILL.md
-.claude/skills/dev-bounce/SKILL.md
-.claude/skills/update-bouncer/SKILL.md
-.claude/ai-bouncer/hooks/bash-gate.sh
-.claude/ai-bouncer/hooks/completion-gate.sh
-.claude/ai-bouncer/hooks/hooks.json
-.claude/ai-bouncer/hooks/plan-gate.sh
-.claude/ai-bouncer/hooks/stop-active-cleanup.sh
-.claude/ai-bouncer/hooks/stop-bouncer-compat.sh
-.claude/ai-bouncer/hooks/subagent-cleanup.sh
-.claude/ai-bouncer/hooks/subagent-track.sh
-.claude/ai-bouncer/hooks/lib/gate-checks.sh
-.claude/ai-bouncer/hooks/lib/resolve-task.sh
-.claude/ai-bouncer/scripts/bouncer-config.sh
-.claude/ai-bouncer/scripts/bouncer-update-check.sh
-.claude/ai-bouncer/scripts/claim-active.sh
-# --- ai-bouncer end ---
+# 개발 환경
+.idea/
 .gstack/
+.worklogs/
+*.log
+.DS_Store
+
+# 구버전 런타임 잔재
+.ai-bouncer-tasks/
+
+# python 캐시
+__pycache__/
+*.pyc
+
+# 이 레포에 설치했을 때 생기는 것
+.claude/ai-bouncer/
+.claude/skills/dev-bounce/
