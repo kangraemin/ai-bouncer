@@ -172,6 +172,11 @@ def mini_yaml(text):
                 break
             pos[0] += 1
             key = _scalar(key.strip())
+            if key in out:
+                # YAML은 중복 키를 조용히 덮어쓴다. 그러면 forbid 같은 가드가
+                # 에러 없이 사라진다. 이 도구에서는 그게 최악의 실패 모드다.
+                raise ConfigError('중복된 키: `%s` — 같은 블록에 두 번 있다. '
+                                  '뒤엣것이 앞엣것을 조용히 덮어쓰므로 거부한다.' % key)
             val = val.strip()
             if val in ('|', '|-', '>', '>-'):
                 out[key] = block_scalar(ind, val)
@@ -189,10 +194,28 @@ def load_yaml(path, force_mini=False):
         text = fh.read()
     if not force_mini:
         try:
-            import yaml  # noqa
-            return yaml.safe_load(text), 'pyyaml'
+            import yaml
         except ImportError:
-            pass
+            yaml = None
+        if yaml is not None:
+            class _NoDupLoader(yaml.SafeLoader):
+                pass
+
+            def _no_dup(loader, node, deep=False):
+                mapping = {}
+                for key_node, value_node in node.value:
+                    key = loader.construct_object(key_node, deep=deep)
+                    if key in mapping:
+                        raise ConfigError(
+                            '중복된 키: `%s` (%d행) — 같은 블록에 두 번 있다. '
+                            '뒤엣것이 앞엣것을 조용히 덮어쓰므로 거부한다.'
+                            % (key, key_node.start_mark.line + 1))
+                    mapping[key] = loader.construct_object(value_node, deep=deep)
+                return mapping
+
+            _NoDupLoader.add_constructor(
+                yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_dup)
+            return yaml.load(text, Loader=_NoDupLoader), 'pyyaml'
     # 내장 파서는 앵커를 조용히 먹어버린다 — 머신마다 뜻이 달라지므로 거부한다.
     for n, line in enumerate(text.split('\n'), 1):
         s = _strip_comment(line)
