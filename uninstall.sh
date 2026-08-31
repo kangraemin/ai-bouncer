@@ -54,12 +54,26 @@ print(f"  hook {removed}개 등록 해제 (다른 도구의 hook은 유지)")
 PY
 fi
 
+# ── 1-b. CLAUDE.md 규칙 블록 제거 (마커 사이만) ──────────────
+CMD_FILE="$PWD/CLAUDE.md"
+if [ -f "$CMD_FILE" ] && grep -q '<!-- ai-bouncer:start -->' "$CMD_FILE"; then
+  python3 - "$CMD_FILE" <<'PYM'
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+s = re.sub(r'\n*<!-- ai-bouncer:start -->.*?<!-- ai-bouncer:end -->\n*', '\n', s, flags=re.S)
+open(p, 'w').write(s.strip() + '\n' if s.strip() else '')
+PYM
+  printf '  CLAUDE.md 규칙 블록 제거 (나머지 내용은 그대로)\n'
+fi
+
 # ── 2. manifest 기반 파일 제거 ───────────────────────────────
 # 목록에 있는 것만 지운다. 사용자가 나중에 넣은 파일은 건드리지 않는다.
 if [ -f "$DIR/manifest.json" ]; then
   n=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
+    case "$f" in */CLAUDE.md) continue ;; esac   # 사용자 파일 — 블록만 위에서 제거했다
     [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/prompts/*) continue ;; esac
     rm -f "$f" && n=$((n+1))
   done < <(jq -r '.files[]?' "$DIR/manifest.json")

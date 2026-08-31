@@ -3,15 +3,17 @@
 #   ./install.sh                이 프로젝트에 설치 (.claude/ai-bouncer/)
 #   ./install.sh --ci           비대화 모드 (사실 물어보는 게 없다)
 #   ./install.sh --branch dev   업데이트 기준 브랜치 지정
+#   ./install.sh --no-claude-md CLAUDE.md에 규칙 블록을 넣지 않음
 #
 # 설치는 프로젝트별로만 한다. 전역 설치는 지원하지 않는다.
 
 set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CI=0; BRANCH=main
+CI=0; BRANCH=main; CLAUDE_MD=1
 while [ $# -gt 0 ]; do
   case "$1" in
+    --no-claude-md) CLAUDE_MD=0; shift ;;
     --global|--local)
       printf 'ai-bouncer: %s 는 더 이상 지원하지 않는다. 설치는 프로젝트별로만 한다.\n' "$1" >&2
       exit 1 ;;
@@ -50,6 +52,10 @@ for sk in bouncer-status update-bouncer; do
   [ -d "$ROOT/skills/$sk" ] && { rm -rf "$ROOT/skills/$sk"; MIGRATED=$((MIGRATED+1)); }
 done
 [ "$MIGRATED" -gt 0 ] && printf '  구버전 파일 %d개 정리 (설정은 workflow.yaml의 settings로 옮겼다)\n' "$MIGRATED"
+
+# 구버전은 전역 ~/.claude/CLAUDE.md에도 규칙을 넣었다. 전역 파일은 건드리지 않고 알리기만 한다.
+OLD_GLOBAL_RULE=0
+grep -q 'ai-bouncer-rule start' "$HOME/.claude/CLAUDE.md" 2>/dev/null && OLD_GLOBAL_RULE=1
 
 # 구버전 진행 중 작업은 신규 엔진이 읽지 못한다. 지우지 않고 알리기만 한다.
 OLD_TASKS=0
@@ -169,13 +175,58 @@ if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
   printf 'workflow.compiled.json\n' > "$DIR/.gitignore"
 fi
 
-# ── 6. 컴파일 + 기록 ─────────────────────────────────────────
+# ── 6. CLAUDE.md 규칙 블록 ───────────────────────────────────
+# hook은 작업이 시작된 뒤에만 강제할 수 있다. `.active`가 없으면 PreToolUse는 통과시킨다.
+# 그래서 "작업을 시작하게 만드는 것"은 프롬프트 레벨이어야 한다.
+# 전역 CLAUDE.md는 건드리지 않는다 — 설치가 프로젝트별이므로 프로젝트 파일에만 넣는다.
+CMD_FILE="$PROJECT/CLAUDE.md"
+if [ "$CLAUDE_MD" = 1 ]; then
+  BLOCK="$(cat <<'MD'
+<!-- ai-bouncer:start -->
+## ai-bouncer
+
+코드 수정·기능 구현·버그 수정·리팩터링 등 **개발 작업은 `/dev-bounce`로 시작한다.**
+스킬을 거치지 않고 Edit / Write / Bash로 소스를 고치지 않는다.
+
+- 작업이 시작되면 hook이 단계별 규칙을 강제한다. 시작 전에는 아무것도 막지 않는다.
+- 진행 중인 작업이 있는지 `bouncer status`로 먼저 확인하고, 있으면 이어서 한다.
+- 질문·설명 요청은 해당 없다. 그냥 답하면 된다.
+- hook이 차단하면 우회하지 말고 차단 사유에 적힌 조건을 충족시켜라.
+<!-- ai-bouncer:end -->
+MD
+)"
+  if [ -f "$CMD_FILE" ] && grep -q '<!-- ai-bouncer:start -->' "$CMD_FILE"; then
+    # 기존 블록만 교체. 사용자가 쓴 나머지 내용은 건드리지 않는다.
+    python3 - "$CMD_FILE" <<PYM
+import re, sys
+p = sys.argv[1]
+s = open(p).read()
+block = '''$BLOCK'''
+s = re.sub(r'<!-- ai-bouncer:start -->.*?<!-- ai-bouncer:end -->', block, s, flags=re.S)
+open(p, 'w').write(s)
+PYM
+    printf '  CLAUDE.md 규칙 블록 갱신\n'
+  else
+    [ -f "$CMD_FILE" ] && printf '\n' >> "$CMD_FILE"
+    printf '%s\n' "$BLOCK" >> "$CMD_FILE"
+    MANIFEST="$(jq --arg p "$CMD_FILE" '. + [$p]' <<<"$MANIFEST")"
+    printf '  CLAUDE.md에 규칙 블록 추가\n'
+  fi
+fi
+
+# ── 7. 컴파일 + 기록 ─────────────────────────────────────────
 python3 "$DIR/engine/compile.py" "$DIR/workflow.yaml" "$DIR/workflow.compiled.json" \
   || die "workflow.yaml 컴파일 실패"
 COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
 jq -n --arg c "$COMMIT" --arg b "$BRANCH" --arg t "$(date -u +%FT%TZ)" \
   '{commit:$c, branch:$b, installed_at:$t}' > "$DIR/installed.json"
 printf '%s\n' "$MANIFEST" | jq '{files: .}' > "$DIR/manifest.json"
+
+if [ "${OLD_GLOBAL_RULE:-0}" = 1 ]; then
+  printf '\n  ℹ️ 전역 ~/.claude/CLAUDE.md에 구버전 규칙 블록이 남아 있다.\n'
+  printf '     신규는 프로젝트 CLAUDE.md만 쓰므로 전역 블록은 지워도 된다\n'
+  printf '     (# --- ai-bouncer-rule start --- ~ end --- 구간). 전역 파일은 건드리지 않았다.\n'
+fi
 
 if [ "${OLD_TASKS:-0}" -gt 0 ] 2>/dev/null; then
   printf '\n  ⚠️ 구버전 미완료 작업 %s건이 .ai-bouncer-tasks/ 에 있다.\n' "$OLD_TASKS"

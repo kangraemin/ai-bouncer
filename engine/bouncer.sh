@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
 # ai-bouncer CLI — 스킬과 사용자가 쓰는 진입점.
 #
-#   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
-#   bouncer workflows                 모드 목록 (모드 선택 질문을 만들 때 쓴다)
-#   bouncer options <workflow>        그 체인의 optional step 목록 (스테이지별)
-#   bouncer start <workflow> <slug> [--on id --off id ...]
+#   bouncer scan                      시작 전에 알아야 할 것 전부 (상태 + 모드 + 선택 항목)
+#   bouncer start <workflow> <slug> [--parallel] [--off <id> ...]
 #   bouncer status                    현재 단계와 남은 조건
 #   bouncer run <step-id>             그 step의 명령을 실행하고 결과를 기록
 #   bouncer done <step-id>            사람 확인이 필요한 step을 완료 처리
 #   bouncer cancel                    작업 취소
-#   bouncer worktree create|finalize  병렬 작업용 브랜치·worktree
+#   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
+#   bouncer worktree finalize         병렬 작업을 base로 FF 머지하고 정리
 #
 # current_stage / workflow / choices는 이 CLI로 바꿀 수 없다. 전이는 Stop hook만 한다.
 
@@ -32,6 +31,41 @@ need_task() {
 }
 step_json() { bouncer_stage "$PROJECT" "$2" | jq -c --arg i "$1" '.steps[]? | select(.id == $i)'; }
 
+# ── scan ─────────────────────────────────────────────────────
+# 스킬이 제일 먼저, 한 번만 호출한다. 아무것도 만들지 않고 알아야 할 것을 전부 준다.
+#   STATE   MINE <dir> <workflow> <stage>  이 세션이 이어서 할 작업
+#           OTHER <dir> <stage> <나이>      다른 세션이 잡고 있는 작업
+#           NONE                            아무것도 없음
+#   WORKFLOW <이름> <label>                 모드 선택지
+#   OPTION   <workflow> <stage> <id> <label>  시작할 때 물어볼 선택 항목
+cmd_scan() {
+  local found=0 d owner stage age wf
+  for d in $(bouncer_live_locks "$PROJECT"); do
+    owner="$(jq -r '.session_id // empty' "$d/.active" 2>/dev/null)"
+    stage="$(bouncer_state "$d" '.current_stage')"
+    if [ -n "$SESSION" ] && [ "$owner" = "$SESSION" ]; then
+      printf 'STATE\tMINE\t%s\t%s\t%s\n' "$d" "$(bouncer_state "$d" '.workflow')" "$stage"
+    else
+      age=$(( $(bouncer_lock_age "$d/.active") / 60 ))
+      printf 'STATE\tOTHER\t%s\t%s\t%s분 전\n' "$d" "$stage" "$age"
+    fi
+    found=1
+  done
+  [ "$found" = 0 ] && printf 'STATE\tNONE\n'
+
+  [ -f "$COMPILED" ] || return 0
+  jq -r '.workflows | to_entries[] | "WORKFLOW\t\(.key)\t\(.value.label)"' "$COMPILED"
+  while IFS= read -r wf; do
+    [ -z "$wf" ] && continue
+    while IFS= read -r stage; do
+      bouncer_stage "$PROJECT" "$stage" \
+        | jq -r --arg w "$wf" --arg s "$stage" \
+            '.steps[]? | select(.optional) | "OPTION\t\($w)\t\($s)\t\(.id)\t\(.label)"'
+    done < <(bouncer_chain "$PROJECT" "$wf")
+  done < <(jq -r '.workflows | keys[]' "$COMPILED")
+  return 0
+}
+
 # ── check ────────────────────────────────────────────────────
 # workflow.yaml을 고친 뒤 검증용. 컴파일만 해보고 결과 파일은 만들지 않는다.
 cmd_check() {
@@ -48,41 +82,43 @@ cmd_check() {
   fi
 }
 
-# ── 목록 조회 (스킬이 질문을 만들 때 쓴다) ────────────────────
-cmd_workflows() {
-  [ -f "$COMPILED" ] || die "워크플로우가 컴파일되지 않았다: $COMPILED"
-  jq -r '.workflows | to_entries[] | "\(.key)\t\(.value.label)"' "$COMPILED"
-}
-
-cmd_options() {
-  local wf="${1:-}"; [ -n "$wf" ] || die "usage: bouncer options <workflow>"
-  local stage
-  while IFS= read -r stage; do
-    bouncer_stage "$PROJECT" "$stage" \
-      | jq -r --arg s "$stage" '.steps[]? | select(.optional) | "\($s)\t\(.id)\t\(.label)"'
-  done < <(bouncer_chain "$PROJECT" "$wf")
-}
-
 # ── 시작 ─────────────────────────────────────────────────────
 cmd_start() {
   local wf="${1:-}" slug="${2:-}"; shift 2 2>/dev/null || true
-  [ -n "$wf" ] && [ -n "$slug" ] || die "usage: bouncer start <workflow> <slug> [--on <id>] [--off <id>]"
+  [ -n "$wf" ] && [ -n "$slug" ] || die "usage: bouncer start <workflow> <slug> [--parallel] [--off <id>]"
   [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
   [ -f "$COMPILED" ] || die "워크플로우가 컴파일되지 않았다: $COMPILED"
 
   local first; first="$(bouncer_chain "$PROJECT" "$wf" | head -1)"
   [ -n "$first" ] || die "정의되지 않은 워크플로우: $wf"
 
-  # 살아 있는 남의 lock을 보고한다. 뺏지 않는다 — 스킬이 사용자에게 묻는다.
-  local other
-  while IFS= read -r other; do
-    [ -z "$other" ] && continue
+  local parallel=0 args=() a
+  for a in "$@"; do [ "$a" = "--parallel" ] && parallel=1; done
+  for a in "$@"; do [ "$a" = "--parallel" ] || args+=("$a"); done
+  set -- ${args[@]+"${args[@]}"}
+
+  # 남의 잠금이 살아 있으면 기본적으로 거부한다. 같은 트리에서 두 작업이 돌면 충돌한다.
+  local other conflict=""
+  for other in $(bouncer_live_locks "$PROJECT"); do
     [ "$(jq -r '.session_id // empty' "$other/.active" 2>/dev/null)" = "$SESSION" ] && continue
-    printf 'CONFLICT\t%s\t%s\n' "$other" "$(bouncer_state "$other" '.current_stage')"
-  done < <(bouncer_live_locks "$PROJECT")
+    conflict="$other"
+  done
+  if [ -n "$conflict" ] && [ "$parallel" = 0 ]; then
+    die "다른 세션이 작업 중이다: $conflict ($(bouncer_state "$conflict" '.current_stage'))
+같은 트리에서 동시에 진행하면 충돌한다. 둘 중 하나를 골라라:
+  - 병렬로 진행 → 'bouncer start $wf \"$slug\" --parallel' (별도 브랜치와 worktree에서 작업한다)
+  - 그 작업을 이어서 → 해당 세션에서 계속하라"
+  fi
 
   # optional 기본값: 전부 켜짐. --off 로 끈다.
-  local choices; choices="$(cmd_options "$wf" | jq -R -s 'split("\n") | map(select(length>0) | split("\t")[1]) | map({(.): true}) | add // {}')"
+  # optional 기본값: 전부 켜짐. --off 로 끈다.
+  local choices stage
+  choices="{}"
+  while IFS= read -r stage; do
+    while IFS= read -r id; do
+      [ -n "$id" ] && choices="$(jq --arg k "$id" '.[$k] = true' <<<"$choices")"
+    done < <(bouncer_stage "$PROJECT" "$stage" | jq -r '.steps[]? | select(.optional) | .id')
+  done < <(bouncer_chain "$PROJECT" "$wf")
   while [ $# -gt 0 ]; do
     case "$1" in
       --on)  choices="$(jq --arg k "$2" '.[$k] = true'  <<<"$choices")"; shift 2 ;;
@@ -117,6 +153,9 @@ cmd_start() {
   jq -n --arg s "$SESSION" --arg now "$(date -u +%FT%TZ)" \
      '{session_id:$s, claimed_at:$now, seen_at:$now}' > "$dir/.active"
   printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
+  # 병렬이면 곧바로 격리한다. base 브랜치는 이 시점에 확정 기록된다.
+  [ "$parallel" = 1 ] && cmd_wt_create "$slug"
+  return 0
 }
 
 # ── 상태 ─────────────────────────────────────────────────────
@@ -252,9 +291,8 @@ $dirty"
 }
 
 case "${1:-}" in
+  scan)      shift; cmd_scan "$@" ;;
   check)     shift; cmd_check "$@" ;;
-  workflows) shift; cmd_workflows "$@" ;;
-  options)   shift; cmd_options "$@" ;;
   start)     shift; cmd_start "$@" ;;
   status)    shift; cmd_status "$@" ;;
   run)       shift; cmd_run "$@" ;;
@@ -262,10 +300,10 @@ case "${1:-}" in
   cancel)    shift; cmd_cancel "$@" ;;
   worktree)  shift
              case "${1:-}" in
-               create)   shift; cmd_wt_create "$@" ;;
                finalize) shift; cmd_wt_finalize "$@" ;;
-               *) die "usage: bouncer worktree {create|finalize}" ;;
+               create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
+               *) die "usage: bouncer worktree finalize" ;;
              esac ;;
-  ""|-h|--help) sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

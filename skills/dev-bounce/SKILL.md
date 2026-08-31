@@ -13,15 +13,26 @@ description: 코드 수정, 기능 구현, 버그 수정, 리팩토링, 파일 �
 
 ---
 
-## Step 1 — 진행 중인 작업 확인
+## Step 1 — 상태 확인
 
 ```bash
-bouncer status
+bouncer scan
 ```
 
-- **출력이 나오면** → 이미 진행 중인 작업이다. 현재 단계와 남은 조건이 표시된다.
-  사용자의 요청이 그 작업의 연장이면 그대로 이어서 진행한다. Step 2~4를 건너뛴다.
-- **"활성 작업이 없다"** → Step 2로 간다.
+한 번만 부르면 필요한 게 다 나온다 (세션 시작 시에는 이미 주입돼 있으니 생략해도 된다).
+
+```
+STATE    MINE  <경로> <워크플로우> <단계>     이 세션이 이어서 할 작업
+STATE    OTHER <경로> <단계> <나이>           다른 세션이 잡고 있는 작업
+STATE    NONE                                아무것도 없음
+WORKFLOW <이름> <설명>                        모드 선택지
+OPTION   <워크플로우> <단계> <id> <이름>       시작할 때 물어볼 선택 항목
+```
+
+- **`MINE`** → 이미 진행 중이다. 사용자 요청이 그 작업의 연장이면 그대로 이어서 하고,
+  Step 2~4를 건너뛴다. `bouncer status`로 남은 조건을 본다.
+- **`OTHER`만 있음** → 다른 세션이 작업 중이다. Step 4에서 병렬 여부를 사용자에게 묻는다.
+- **`NONE`** → Step 2로 간다.
 
 ## Step 2 — 요청이 개발 작업인지 판별
 
@@ -37,17 +48,11 @@ bouncer status
 ⚠️ **모드는 반드시 사용자가 고른다. 네가 고르지 않는다.**
 계획 단계가 번거롭다고 가벼운 모드를 임의로 선택하는 것은 워크플로우 회피다.
 
-```bash
-bouncer workflows          # 사용 가능한 모드 (이름 / 설명)
-```
-→ 출력을 그대로 **AskUserQuestion 선택지**로 만든다.
+Step 1의 `WORKFLOW` 줄을 그대로 **AskUserQuestion 선택지**로 만든다.
 
-```bash
-bouncer options <선택된모드>   # 그 체인의 선택 항목 (스테이지 / id / 이름)
-```
-→ 결과가 있으면 **스테이지별로 묶어** AskUserQuestion을 만든다 (multiSelect, 기본 전체 켜짐).
-선택지가 4개를 넘으면 질문을 나눠서 여러 번 호출한다.
-결과가 없으면 이 질문은 건너뛴다.
+모드가 정해지면, 그 모드의 `OPTION` 줄들을 **스테이지별로 묶어** 다시 묻는다
+(multiSelect, 기본 전체 켜짐). 선택지가 4개를 넘으면 질문을 나눠서 여러 번 호출한다.
+`OPTION`이 없으면 이 질문은 건너뛴다.
 
 ## Step 4 — 시작
 
@@ -55,12 +60,12 @@ bouncer options <선택된모드>   # 그 체인의 선택 항목 (스테이지 
 bouncer start <모드> "<작업을-요약한-슬러그>" [--off <끈-항목-id>] ...
 ```
 
-**`CONFLICT` 줄이 출력되면** 다른 세션이 작업 중이다. 임의로 뺏지 말고 사용자에게 묻는다:
+**Step 1에 `OTHER`가 있었으면** 그냥 `start`하면 거부된다. 사용자에게 먼저 묻는다:
 
 | 선택 | 처리 |
 |---|---|
-| 병렬로 진행 | `bouncer worktree create` — 별도 브랜치와 레포 밖 worktree에서 작업한다.<br>base 브랜치는 이때 기록되고, 끝나면 `bouncer worktree finalize`로 FF 머지된다. |
-| 기존 작업 이어하기 | 그 세션의 작업이므로 건드리지 않는다. 사용자에게 해당 세션에서 계속하라고 안내한다. |
+| 병렬로 진행 | `bouncer start <모드> "<슬러그>" --parallel`<br>별도 브랜치와 레포 밖 worktree가 만들어지고, base 브랜치가 이 시점에 기록된다.<br>작업이 끝나면 `bouncer worktree finalize`로 base에 FF 머지된다. |
+| 기존 작업 이어하기 | 그 세션의 작업이므로 건드리지 않는다. 해당 세션에서 계속하라고 안내한다. |
 
 ## Step 5 — 이후
 
@@ -118,7 +123,7 @@ bouncer start <모드> "<작업을-요약한-슬러그>" [--off <끈-항목-id>]
 | `bouncer run <step-id>` | 그 step의 검증 명령을 실행하고 결과를 기록. **명령은 엔진이 소유한다** |
 | `bouncer done <step-id>` | 사람 확인이 필요한 step 완료 처리 |
 | `bouncer cancel` | 작업 취소 |
-| `bouncer worktree create` / `finalize` | 병렬 작업 |
+| `bouncer worktree finalize` | 병렬 작업을 base로 FF 머지하고 정리 |
 | `bouncer check` | `workflow.yaml`을 고친 뒤 유효한지 검사 (아무것도 쓰지 않는다) |
 
 ## 하지 말 것

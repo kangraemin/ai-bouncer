@@ -9,6 +9,7 @@ no(){ printf '  ❌ %s — %s\n' "$1" "${2:-}"; FAIL=$((FAIL+1)); }
 
 cd "$T"; git init -q .; git config user.email t@t; git config user.name t
 echo hi > app.js; git add app.js; git commit -qm init
+printf '# 내 프로젝트\n\n기존 내용은 보존돼야 한다.\n' > CLAUDE.md
 
 # 남의 hook이 이미 있는 상태를 만든다 — 제거 때 살아남아야 한다
 mkdir -p .claude
@@ -32,6 +33,10 @@ n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contain
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \
   && ok "남의 hook 보존" || no "남의 hook 보존"
 
+echo "── CLAUDE.md 규칙 블록 ──"
+grep -q 'ai-bouncer:start' CLAUDE.md 2>/dev/null && ok "CLAUDE.md에 블록 추가" || no "블록 추가"
+grep -q '기존 내용' CLAUDE.md && ok "기존 내용 보존" || no "기존 내용 보존"
+
 echo "── 재설치(멱등성) ──"
 python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=99
 printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
@@ -41,6 +46,7 @@ n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contain
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null 2>&1
 [ "$(jq -r '.settings.max_continue' .claude/ai-bouncer/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
 grep -q '사용자 수정' .claude/ai-bouncer/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"
+[ "$(grep -c 'ai-bouncer:start' CLAUDE.md)" = 1 ] && ok "CLAUDE.md 블록 중복 안 생김" || no "블록 중복"
 
 echo "── 설치본으로 실제 동작 ──"
 export CLAUDE_CODE_SESSION_ID=S1
@@ -59,6 +65,14 @@ jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length =
 [ -f .claude/ai-bouncer/hooks/stop.sh ] && no "hook 파일 제거" || ok "hook 파일 제거"
 [ -f .claude/ai-bouncer/workflow.yaml ] && ok "사용자 workflow.yaml 유지" || no "workflow.yaml 유지"
 [ -d .ai-bouncer ] && ok "진행 중 작업 유지" || no "작업 유지"
+grep -q 'ai-bouncer:start' CLAUDE.md && no "CLAUDE.md 블록 제거" "남음" || ok "CLAUDE.md 블록 제거"
+grep -q '기존 내용' CLAUDE.md && ok "CLAUDE.md 나머지 보존" || no "나머지 보존"
+
+echo "── --no-claude-md ──"
+rm -f CLAUDE.md
+bash "$R/install.sh" --ci --no-claude-md >/dev/null 2>&1
+[ -f CLAUDE.md ] && no "--no-claude-md" "파일 생성됨" || ok "--no-claude-md면 안 건드림"
+bash "$R/uninstall.sh" >/dev/null 2>&1
 
 echo "── --purge ──"
 bash "$R/install.sh" --ci >/dev/null 2>&1

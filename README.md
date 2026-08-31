@@ -61,14 +61,20 @@ bash <클론경로>/install.sh --branch dev   # 업데이트 기준 브랜치 �
 세션에서 `/dev-bounce`를 실행하면 모드를 고르고 작업이 시작된다.
 이후에는 엔진이 단계마다 지시를 주입하고, 조건을 충족해야 다음 단계로 넘어간다.
 
-```bash
-bouncer status                 # 현재 단계와 남은 조건
-bouncer check                  # workflow.yaml을 고친 뒤 유효한지 검사
-bouncer run <step-id>          # 검증 명령 실행 (명령은 엔진이 소유한다)
-bouncer done <step-id>         # 사람 확인이 필요한 항목 완료 처리
-bouncer worktree create        # 병렬 작업 — 별도 브랜치 + 레포 밖 worktree
-bouncer worktree finalize      # base로 rebase → FF 머지 → 정리
-```
+**`bouncer` 명령은 사람이 칠 일이 없다 — 모델이 부르는 내부 인터페이스다.**
+사람은 그냥 "이거 고쳐줘"라고 하면 된다.
+
+hook만으로는 안 되는 신호가 셋 있어서 CLI가 존재한다:
+
+| 명령 | 왜 필요한가 |
+|---|---|
+| `start` | "지금부터 작업 시작" — 이걸 알려주는 hook 이벤트가 없다 |
+| `run` | 검증 명령 실행. hook 안에서 돌리면 타임아웃 나서 워크플로우가 죽는다 |
+| `done` | "사람 확인이 끝났다" |
+
+나머지는 없어도 굴러가는 편의 기능이다 — `scan`(상태·모드·선택항목 한 번에,
+세션 시작 시 자동 주입되므로 대개 부를 일이 없다), `status`, `check`, `cancel`,
+`worktree finalize`.
 
 ## 설계 원칙
 
