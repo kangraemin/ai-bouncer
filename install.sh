@@ -148,14 +148,21 @@ try:
 except Exception:
     cfg = {}
 hooks = cfg.setdefault("hooks", {})
-for event, matcher, cmd, timeout in spec:
-    arr = hooks.setdefault(event, [])
-    # 우리 hook만 제거하고 다시 넣는다 — 다른 도구의 hook은 그대로 둔다.
+
+# 먼저 모든 이벤트에서 ai-bouncer hook을 걷어낸다.
+# 등록할 이벤트만 청소하면, 구버전이 쓰던 다른 이벤트(SubagentStart 등)에
+# 이미 지워진 스크립트를 가리키는 등록이 남는다.
+for event, arr in list(hooks.items()):
     for entry in list(arr):
         entry["hooks"] = [h for h in entry.get("hooks", [])
                           if "/ai-bouncer/" not in str(h.get("command", ""))]
         if not entry["hooks"]:
             arr.remove(entry)
+    if not arr:
+        del hooks[event]
+
+for event, matcher, cmd, timeout in spec:
+    arr = hooks.setdefault(event, [])
     e = {"hooks": [{"type": "command", "command": cmd, "timeout": timeout}]}
     if matcher:
         e["matcher"] = matcher

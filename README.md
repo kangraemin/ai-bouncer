@@ -53,8 +53,26 @@ bash <클론경로>/install.sh --branch dev   # 업데이트 기준 브랜치 �
 
 제거: `./uninstall.sh` (워크플로우와 진행 중 작업은 남는다) / `--purge` (전부 삭제)
 
-구버전에서 올라오면 install이 구 hook 7개와 구 파일을 자동으로 정리하고,
-읽을 수 없는 구 작업(`.ai-bouncer-tasks/`)이 남아 있으면 알려준다.
+### 구버전(전역 설치)에서 올라오기
+
+구버전은 `~/.claude/ai-bouncer/`에 전역으로 깔렸다. 신규는 전역을 쓰지 않으므로
+남은 전역 설치를 먼저 정리해야 한다 — 그대로 두면 구 hook 7개가 계속 등록된 채
+돌면서 자기 자신을 업데이트하려 든다.
+
+```bash
+./migrate.sh                     # 무엇을 지우고 어디에 설치할지 미리보기
+./migrate.sh --apply --install   # 전역 정리 + 쓰던 프로젝트 전부에 신규 설치
+```
+
+정리 대상은 ai-bouncer가 스스로 설치한 것뿐이다. 다른 도구의 hook, 다른 스킬,
+`CLAUDE.md`의 나머지 내용은 건드리지 않고, `settings.json`과 `CLAUDE.md`는 백업을 남긴다.
+구 작업 문서(`.ai-bouncer-tasks/`)는 신규가 읽지 못하지만 지우지 않는다.
+중간에 끊겨도 다시 실행하면 이어서 진행된다.
+
+세션을 시작하면 구 업데이터가 이 이관을 자동으로 실행하기도 한다
+(`scripts/bouncer-update-check.sh`가 그 진입점이다). 다만 구버전에 자기 갱신 경로
+버그가 있어 `~/.claude/scripts/` 디렉토리가 없는 환경에서는 발동하지 않으므로,
+자동으로 넘어오지 않았다면 위 명령을 직접 실행하면 된다.
 
 ## 쓰는 법
 
@@ -109,6 +127,8 @@ hook만으로는 안 되는 신호가 셋 있어서 CLI가 존재한다:
 | `hooks/session-end.sh` | 자기 잠금만 해제 (예산 1.5초) |
 | `skills/dev-bounce/` | 스킬 — 시작 절차만 담는다. 워크플로우 내용은 yaml에 있다 |
 | `examples/` | 웹(Next.js)·앱(RN)·백엔드(Python) 실사용 config |
+| `migrate.sh` | 구버전(전역 설치) 정리 + 쓰던 프로젝트에 일괄 재설치 |
+| `scripts/bouncer-update-check.sh` | 구버전이 자기 갱신 때 받아가는 경로. 이관 진입점이다 |
 | `docs/SCHEMA.md` | 스키마 레퍼런스 |
 
 ## 테스트
