@@ -60,6 +60,33 @@ version: 1
 workflows: {p: {stages: [a]}}
 stages: {a: {steps: [{label: s, inject: "x"}]}}
 Y
+try "중복 키 (pyyaml)" <<'Y'
+version: 1
+workflows: {p: {label: x, stages: [a]}}
+stages:
+  a:
+    forbid:
+      push: true
+      reason: 하나
+    steps:
+      - label: s
+        inject: "x"
+    forbid:
+      edit_files: true
+      reason: 둘
+Y
+try "중복 키 (내장 파서)" --builtin-parser <<'Y'
+version: 1
+workflows: {p: {label: x, stages: [a]}}
+stages:
+  a:
+    steps:
+      - label: s
+        inject: "x"
+    steps:
+      - label: t
+        inject: "y"
+Y
 try "내장 파서 + YAML 앵커" --builtin-parser <<'Y'
 version: 1
 common: &x
