@@ -66,6 +66,7 @@ USER_TURN_HAPPENED=false
 INJECT=""      # 이번에 주입할 텍스트
 FAILURES=""    # blocking 미충족 사유
 HUMAN_WAIT=0   # 사람/승인 UI를 기다리는 중인가
+HARD_FAIL=0    # 사람과 무관하게 실패한 조건이 있는가 (run 게이트 등)
 
 add_inject()  { INJECT="${INJECT}${INJECT:+$'\n\n'}$1"; }
 
@@ -74,12 +75,25 @@ add_inject()  { INJECT="${INJECT}${INJECT:+$'\n\n'}$1"; }
 MAX_BLOCKS=$(( MAX_CONTINUE * 2 + 4 ))
 guarded_block() {
   local n
-  n="$(jq -r '.blocks_total // 0' "$TASK/state.json" 2>/dev/null)"; [ -n "$n" ] || n=0
-  n=$(( n + 1 ))
+  n="$(jq -r '.blocks_total // 0' "$TASK/state.json" 2>/dev/null)"; [ -n "$n" ] || n=""
+  if [ -z "$n" ] || ! [ "$n" -eq "$n" ] 2>/dev/null; then
+    # state.json 을 못 읽는 상황에서도 상한은 살아야 한다. 카운터를 state 에만
+    # 두면, 상태가 깨진 바로 그 경우에 안전밸브가 원리상 작동하지 않는다
+    # (40회 연속 차단이 재현됐다). 별도 파일로 센다.
+    n="$(cat "$TASK/.blocks" 2>/dev/null)"; [ -n "$n" ] || n=0
+    n=$(( n + 1 )); printf '%s' "$n" > "$TASK/.blocks" 2>/dev/null
+  else
+    n=$(( n + 1 ))
+  fi
   if [ "$n" -gt "$MAX_BLOCKS" ] 2>/dev/null; then
+    rm -f "$TASK/.blocks"
     bouncer_state_update "$TASK" '.blocks_total = 0 | .continue_streak = 0 | .reentry_count = 0
       | .allowed_stop = true | .returned_to = null | .returned_tree = null'
-    jq -n --arg c "⛔ 사용자 개입 없이 ${MAX_BLOCKS}번 연속으로 진행했다. 세션을 돌려준다.
+    local _head="⛔ 사용자 개입 없이 ${MAX_BLOCKS}번 연속으로 진행했다. 세션을 돌려준다."
+    case "$1" in
+      "✅"*) _head="ℹ️ ${MAX_BLOCKS}번 연속으로 진행했다. 여기서 한 번 사용자에게 돌려준다." ;;
+    esac
+    jq -n --arg c "$_head
 
 $1
 
@@ -109,13 +123,17 @@ fi
 # 엔진이 이 스테이지를 포기했다고 기록한다. `bouncer skip` 은 이 표시가 있어야 열린다.
 # 지금 막고 있는 조건이 다른 스테이지 소속일 수도 있어서(반송 뒤가 그렇다)
 # 미충족 step 이 속한 스테이지도 같이 표시한다.
-mark_gave_up() {
-  bouncer_state_update "$TASK" --arg s "$STAGE" '.gave_up[$s] = true'
-  # 반송된 상태라면 막고 있는 게이트는 되돌려보낸 그 스테이지 소속이다.
-  local bs
-  bs="$(bouncer_state "$TASK" '.returned_from')"
-  [ -n "$bs" ] && [ "$bs" != "$STAGE" ] \
-    && bouncer_state_update "$TASK" --arg s "$bs" '.gave_up[$s] = true'
+# 엔진이 포기하며 **실제로 제안한 step id** 를 기록한다. `bouncer skip` 은
+# 이 목록에 있는 것만 열어주고, 쓰면 소모한다.
+# 스테이지 단위로 표시하면 (a) 제안하지 않은 게이트까지 열리고
+# (b) 한 번 쓰면 스테이지가 통째로 닫혀 두 번째 제안이 실패했으며
+# (c) 다음 전이가 표시를 지워 "시킨 대로 했더니 닫히는" 상황이 됐다.
+offer_skip() {
+  [ -n "$BLOCKING_IDS" ] || return 0
+  local ids
+  ids="$(printf '%s' "$BLOCKING_IDS" | jq -R -s 'split("\n") | map(select(length > 0))')"
+  bouncer_state_update "$TASK" --argjson ids "$ids" \
+    '.skip_allowed = ((.skip_allowed // []) + $ids | unique)'
   return 0
 }
 
@@ -234,7 +252,7 @@ while IFS= read -r step; do
       bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = true'
       [ -n "$TAIL" ] && add_inject "[$LABEL] 통과 (exit 0)"$'\n'"$TAIL"
     elif [ -n "$BLOCKING" ]; then
-      add_failure "$LABEL — \`$CMD\` 실패 (exit $RC)"; add_blocking_id "$ID"
+      add_failure "$LABEL — \`$CMD\` 실패 (exit $RC)"; add_blocking_id "$ID"; HARD_FAIL=1
       add_inject "[$LABEL] 실패 (exit $RC)"$'\n'"$TAIL"
     fi
   else
@@ -290,7 +308,7 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   2. 이 조건을 이번 작업에서만 건너뛴다:
 $(skip_hint)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
-        mark_gave_up
+        offer_skip
         exit 0
       fi
       guarded_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
@@ -299,8 +317,7 @@ $(skip_hint)
 직전 실패:
 $(bouncer_state "$TASK" '.last_failure')"
     fi
-    # returned_from 도 같이 지운다. 안 지우면 통과한 게이트의 스테이지가
-    # 계속 gave_up 으로 표시돼 영구히 skip 가능해진다.
+    # returned_from 도 같이 지운다. 안 지우면 반송 판정이 계속 켜져 있다.
     bouncer_state_update "$TASK" '.returned_to = null | .returned_tree = null | .returned_from = null'
   fi
 
@@ -366,7 +383,6 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
      | .allowed_stop = false
      | .user_turns_at_wait = null
      | .returned_from = null
-     | .gave_up = ((.gave_up // {}) | del(.[$s]) | del(.[$n]))
      | .history += [{stage:$n, at:$t}]'
   guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
@@ -379,7 +395,11 @@ STREAK="$(bouncer_state "$TASK" '.continue_streak')"; [ -n "$STREAK" ] || STREAK
 # 글로브 배열은 스코프 밖만 막는 것이라 제자리에서 고칠 수 있다 —
 # 여기서 배열까지 "수정 불가"로 보면 max_attempts가 무시되고 max_loops만 빨리 탄다.
 ON_FAIL="$(jq -r '.on_fail // empty' <<<"$STAGE_JSON")"
-if [ -n "$ON_FAIL" ] && [ "$HUMAN_WAIT" != "1" ]; then
+# 사람을 기다리는 중이면 반송하지 않는다 — 답할 기회를 뺏기 때문이다.
+# 다만 사람과 무관한 조건(run 게이트)이 실패했다면 그건 반송 사유다.
+# 예전엔 HUMAN_WAIT 하나로 막아서, 기본 default.yaml 의 verify 처럼
+# 사람 확인이 함께 있는 스테이지는 on_fail 이 **절대** 발동하지 않았다.
+if [ -n "$ON_FAIL" ] && { [ "$HUMAN_WAIT" != "1" ] || [ "$HARD_FAIL" = "1" ]; }; then
   CAN_FIX_HERE=1
   [ "$(jq -r '.forbid.edit_files' <<<"$STAGE_JSON")" = "true" ] && CAN_FIX_HERE=0
   ATTEMPTS="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
@@ -419,7 +439,7 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   2. 이 조건을 이번 작업에서만 건너뛴다:
 $(skip_hint)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
-      mark_gave_up
+      offer_skip
       exit 0
     fi
     LOOPS=$(( LOOPS + 1 ))
@@ -507,7 +527,7 @@ AskUserQuestion으로 사용자에게 물어라:
   3. 이 조건을 이번 작업에서만 건너뛴다:
 $(skip_hint)
   4. 작업을 중단한다" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
-  mark_gave_up
+  offer_skip
   exit 0
 fi
 

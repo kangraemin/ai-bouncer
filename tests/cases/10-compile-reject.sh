@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # 케이스 10 — 잘못된 config는 컴파일 단계에서 거부된다 (실행 중 마비 방지)
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+# 실제 홈을 건드리지 않는다 (install 이 $HOME/.local/bin 에, worktree 가
+# $HOME/.ai-bouncer/ 에 쓴다)
+if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
+  BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
+fi
+
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 try() { local name="$1"; shift; cat > "$T/c.yaml"; 
   if python3 "$R/engine/compile.py" "$T/c.yaml" "$@" >/dev/null 2>&1; then no "$name" "통과됨"; else ok "$name"; fi; }

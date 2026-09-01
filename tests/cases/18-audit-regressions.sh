@@ -2,6 +2,8 @@
 # 케이스 18 — 실사용 감사에서 나온 회귀들.
 # 전부 "조용히 잘못된 결과를 내던" 것들이라, 하나라도 풀리면 게이트가 무의미해진다.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+# 픽스처는 케이스마다 따로 둔다. 전역 경로를 쓰면 케이스끼리 덮어쓴다.
+FIXTURE_DIR="$(mktemp -d)"; trap 'rm -rf "$FIXTURE_DIR"' EXIT
 setup "$R/config/default.yaml" "$R/config/prompts" || exit 1
 trap cleanup EXIT
 export CLAUDE_CODE_SESSION_ID=S1
@@ -65,8 +67,8 @@ echo
 echo "[엔진이 포기한 뒤에만 skip]"
 bouncer start simple skip1 >/dev/null
 stop >/dev/null; stop >/dev/null
-says '엔진이 포기한 단계가 아니다' bouncer skip "verify/e2e" \
-  && ok "포기 전에는 skip 거부" || no "skip 거부" "$(bouncer skip 'verify/e2e' 2>&1|head -1)"
+says '제안한 조건이 아니다' bouncer skip "verify/e2e" \
+  && ok "제안 전에는 skip 거부" || no "skip 거부" "$(bouncer skip 'verify/e2e' 2>&1|head -1)"
 says 'step이 이 워크플로우' bouncer skip "verify/없는거" \
   && ok "없는 id는 거부" || no "없는 id 통과"
 
@@ -181,8 +183,8 @@ if [ -n "$SUG" ]; then
     && ok "제안한 명령이 그대로 실행된다" || no "제안 실행 실패" "$SUG"
 fi
 # 표시는 한 번 쓰면 소모된다. 안 그러면 그 스테이지가 영구히 열린 채 남는다.
-says '엔진이 포기한 단계가 아니다' bouncer skip "finalize/워킹트리 정리 확인" \
-  && ok "같은 skip을 두 번 쓸 수 없다" || no "표시가 소모되지 않음"
+says '제안한 조건이 아니다' bouncer skip "finalize/워킹트리 정리 확인" \
+  && ok "같은 제안을 두 번 쓸 수 없다" || no "제안이 소모되지 않음"
 says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
 stop >/dev/null
 [ "$(stage)" = done ] && ok "skip 후 실제로 전이한다" || no "전이 안 됨" "$(stage)"
@@ -335,24 +337,6 @@ echo "[감사가 테스트 없다고 지적한 것들]"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
-# 전이하면 그 스테이지의 포기 표시만 지운다 (전부 지우면 엔진이 제안한 skip 이 닫힌다)
-bouncer start simple gv >/dev/null
-stop >/dev/null                                   # implement → verify
-python3 - "$(task_dir)/state.json" <<'PY'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p))
-d['gave_up'] = {'implement': True, 'verify': True}
-json.dump(d, open(p, 'w'))
-PY
-stop >/dev/null                                   # 사람 대기
-user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
-bouncer run "verify/e2e" >/dev/null 2>&1
-stop >/dev/null                                   # verify → finalize
-[ "$(jq -r '.gave_up.verify // "없음"' "$(task_dir)/state.json")" = "없음" ] \
-  && ok "통과한 스테이지의 포기 표시는 지워진다" || no "verify 표시 잔류"
-[ "$(jq -r '.gave_up.implement // "없음"' "$(task_dir)/state.json")" = "true" ] \
-  && ok "아직 안 끝난 스테이지 표시는 남는다" || no "표시가 통째로 지워짐" "$(jq -c .gave_up "$(task_dir)/state.json")"
-bouncer cancel >/dev/null 2>&1
 
 # 미머지 병렬 작업에 finished_at 을 찍으면 ORPHAN 목록에서 사라진다
 bouncer start simple fin --parallel >/dev/null 2>&1
@@ -389,32 +373,40 @@ bouncer cancel >/dev/null 2>&1
 
 
 echo
-echo "[포기 표시가 스테이지 도착 때 지워진다]"
-# 반송 전에 찍힌 표시가 남아 있으면, 그 스테이지에 도착하자마자 skip 이 열려
-# 사용자 턴 게이트를 모델이 셸 한 줄로 통과한다 (감사에서 재현된 경로).
+echo "[제안 토큰은 전이해도 살아남고, 제안한 것만 열린다]"
+# 스테이지 단위로 열면 (a) 제안 안 한 게이트까지 열리고 (b) 하나 쓰면 나머지가
+# 닫히며 (c) 다음 전이가 표시를 지워 "시킨 대로 했더니 닫힌다"가 된다.
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
-bouncer start simple arrive >/dev/null
+bouncer start simple tok >/dev/null
 stop >/dev/null                                  # implement → verify
 python3 - "$(task_dir)/state.json" <<'PYX'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
-d['current_stage'] = 'implement'                 # 반송된 상황을 만든다
-d['gave_up'] = {'verify': True}
+d['skip_allowed'] = ['verify/검증 보고']          # 엔진이 제안한 상황
 json.dump(d, open(p, 'w'))
 PYX
-says '엔진이 포기한 단계가 아니다' bouncer skip "verify/검증 보고" \
-  && no "반송 중에도 못 씀" "정체 중에는 쓸 수 있어야 한다" \
-  || ok "반송 정체 중에는 되돌려보낸 스테이지를 skip 할 수 있다"
-stop >/dev/null                                  # implement → verify 재진입
-[ "$(stage)" = verify ] || no "verify 재진입" "$(stage)"
-says '엔진이 포기한 단계가 아니다' bouncer skip "verify/검증 보고" \
-  && ok "도착하면 표시가 지워져 skip 이 닫힌다" \
-  || no "도착 후에도 skip 열림" "사용자 턴 게이트가 뚫린다"
+says '제안한 조건이 아니다' bouncer skip "verify/e2e" \
+  && ok "제안 목록에 없는 게이트는 거부" || no "제안 안 한 것도 열림"
+says 'SKIPPED' bouncer skip "verify/검증 보고" \
+  && ok "제안한 것은 통과" || no "제안한 것이 거부됨"
+[ "$(jq -r '.skip_allowed | length' "$(task_dir)/state.json")" = 0 ] \
+  && ok "쓰면 제안이 소모된다" || no "제안 잔류" "$(jq -c .skip_allowed "$(task_dir)/state.json")"
+
+# 전이해도 남은 제안은 살아 있어야 한다 (엔진이 시킨 대로 하면 Stop 이 한 번 더 뜬다)
+python3 - "$(task_dir)/state.json" <<'PYX'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d['skip_allowed'] = ['finalize/워킹트리 정리 확인']
+json.dump(d, open(p, 'w'))
+PYX
+user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
+bouncer run "verify/e2e" >/dev/null 2>&1
+stop >/dev/null                                  # verify → finalize
+[ "$(jq -r '.skip_allowed[0] // ""' "$(task_dir)/state.json")" = "finalize/워킹트리 정리 확인" ] \
+  && ok "전이해도 제안은 살아남는다" || no "전이가 제안을 지웠다" "$(jq -c .skip_allowed "$(task_dir)/state.json")"
 bouncer cancel >/dev/null 2>&1
 
-
-echo
 echo "[감사가 회귀 감지 0이라고 지적한 수정들]"
 GU="$R/engine/lib/guard.py"
 export CLAUDE_CODE_SESSION_ID=S1
@@ -456,5 +448,60 @@ bouncer cancel >/dev/null 2>&1
 env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" resume >/dev/null 2>&1 \
   && ok "세션 ID 없이도 resume 목록 조회" \
   || no "조회가 막힘" "$(env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" resume 2>&1|head -1)"
+
+
+echo
+echo "[state.json 이 깨져도 안전밸브가 작동한다]"
+# 카운터를 state.json 에만 두면, 상태가 깨진 바로 그 경우에 안전밸브가
+# 원리상 작동하지 않는다 (40회 연속 차단이 재현됐다).
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+bouncer start simple sv >/dev/null
+printf 'garbage' > "$(task_dir)/state.json"
+REL=0
+for i in $(seq 1 40); do
+  printf '%s' "$(stop)" | grep -q '"decision"' || { REL=$i; break; }
+done
+[ "$REL" != 0 ] && ok "손상 상태에서도 ${REL}회째 세션을 돌려준다" \
+                || no "무한 차단" "40회 전부 막혔다"
+rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+echo
+echo "[사람 확인과 함께 있는 스테이지도 on_fail 이 발동한다]"
+# HUMAN_WAIT 하나로 막으면 기본 default.yaml 의 verify(사람 확인 + run 게이트)는
+# on_fail 이 절대 발동하지 않는다. README 는 그 반송을 기본 기능으로 그린다.
+cat > "$FIXTURE_DIR/_hf.yaml" <<'Y'
+version: 1
+workflows:
+  dev: {label: t, stages: [implement, verify, done]}
+stages:
+  implement:
+    steps: [{label: 구현, inject: "구현해라"}]
+  verify:
+    on_fail: implement
+    steps:
+      - label: 사람 확인
+        blocking: true
+        inject: "검증 결과를 보고해라"
+      - label: 게이트
+        run: "test -f PASSME"
+        by: engine
+        blocking: true
+  done:
+    steps: [{label: 완료, inject: "끝"}]
+Y
+cleanup; setup "$FIXTURE_DIR/_hf.yaml" >/dev/null || abort_setup "on_fail 픽스처" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start dev hf >/dev/null
+stop >/dev/null                                  # implement → verify
+BACK=0
+for i in $(seq 1 6); do
+  stop >/dev/null
+  [ "$(stage)" = implement ] && { BACK=$i; break; }
+  user_turn >/dev/null; bouncer done "verify/사람 확인" >/dev/null 2>&1
+done
+[ "$BACK" != 0 ] && ok "run 게이트가 실패하면 사람 확인이 있어도 반송된다" \
+                 || no "반송 안 됨" "$(stage) 에 머묾"
+bouncer cancel >/dev/null 2>&1
 
 finish

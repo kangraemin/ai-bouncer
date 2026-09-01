@@ -504,15 +504,16 @@ cmd_skip() {
   done < <(bouncer_chain "$PROJECT" "$wf")
   [ -n "$owner" ] || die "'$id' 라는 step이 이 워크플로우($wf)에 없다.
 'bouncer status'로 현재 단계의 step id를 확인하라."
-  # 엔진이 포기했다고 표시한 스테이지만 열어준다. 그래야 처음부터 게이트를
-  # 우회하는 수단이 되지 않는다. 표시는 Stop이 "건너뛴다"를 제안할 때 남긴다.
-  [ "$(jq -r --arg s "$owner" '.gave_up[$s] // false' "$TASK/state.json" 2>/dev/null)" = true ] \
-    || die "[$owner] 는 아직 엔진이 포기한 단계가 아니다.
-건너뛰기는 엔진이 '이 조건을 이번 작업에서만 건너뛴다'를 제안한 뒤에만 쓸 수 있다.
-지금은 조건을 충족시켜라 — 'bouncer status'로 남은 것을 확인하라."
-  # 표시를 소모한다. 한 번 포기했다고 그 스테이지를 영구히 열어두면 안 된다.
-  bouncer_state_update "$TASK" --arg k "$id" --arg s "$owner" \
-    '.skipped[$k] = true | .gave_up = ((.gave_up // {}) | del(.[$s]))' \
+  # 엔진이 포기하며 **그 id 를 직접 제안했을 때만** 열어준다.
+  # 스테이지 단위로 열면 제안하지 않은 게이트까지 같이 열린다.
+  jq -e --arg k "$id" '(.skip_allowed // []) | index($k)' "$TASK/state.json" >/dev/null 2>&1 \
+    || die "'$id' 는 엔진이 건너뛰라고 제안한 조건이 아니다.
+건너뛰기는 엔진이 '이 조건을 이번 작업에서만 건너뛴다'와 함께 그 명령을
+찍어줬을 때만 쓸 수 있다. 지금은 조건을 충족시켜라 — 'bouncer status' 참고."
+  # 제안을 소모한다. 같은 제안을 두 번 쓰지는 못한다.
+  bouncer_state_update "$TASK" --arg k "$id" \
+    '.skipped[$k] = true
+     | .skip_allowed = ((.skip_allowed // []) | map(select(. != $k)))' \
     || die "state.json을 갱신하지 못했다."
   printf 'SKIPPED\t%s\t(%s)\n' "$id" "$owner"
   printf '이번 작업에서만 건너뛴다. workflow.yaml은 그대로다.\n'

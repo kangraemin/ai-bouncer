@@ -32,7 +32,7 @@ command -v python3 >/dev/null 2>&1 || die "python3가 필요하다."
 
 # git 레포 안이면 루트에 설치한다. 서브디렉토리에 설치하면 Claude Code가 읽지 않는다.
 PROJECT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
-[ "$PROJECT" = "$PWD" ] || printf 'ai-bouncer: git 루트에 설치합니다 → %s\n' "$PROJECT"
+[ "$(cd "$PROJECT" && pwd -P)" = "$(pwd -P)" ] || printf 'ai-bouncer: git 루트에 설치합니다 → %s\n' "$PROJECT"
 ROOT="$PROJECT/.claude"; DIR="$ROOT/ai-bouncer"
 SETTINGS="$ROOT/settings.json"
 
@@ -165,8 +165,10 @@ BINDIR="$HOME/.local/bin"; mkdir -p "$BINDIR"
 # 셔임은 내용이 프로젝트와 무관하므로 실제 파일로 복사한다.
 # cp 는 심볼릭 링크를 **따라간다**. 구버전이 남긴 링크가 있으면 링크 대상에
 # 쓰고 링크는 그대로라, 그 프로젝트를 지우는 순간 여기 설치도 같이 죽는다.
-rm -f "$BINDIR/bouncer"
-if cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null; then
+rm -f "$BINDIR/bouncer" 2>/dev/null
+# rm 이 실패하면(권한 등) cp 가 **링크를 따라가** 엉뚱한 파일을 덮어쓴다.
+# cp 성공만 보면 그걸 못 잡으므로 링크가 남았는지도 확인한다.
+if cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null && [ ! -L "$BINDIR/bouncer" ]; then
   chmod 755 "$BINDIR/bouncer"
 else
   printf '  ⚠️ %s 를 만들지 못했다. 엔진은 %s 로 직접 부를 수 있다.\n' \
