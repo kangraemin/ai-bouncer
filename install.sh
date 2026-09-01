@@ -103,7 +103,7 @@ fi
 mkdir -p "$DIR"/{engine/lib,hooks,scripts,prompts,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
 MANIFEST="[]"
 for f in engine/compile.py engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
-         hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
+         hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh hooks/user-prompt.sh \
          hooks/stop.sh hooks/session-end.sh scripts/update-check.sh; do
   mkdir -p "$DIR/$(dirname "$f")"
   install -m 755 "$SRC/$f" "$DIR/$f" || die "복사 실패: $f"
@@ -179,6 +179,7 @@ spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
     ("PostToolUse",  "ExitPlanMode|Skill",       f"{d}/hooks/post-tool.sh", 10),
+    ("UserPromptSubmit", None,                   f"{d}/hooks/user-prompt.sh", 10),
     ("Stop",         None,                       f"{d}/hooks/stop.sh", 300),
     ("SessionEnd",   None,                       f"{d}/hooks/session-end.sh", 5),
 ]
@@ -220,7 +221,7 @@ for event, matcher, cmd, timeout in spec:
         e["matcher"] = matcher
     arr.append(e)
 json.dump(cfg, open(settings_path, "w"), ensure_ascii=False, indent=2)
-print("  hook 5개 등록 완료")
+print("  hook 6개 등록 완료")
 PY
 
 # ── 5. 런타임 상태를 gitignore ───────────────────────────────
@@ -232,7 +233,8 @@ if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     GITIGNORE_ADDED=1
     printf '  .gitignore에 .ai-bouncer/ 추가\n'
   fi
-  printf 'workflow.compiled.json\n' > "$DIR/.gitignore"
+  # 설정 디렉토리 안에 섞여 있는 런타임 파일들. 커밋되면 세션마다 가짜 diff가 뜬다.
+  printf 'workflow.compiled.json\n.update-check\n' > "$DIR/.gitignore"
 fi
 
 # ── 6. CLAUDE.md 규칙 블록 ───────────────────────────────────
@@ -312,4 +314,10 @@ fi
 
 printf '\n설치 완료 (업데이트 브랜치 %s)\n' "$BRANCH"
 printf '  워크플로우: %s\n  스킬:       /dev-bounce\n' "$DIR/workflow.yaml"
+if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1 \
+   && [ -n "$(git -C "$PROJECT" status --porcelain 2>/dev/null)" ]; then
+  printf '\n  ⚠️ 설치로 생긴 파일이 커밋되지 않았다. 먼저 커밋하라 —\n'
+  printf '     그러지 않으면 첫 작업이 finalize의 "워킹트리 정리 확인"에서 막힌다.\n'
+  printf '     git add .claude .gitignore CLAUDE.md && git commit -m "chore: ai-bouncer 설치"\n'
+fi
 [ "$CI" = 1 ] || printf '\n다음: 새 세션에서 /dev-bounce 를 실행해보라.\n'
