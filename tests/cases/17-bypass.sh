@@ -63,6 +63,23 @@ done
 [ "$SH_BAD" = 0 ] && ok "시프트·히어스트링으로 뒤 줄 숨기기 (7건)" \
                   || no "시프트·히어스트링으로 뒤 줄 숨기기" "위 항목 통과됨"
 
+# 종료어가 인용돼 있지 않으면 bash 는 히어독 **본문**에서 치환을 실행한다.
+HB_BAD=0
+for c in "cat <<EOF
+\$(rm -f a.js)
+EOF" "cat <<EOF
+\$(git push origin main)
+EOF"; do
+  [ -n "$(B "$c")" ] || { HB_BAD=1; printf '     ↳ %s\n' "$(printf '%s' "$c" | tr '\n' '⏎')"; }
+done
+[ "$HB_BAD" = 0 ] && ok "히어독 본문의 명령 치환 (2건)" || no "히어독 본문 치환" "통과됨"
+
+HQ="cat <<'EOF'
+\$(rm -f a.js)
+EOF"
+[ -z "$(B "$HQ")" ] && ok "인용된 종료어의 본문은 통과" || no "인용 히어독 과차단"
+
+
 # 히어독 종료어는 백슬래시로 인용할 수 있다. bash 는 백슬래시를 지운 것을
 # 종료어로 쓰는데, 그걸 모르면 종료어가 어긋나 뒤 명령이 본문으로 삼켜진다.
 HD_BAD=0
@@ -139,6 +156,26 @@ for f in a.js; do rm -f $f; done
 while read x; do rm -f a.js; done
 r(){ rm -f a.js; }; r
 CASES
+
+group "명령 이름 자리의 치환" must_block <<'CASES'
+"$(echo touch)" a.js
+$(echo touch) a.js
+`echo touch` a.js
+"$(echo git)" push origin main
+$(echo git) push origin main
+CASES
+
+group "치환의 리터럴이 경로로 남는 형태" must_block <<'CASES'
+touch "$(echo docs)/pwn.txt"
+rm -rf "$(echo .)/.ai-bouncer"
+cp b.js "$(echo docs)/x.js"
+CASES
+
+group "git 읽기 명령의 실행 옵션" must_block <<'CASES'
+git grep -O"sh -c 'rm -f a.js'" AAA
+git grep --open-files-in-pager=sh AAA
+CASES
+
 
 group "치환이 단어를 부수는 형태" must_block <<'CASES'
 git "$(true)push" origin main

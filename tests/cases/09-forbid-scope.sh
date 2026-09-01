@@ -29,6 +29,15 @@ while IFS= read -r c; do
   r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
   [ -z "$r" ] || { printf '     ↳ %s → %s\n' "$c" "${r:0:60}"; OVER=1; }
 done <<'PASSCASES'
+cd "$(dirname "$0")" && ls
+echo "$(basename "$PWD")"
+grep -c foo "$(ls docs | head -1)"
+for f in docs/*.md; do echo $f; done
+patch -C -p1
+rsync -avn docs/ /tmp/b/
+PYTHONPATH=src pytest
+NODE_ENV=production npm run build
+python3 scripts/deploy.py --no-push
 echo "$(date)"
 echo "$(grep -c x docs/plan.md)"
 git commit -m "$(cat msg.txt)"
@@ -49,7 +58,7 @@ git clean -n
 ls a*
 awk -F '|' '{print $2}' docs/plan.md
 PASSCASES
-[ "$OVER" = 0 ] && ok "스코프 모드에서 흔한 명령은 통과 (19건)" || no "스코프 모드 과차단" "위 항목"
+[ "$OVER" = 0 ] && ok "스코프 모드에서 흔한 명령은 통과 (28건)" || no "스코프 모드 과차단" "위 항목"
 
 UNDER=0
 while IFS= read -r c; do
