@@ -441,9 +441,13 @@ usage: bouncer release [--force]" ;;
 # release로 잠금을 푼 작업은 아무도 못 잡는 상태가 된다 (.active가 없으면
 # my_task가 못 찾고, status/scan에서도 사라진다). 다시 잡는 길을 열어둔다.
 cmd_resume() {
-  [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
   [ $# -gt 1 ] && die "인자가 너무 많다. usage: bouncer resume [task-id]"
-  local want="${1:-}" tasks d found=""
+  local want="${1:-}"
+  # 인자 없는 호출은 목록만 보여주는 조회다 — 세션 ID 없이도 된다.
+  # (release 가 이걸 안내하는데 한 줄 에러로 죽어서 탈출구가 끊겼다)
+  [ -n "$want" ] && [ -z "$SESSION" ] \
+    && die "이어받으려면 세션 ID가 필요하다 (CLAUDE_CODE_SESSION_ID 미설정).
+목록만 보려면 인자 없이: bouncer resume" tasks d found=""
   tasks="$(bouncer_tasks_dir "$PROJECT")"
   [ -d "$tasks" ] || die "이 프로젝트에 작업 기록이 없다."
   if [ -z "$want" ]; then
@@ -472,6 +476,10 @@ cmd_resume() {
   d="$tasks/$want"
   [ -d "$d" ] || die "그런 작업이 없다: $want"
   [ -f "$d/.active" ] && die "이미 누군가 잡고 있다. 먼저 'bouncer release' 로 확인하라."
+  jq -e . "$d/state.json" >/dev/null 2>&1 \
+    || die "그 작업의 상태 파일이 손상됐다: $want
+이어받아도 진행할 수 없다. 정리하려면 그 디렉토리를 지워라:
+  rm -rf $d"
   [ "$(bouncer_state "$d" '.current_stage')" = cancelled ] && die "취소된 작업이다."
   jq -n --arg s "$SESSION" --arg t "$(date -u +%FT%TZ)" \
     '{session_id:$s, claimed_at:$t}' > "$d/.active" || die "잠금을 만들지 못했다."
