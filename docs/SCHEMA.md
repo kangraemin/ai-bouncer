@@ -27,6 +27,9 @@
 | `forbid` | 매핑 | 이 단계에 머무는 동안 금지되는 것 |
 | `on_fail` | 앞선 스테이지 \| `abort` | blocking 실패가 누적되면 되돌아갈 곳 |
 
+> `on_fail` 왕복은 `max_loops`(기본 3)로 제한된다. 두 단계를 오가기만 하고
+> 조건이 계속 안 맞으면 더 밀지 않고 사용자에게 판단을 넘긴다.
+
 ## `steps` 항목
 
 | 키 | 필수 | 기본 | 설명 |
@@ -125,6 +128,7 @@ settings:
 | `update_check_interval_hours` | `6` | 확인 주기 |
 | `max_attempts` | `3` | blocking 실패 재시도 후 `on_fail` 발동 |
 | `max_continue` | `10` | Stop 연속 차단 상한. 초과 시 사용자에게 질문 |
+| `max_loops` | `3` | `on_fail`로 앞 단계와 왕복할 수 있는 횟수. 초과하면 사용자에게 넘긴다 |
 | `stale_lock_hours` | `12` | 이 시간 넘게 하트비트가 멈춘 잠금을 정리 |
 | `repo` | `kangraemin/ai-bouncer` | 업데이트를 받아올 저장소 |
 

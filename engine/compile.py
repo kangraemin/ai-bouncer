@@ -384,6 +384,7 @@ SETTINGS = {
     'update_check_interval_hours': 6,
     'max_attempts': 3,
     'max_continue': 10,
+    'max_loops': 3,
     'stale_lock_hours': 12,
     'repo': 'kangraemin/ai-bouncer',
 }
