@@ -128,7 +128,13 @@ cmd_start() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --on)  choices="$(jq --arg k "$2" '.[$k] = true'  <<<"$choices")"; shift 2 ;;
-      --off) choices="$(jq --arg k "$2" '.[$k] = false' <<<"$choices")"; shift 2 ;;
+      --off)
+        # 없는 id를 조용히 받으면 사용자는 껐다고 믿는데 게이트는 살아 있다.
+        jq -e --arg k "$2" 'has($k)' <<<"$choices" >/dev/null 2>&1 \
+          || die "선택 항목이 아니다: $2
+이 워크플로우의 선택 항목:
+$(jq -r 'keys[] | "  " + .' <<<"$choices")"
+        choices="$(jq --arg k "$2" '.[$k] = false' <<<"$choices")"; shift 2 ;;
       *) die "알 수 없는 인자: $1" ;;
     esac
   done
@@ -230,7 +236,7 @@ cmd_status() {
     .steps[]? |
     (($st[0].evidence[.id] // false) as $done |
      ($st[0].choices[.id]  // true)  as $on |
-     "  \(if .optional and ($on|not) then "⃠ (건너뜀)" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if .blocking then "  [\(.blocking)]" else "" end)")'
+     "  \(if .optional and ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if .optional and ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)")'
 }
 
 # ── 실행 / 완료 ──────────────────────────────────────────────
@@ -240,6 +246,10 @@ cmd_run() {
   local step; step="$(step_json "$id" "$STAGE")"
   [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다. 'bouncer status'로 확인하라."
   local kind cmd tmo
+  if [ "$(jq -r '.optional' <<<"$step")" = "true" ] \
+     && [ "$(jq -r --arg k "$id" '.choices[$k] // true' "$TASK/state.json")" = "false" ]; then
+    die "'$id'는 이번 작업에서 끈 항목이다. 실행할 필요가 없다."
+  fi
   kind="$(jq -r '.kind' <<<"$step")"
   [ "$kind" = "run" ] || die "'$id'는 실행 step이 아니다."
   cmd="$(jq -r '.run' <<<"$step")"; tmo="$(jq -r '.timeout' <<<"$step")"
