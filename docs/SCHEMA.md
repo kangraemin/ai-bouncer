@@ -187,13 +187,3 @@ settings:
 
 알 수 없는 키는 컴파일이 거부한다 (오타로 설정이 조용히 무시되는 것을 막는다).
 
-## `state.json`
-
-| 필드 | writer | 설명 |
-|---|---|---|
-| `workflow` · `current_stage` · `choices` | **hook 전용** | 모델이 못 바꾼다 (PreToolUse가 차단) |
-| `worktree` · `base_branch` · `base_sha` | **hook 전용** | worktree 생성 시점에 확정 기록 |
-| `evidence` | `bouncer run` / `bouncer done` / PostToolUse | blocking 통과 기록 |
-| `shown` | Stop hook | 주입 완료 표시 (중복 주입 방지) |
-| `continue_streak` · `allowed_stop` | Stop hook | 연속 진행 제어 |
-| `history` | Stop hook | 전이 이력 |

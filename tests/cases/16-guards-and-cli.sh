@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 케이스 16 — Stop 재진입 가드, cancel/check 경로, uninstall의 .gitignore 복원
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
-cat > /tmp/_g.yaml <<'Y'
+# 픽스처는 케이스마다 따로 둔다. 전역 경로를 쓰면 케이스끼리 덮어쓴다.
+FIXTURE_DIR="$(mktemp -d)"; trap 'rm -rf "$FIXTURE_DIR"' EXIT
+cat > "$FIXTURE_DIR/_g.yaml" <<'Y'
 version: 1
 workflows:
   plan: {label: 테스트용, stages: [work, done]}
@@ -15,7 +17,7 @@ stages:
   done:
     steps: [{label: 완료, inject: "끝."}]
 Y
-setup /tmp/_g.yaml || exit 1
+setup "$FIXTURE_DIR/_g.yaml" || exit 1
 trap cleanup EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start plan guards >/dev/null
@@ -42,7 +44,7 @@ python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null
 
 echo "[on_fail 무한 왕복 가드]"
-cleanup; cat > /tmp/_loop.yaml <<'Y'
+cleanup; cat > "$FIXTURE_DIR/_loop.yaml" <<'Y'
 version: 1
 workflows:
   plan: {label: 테스트용, stages: [impl, verify, done]}
@@ -62,7 +64,7 @@ stages:
   done:
     steps: [{label: 완료, inject: "끝."}]
 Y
-setup /tmp/_loop.yaml >/dev/null || exit 1
+setup "$FIXTURE_DIR/_loop.yaml" >/dev/null || exit 1
 python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2 max_loops=3
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null
 export CLAUDE_CODE_SESSION_ID=S1
@@ -97,7 +99,7 @@ hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\"}" >/dev/null
 printf '%s' "$esc" | grep -q 'AskUserQuestion' && ok "사용자에게 선택지를 제시하도록 안내" || no "선택지 안내"
 
 echo "[cancel]"
-cleanup; setup /tmp/_g.yaml >/dev/null || exit 1
+cleanup; setup "$FIXTURE_DIR/_g.yaml" >/dev/null || exit 1
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start plan guards >/dev/null
 bouncer cancel >/dev/null && ok "cancel 실행" || no "cancel"

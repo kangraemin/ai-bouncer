@@ -8,8 +8,14 @@ for t in tests/cases/*.sh tests/e2e-install.sh; do
   printf '\n\033[1m── %s ──\033[0m\n' "$name"
   out="$(bash "$t" 2>&1)"; rc=$?
   printf '%s\n' "$out"
-  p=$(printf '%s' "$out" | grep -c '✅' || true)
-  f=$(printf '%s' "$out" | grep -c '❌' || true)
+  # 케이스가 스스로 보고한 수를 쓴다. ✅ 개수로 세면 엔진 출력
+  # (`✅ [implement] 완료 → …`)까지 통과로 집계돼 총계가 흔들린다.
+  summary="$(printf '%s' "$out" | sed -n 's/^[^0-9]*\([0-9][0-9]*\) 통과 \/ \([0-9][0-9]*\) 실패$/\1 \2/p' | tail -1)"
+  if [ -n "$summary" ]; then
+    p="${summary%% *}"; f="${summary##* }"
+  else
+    p=0; f=1; failed="$failed $name(요약없음)"
+  fi
   total_p=$((total_p+p)); total_f=$((total_f+f))
   [ "$rc" -eq 0 ] || failed="$failed $name"
 done

@@ -180,8 +180,9 @@ if [ -n "$SUG" ]; then
   eval "bouncer ${SUG#bouncer }" >/dev/null 2>&1 \
     && ok "제안한 명령이 그대로 실행된다" || no "제안 실행 실패" "$SUG"
 fi
-says 'SKIPPED' bouncer skip "finalize/워킹트리 정리 확인" \
-  && ok "제안 뒤에는 skip이 통한다" || no "skip 거부됨" "$(bouncer skip 'finalize/워킹트리 정리 확인' 2>&1|head -2)"
+# 표시는 한 번 쓰면 소모된다. 안 그러면 그 스테이지가 영구히 열린 채 남는다.
+says '엔진이 포기한 단계가 아니다' bouncer skip "finalize/워킹트리 정리 확인" \
+  && ok "같은 skip을 두 번 쓸 수 없다" || no "표시가 소모되지 않음"
 says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
 stop >/dev/null
 [ "$(stage)" = done ] && ok "skip 후 실제로 전이한다" || no "전이 안 됨" "$(stage)"
@@ -385,5 +386,75 @@ done
 [ -z "$(printf 'cd docs && rm -f x.md' | python3 "$GU" '["**","!docs/**"]' false '[]' "$T" '' "$T")" ] \
   && ok "리터럴 cd 는 정상 통과" || no "정상 cd 차단됨"
 bouncer cancel >/dev/null 2>&1
+
+
+echo
+echo "[포기 표시가 스테이지 도착 때 지워진다]"
+# 반송 전에 찍힌 표시가 남아 있으면, 그 스테이지에 도착하자마자 skip 이 열려
+# 사용자 턴 게이트를 모델이 셸 한 줄로 통과한다 (감사에서 재현된 경로).
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+bouncer start simple arrive >/dev/null
+stop >/dev/null                                  # implement → verify
+python3 - "$(task_dir)/state.json" <<'PYX'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d['current_stage'] = 'implement'                 # 반송된 상황을 만든다
+d['gave_up'] = {'verify': True}
+json.dump(d, open(p, 'w'))
+PYX
+says '엔진이 포기한 단계가 아니다' bouncer skip "verify/검증 보고" \
+  && no "반송 중에도 못 씀" "정체 중에는 쓸 수 있어야 한다" \
+  || ok "반송 정체 중에는 되돌려보낸 스테이지를 skip 할 수 있다"
+stop >/dev/null                                  # implement → verify 재진입
+[ "$(stage)" = verify ] || no "verify 재진입" "$(stage)"
+says '엔진이 포기한 단계가 아니다' bouncer skip "verify/검증 보고" \
+  && ok "도착하면 표시가 지워져 skip 이 닫힌다" \
+  || no "도착 후에도 skip 열림" "사용자 턴 게이트가 뚫린다"
+bouncer cancel >/dev/null 2>&1
+
+
+echo
+echo "[감사가 회귀 감지 0이라고 지적한 수정들]"
+GU="$R/engine/lib/guard.py"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+# worktree 안에서도 edit_files 스코프가 살아야 한다 (--parallel 에서만 사라졌다)
+WTP="$T/.wt"; mkdir -p "$WTP/src" "$WTP/docs"
+SC='["**","!src/**"]'
+[ -n "$(printf 'rm -f docs/x.md' | python3 "$GU" "$SC" false '[]' "$T" "$WTP" "$WTP")" ] \
+  && ok "worktree 안 스코프 밖은 차단" || no "worktree 스코프 소실" "통과됨"
+[ -z "$(printf 'rm -f src/a.js' | python3 "$GU" "$SC" false '[]' "$T" "$WTP" "$WTP")" ] \
+  && ok "worktree 안 예외 경로는 허용" || no "worktree 예외 차단됨"
+[ -n "$(python3 "$GU" --check-path "$SC" "$T" "$WTP/docs/x.md" "$WTP" "$WTP")" ] \
+  && ok "Edit 도 worktree 안 스코프를 본다" || no "Edit 스코프 소실"
+
+# 슬래시 없는 `bouncer.sh` 는 엔진이 아니다
+[ -n "$(printf 'bouncer.sh anything' | python3 "$GU" true false '[]' "$T" '' "$T")" ] \
+  && ok "bouncer.sh 이름만으로 면제받지 않는다" || no "이름 면제 통과"
+
+# EDIT→PUSH 패스 사이 cd 추적 누수 (쓰기보다 뒤에 오는 cd 가 앞을 막았다)
+[ -z "$(printf 'touch src/a.js && cd -' | python3 "$GU" "$SC" true '[]' "$T" "$WTP" "$WTP")" ] \
+  && ok "쓰기 뒤에 오는 cd 는 앞을 막지 않는다" || no "패스 간 cd 누수"
+
+# 설정 손상을 Stop 이 정확히 보고하고, 무한 차단하지 않는다
+bouncer start simple cfg >/dev/null
+cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/cc2.bak"
+printf 'nope' > "$T/.claude/ai-bouncer/workflow.compiled.json"
+r=$(stop); printf '%s' "$r" | grep -q '설정을 읽을 수 없다' \
+  && ok "Stop 이 설정 손상을 정확히 보고" || no "Stop 오진" "${r:0:70}"
+REL=0
+for i in $(seq 1 30); do
+  printf '%s' "$(stop)" | grep -q '"decision"' || REL=1
+done
+[ "$REL" = 1 ] && ok "무한 차단하지 않고 세션을 돌려준다" || no "12회 연속 차단" "안전밸브 미작동"
+cp "$T/cc2.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
+bouncer cancel >/dev/null 2>&1
+
+# 인자 없는 resume 은 세션 ID 없이도 되는 조회다
+env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" resume >/dev/null 2>&1 \
+  && ok "세션 ID 없이도 resume 목록 조회" \
+  || no "조회가 막힘" "$(env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" resume 2>&1|head -1)"
 
 finish

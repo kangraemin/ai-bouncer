@@ -1348,6 +1348,7 @@ if TOKENS is None:
 SEGMENTS = split_segments(TOKENS)
 check_engine_files(SEGMENTS)
 
+reset_cwd()
 if EDIT is True:
     # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
     bad = sorted({t for t, k in TOKENS if k == 'st'})

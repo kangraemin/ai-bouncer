@@ -447,7 +447,8 @@ cmd_resume() {
   # (release 가 이걸 안내하는데 한 줄 에러로 죽어서 탈출구가 끊겼다)
   [ -n "$want" ] && [ -z "$SESSION" ] \
     && die "이어받으려면 세션 ID가 필요하다 (CLAUDE_CODE_SESSION_ID 미설정).
-목록만 보려면 인자 없이: bouncer resume" tasks d found=""
+목록만 보려면 인자 없이: bouncer resume"
+  local tasks d found=""
   tasks="$(bouncer_tasks_dir "$PROJECT")"
   [ -d "$tasks" ] || die "이 프로젝트에 작업 기록이 없다."
   if [ -z "$want" ]; then
@@ -509,7 +510,9 @@ cmd_skip() {
     || die "[$owner] 는 아직 엔진이 포기한 단계가 아니다.
 건너뛰기는 엔진이 '이 조건을 이번 작업에서만 건너뛴다'를 제안한 뒤에만 쓸 수 있다.
 지금은 조건을 충족시켜라 — 'bouncer status'로 남은 것을 확인하라."
-  bouncer_state_update "$TASK" --arg k "$id" '.skipped[$k] = true' \
+  # 표시를 소모한다. 한 번 포기했다고 그 스테이지를 영구히 열어두면 안 된다.
+  bouncer_state_update "$TASK" --arg k "$id" --arg s "$owner" \
+    '.skipped[$k] = true | .gave_up = ((.gave_up // {}) | del(.[$s]))' \
     || die "state.json을 갱신하지 못했다."
   printf 'SKIPPED\t%s\t(%s)\n' "$id" "$owner"
   printf '이번 작업에서만 건너뛴다. workflow.yaml은 그대로다.\n'

@@ -2,7 +2,9 @@
 # 케이스 13 — by: model 경로. 모델이 `bouncer run`으로 실행하고 엔진이 종료코드로 판정한다.
 #              명령 문자열은 엔진(compiled.json)이 소유하므로 모델이 바꿔치기할 수 없다.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
-cat > /tmp/_run.yaml <<'Y'
+# 픽스처는 케이스마다 따로 둔다. 전역 경로를 쓰면 케이스끼리 덮어쓴다.
+FIXTURE_DIR="$(mktemp -d)"; trap 'rm -rf "$FIXTURE_DIR"' EXIT
+cat > "$FIXTURE_DIR/_run.yaml" <<'Y'
 version: 1
 workflows:
   plan: {label: 테스트용, stages: [verify, done]}
@@ -15,7 +17,7 @@ stages:
   done:
     steps: [{label: 완료, inject: "끝."}]
 Y
-setup /tmp/_run.yaml || exit 1
+setup "$FIXTURE_DIR/_run.yaml" || exit 1
 trap cleanup EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start plan "run 경로" >/dev/null
