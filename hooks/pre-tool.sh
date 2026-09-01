@@ -23,14 +23,18 @@ TOOL="$(jq -r '.tool_name // empty'     <<<"$INPUT")"
 # `bouncer status && rm -rf x` 가 통째로 빠져나간다 (감사에서 실제로 뚫렸다).
 if [ "$TOOL" = "Bash" ]; then
   _C="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
+  _ROOT="$(bouncer_project_root "$CWD")"
   # grep 의 `^…$` 는 **줄** 앵커다. 명령 어딘가에 `bouncer` 한 줄만 끼우면
   # 통째로 통과했다 (감사에서 실제로 뚫렸다). 개행이 있으면 아예 면제하지 않는다.
   case "$_C" in
     *"
 "*) ;;
     *)
-      if printf '%s' "$_C" \
-         | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*\.claude/ai-bouncer/engine/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
+      # 경로 형태는 **이 프로젝트의 설치본**만 인정한다. 접미사만 보면
+      # /tmp/e/.claude/ai-bouncer/engine/bouncer.sh 를 심어 hook 을 끌 수 있다.
+      if printf '%s' "$_C" | grep -Eq '^[[:space:]]*bouncer([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$' \
+         || printf '%s' "$_C" | grep -qE "^[[:space:]]*(\./)?${_ROOT//\//\\/}/\.claude/ai-bouncer/engine/bouncer\.sh([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$" \
+         || printf '%s' "$_C" | grep -qE "^[[:space:]]*(\./)?\.claude/ai-bouncer/engine/bouncer\.sh([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$"; then
         exit 0
       fi ;;
   esac
@@ -110,8 +114,10 @@ case "$TOOL" in
       if [ -z "$FILE_PATH" ] && [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
         deny "어느 파일을 고치려는지 알 수 없다. 이 단계에는 수정 제한이 걸려 있다."
       fi
+      # Bash 분기와 같은 방향으로 실패해야 한다. 예전엔 여기만 fail-open 이었다.
       R="$(python3 "$GUARD" --check-path "$(jq -c '.edit_files // null' <<<"$FORBID")" \
-            "$ROOT" "$FILE_PATH" "$CWD" "$WT" 2>/dev/null)" || R=""
+            "$ROOT" "$FILE_PATH" "$CWD" "$WT" 2>/dev/null)" \
+        || deny "경로 판정 중 오류가 발생했다. 안전을 위해 차단한다."
       [ -n "$R" ] && deny "$R"
     elif [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
       deny "경로 판정기를 사용할 수 없다 ($GUARD). 이 단계에는 수정 제한이 걸려 있다."

@@ -57,6 +57,22 @@ done
 [ "$SH_BAD" = 0 ] && ok "시프트·히어스트링으로 뒤 줄 숨기기 (7건)" \
                   || no "시프트·히어스트링으로 뒤 줄 숨기기" "위 항목 통과됨"
 
+# 히어독 종료어는 백슬래시로 인용할 수 있다. bash 는 백슬래시를 지운 것을
+# 종료어로 쓰는데, 그걸 모르면 종료어가 어긋나 뒤 명령이 본문으로 삼켜진다.
+HD_BAD=0
+for c in "cat <<\\EOF
+cat <<END
+EOF
+printf PWNED > a.js
+END" "cat <<EO\\F
+x
+EOF
+printf PWNED2 > a.js
+EO"; do
+  [ -n "$(B "$c")" ] || { HD_BAD=1; printf '     ↳ %s\n' "$(printf '%s' "$c" | tr '\n' '⏎')"; }
+done
+[ "$HD_BAD" = 0 ] && ok "히어독 종료어 백슬래시 (2건)" || no "히어독 종료어 백슬래시" "통과됨"
+
 
 group "인자가 곧 코드인 것" must_block <<'CASES'
 eval "rm -f a.js"
@@ -116,6 +132,26 @@ if true; then rm -f a.js; fi
 for f in a.js; do rm -f $f; done
 while read x; do rm -f a.js; done
 r(){ rm -f a.js; }; r
+CASES
+
+group "큰따옴표 안의 명령 치환" must_block <<'CASES'
+echo "$(rm -f a.js)"
+echo "$(printf pwned > a.js)"
+echo "`rm -f a.js`"
+true "$(git push origin main)"
+git $(echo push) origin main
+git $x origin main
+CASES
+
+group "아카이브·패치처럼 대상이 인자에 없는 쓰기" must_block <<'CASES'
+unzip /tmp/evil.zip
+tar xf /tmp/evil.tar
+tar cf out.tar src
+tar tf a.tar --to-command=sh
+patch -p1
+ln -sf /tmp/x/a.js
+split /tmp/big
+rsync -a /tmp/x/ .
 CASES
 
 group "명령 치환 안에 숨기기" must_block <<'CASES'
@@ -406,6 +442,11 @@ uniq a.js
 echo $((1+2))
 echo $[1+2]
 echo $((1<<2))
+echo $(( $(( 1 )) ))
+echo $(((1+2)))
+tar tf x.tar
+tar -tf x.tar
+uniq <<< data
 sed -e's/main/x/' a.js
 env ls -S
 tar -tf x.tar
@@ -454,6 +495,8 @@ python3 -m pytest -q
 cargo build
 make
 node -e "console.log(1)"
+git commit -m "$(cat msg.txt)"
+git commit -m "release $(date +%F)"
 python3 -c "print(1)"
 timeout 30 npm test
 nice -n 5 make build
