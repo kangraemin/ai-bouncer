@@ -20,4 +20,22 @@ r=$(pre Bash "{\"command\":\"npm test\"}");              [ -z "$r" ] && ok "스�
 r=$(pre Bash "{\"command\":\"git checkout -- .\"}");     [ -n "$r" ] && ok "워킹트리 되돌리기는 차단" || no "git checkout 통과"
 r=$(pre Bash "{\"command\":\"cat docs/plan.md\"}");      [ -z "$r" ] && ok "읽기는 자유" || no "읽기 차단됨"
 r=$(pre Bash "{\"command\":\"bouncer status\"}");     [ -z "$r" ] && ok "bouncer 명령은 항상 허용" || no "bouncer 허용"
+# 스코프 모드에서 흔한 명령이 막히면 사용자가 도구를 꺼버린다.
+# (모드 인자를 경로로 오인, worktree 상대경로, git dry-run 등이 전부 여기서 걸렸다)
+for c in "chmod 755 docs/plan.md" "chown ram:staff docs/plan.md" "truncate -s 0 docs/plan.md" \
+         "mkdir -m 700 docs/sub" "cp src/app.js docs/copy.js" "npm test" \
+         "git fetch origin" "git checkout -b feature" "git restore --staged docs/plan.md" \
+         "git clean -n" "ls a*" "awk -F '|' '{print \$2}' docs/plan.md"; do
+  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
+  [ -z "$r" ] || { no "스코프 모드 과차단" "$c → ${r:0:60}"; OVER=1; }
+done
+[ "${OVER:-0}" = 0 ] && ok "스코프 모드에서 흔한 명령은 통과 (12건)"
+
+for c in "chmod 755 src/app.js" "mv src/app.js src/x.js" "rm -rf src" "git clean -fdx" \
+         "sort -osrc/out.txt docs/plan.md" "curl -osrc/x.js http://x"; do
+  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
+  [ -n "$r" ] || { no "스코프 밖 쓰기 통과" "$c"; UNDER=1; }
+done
+[ "${UNDER:-0}" = 0 ] && ok "스코프 밖 쓰기는 여전히 차단 (6건)"
+
 finish

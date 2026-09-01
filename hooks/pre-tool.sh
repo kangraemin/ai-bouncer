@@ -45,7 +45,9 @@ ENGINE_FILE_MSG="⛔ [ai-bouncer] 엔진 파일은 직접 수정할 수 없다.
 단계 전이와 규칙은 엔진이 관리한다. 조건을 충족시켜서 넘어가라."
 
 # 디렉토리 통째로도 막아야 한다 — `.ai-bouncer` 를 지우면 게이트가 전부 사라진다.
-FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.path // empty' <<<"$INPUT")"
+# NotebookEdit 은 notebook_path 를 쓴다. 빠뜨리면 경로가 빈 값으로 넘어가
+# 스코프 검사가 통째로 건너뛰어진다.
+FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.notebook_path // .tool_input.path // empty' <<<"$INPUT")"
 case "$FILE_PATH" in
   # 병렬 작업 worktree(~/.ai-bouncer/worktrees/)는 작업 대상이지 엔진 상태가 아니다
   */.ai-bouncer/worktrees/*) ;;
@@ -108,8 +110,11 @@ worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
       esac
     fi
     if [ -f "$GUARD" ] && command -v python3 >/dev/null 2>&1; then
+      if [ -z "$FILE_PATH" ] && [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
+        deny "어느 파일을 고치려는지 알 수 없다. 이 단계에는 수정 제한이 걸려 있다."
+      fi
       R="$(python3 "$GUARD" --check-path "$(jq -c '.edit_files // null' <<<"$FORBID")" \
-            "$ROOT" "$FILE_PATH" 2>/dev/null)" || R=""
+            "$ROOT" "$FILE_PATH" "$CWD" 2>/dev/null)" || R=""
       [ -n "$R" ] && deny "$R"
     elif [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
       deny "경로 판정기를 사용할 수 없다 ($GUARD). 이 단계에는 수정 제한이 걸려 있다."
@@ -136,7 +141,7 @@ worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
       "$(jq -c '.edit_files // null' <<<"$FORBID")" \
       "$(jq -r '.push' <<<"$FORBID")" \
       "$(jq -c '.bash // []' <<<"$FORBID")" \
-      "$ROOT" "$WT" 2>/dev/null)" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
+      "$ROOT" "$WT" "$CWD" 2>/dev/null)" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
     [ -n "$REASON" ] && deny "$REASON"
     exit 0 ;;
 esac
