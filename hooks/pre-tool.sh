@@ -30,7 +30,7 @@ if [ "$TOOL" = "Bash" ]; then
 "*) ;;
     *)
       if printf '%s' "$_C" \
-         | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
+         | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*\.claude/ai-bouncer/engine/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
         exit 0
       fi ;;
   esac

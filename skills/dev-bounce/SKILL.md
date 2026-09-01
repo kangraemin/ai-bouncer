@@ -54,6 +54,8 @@ bouncer scan
 STATE    MINE  <경로> <워크플로우> <단계>     이 세션이 이어서 할 작업
 STATE    OTHER <경로> <단계> <나이>           다른 세션이 잡고 있는 작업
 STATE    NONE                                아무것도 없음
+ORPHAN   <task-id> <워크플로우> <단계>         잠금이 풀린 미완 작업 (이어받을 수 있다)
+ERROR    <메시지>                             설정을 읽을 수 없다 — 사용자에게 그대로 알린다
 WORKFLOW <이름> <설명>                        모드 선택지
 OPTION   <워크플로우> <단계> <id> <이름>       시작할 때 물어볼 선택 항목
 ```
@@ -187,7 +189,7 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
 |---|---|
 | `bouncer scan` | 상태·모드·선택항목 (시작 전 1회) |
 | `bouncer start <모드> "<슬러그>"` | 작업 시작 |
-| `bouncer status` | 현재 단계와 남은 조건 |
+| `bouncer status` | 현재 단계와 남은 조건 (각 step의 `id:` 도 함께 나온다) |
 | `bouncer run <step-id>` | 검증 명령 실행 후 결과 기록. 명령 문자열은 엔진이 소유한다 |
 | `bouncer done <step-id>` | 사람 확인이 필요한 step 완료 처리 |
 | `bouncer cancel` | 작업 취소 |
