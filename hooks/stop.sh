@@ -41,9 +41,13 @@ MAX_CONTINUE="$(bouncer_config max_continue 10 "$CWD")"
 MAX_ATTEMPTS="$(bouncer_config max_attempts 3 "$CWD")"
 MAX_LOOPS="$(bouncer_config max_loops 3 "$CWD")"
 
-# 직전 Stop에서 멈춤을 허용했다면, 지금 Stop이 왔다는 건 그 사이에 사용자 턴이 있었다는 뜻.
-# (모델은 사용자 입력 없이 새 턴을 시작하지 못한다.) UserPromptSubmit hook이 필요 없는 이유다.
-USER_TURN_HAPPENED="$(bouncer_state "$TASK" '.allowed_stop')"
+# 사람이 실제로 답했는지는 UserPromptSubmit hook이 올린 카운터로 판정한다.
+# allowed_stop 만 보면, 한 번 사람 대기 상태가 됐던 작업에서 모델이 같은 턴에
+# `bouncer done` 을 쳐도 통과한다 — 게이트가 자기 보고로 전락한다.
+UT_NOW="$(bouncer_state "$TASK" '.user_turns')"; [ -n "$UT_NOW" ] || UT_NOW=0
+UT_MARK="$(bouncer_state "$TASK" '.user_turns_at_wait')"; [ -n "$UT_MARK" ] || UT_MARK=-1
+USER_TURN_HAPPENED=false
+[ "$UT_MARK" -ge 0 ] 2>/dev/null && [ "$UT_NOW" -gt "$UT_MARK" ] 2>/dev/null && USER_TURN_HAPPENED=true
 
 INJECT=""      # 이번에 주입할 텍스트
 FAILURES=""    # blocking 미충족 사유
@@ -139,6 +143,10 @@ while IFS= read -r step; do
       OUT="$( cd "$WORK_ROOT" && bash -lc "$CMD" 2>&1 )"; RC=$?
     fi
     TAIL="$(printf '%s' "$OUT" | tail -30)"
+    # 종료코드만 알려주면 무엇을 고쳐야 할지 알 수 없다.
+    if [ "$RC" -ne 0 ] && printf '%s' "$CMD" | grep -q 'git status --porcelain'; then
+      TAIL="$TAIL"$'\n'"현재 워킹트리:"$'\n'"$(git -C "$WORK_ROOT" status --porcelain 2>/dev/null | head -20)"
+    fi
     if [ "$RC" -eq 0 ]; then
       bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = true'
       [ -n "$TAIL" ] && add_inject "[$LABEL] 통과 (exit 0)"$'\n'"$TAIL"
@@ -149,10 +157,12 @@ while IFS= read -r step; do
   else
     # 모델이 직접 실행한다. PostToolUse가 결과를 관찰해 evidence를 기록한다.
     if [ "$SHOWN" != "true" ]; then
-      add_inject "다음 명령을 실행하고 결과를 확인해라 ($LABEL):"$'\n'"    $CMD"
+      # 명령을 직접 치라고 하면 결과가 증거로 남지 않아 영원히 미충족이 된다.
+      # 엔진이 명령을 소유하므로 bouncer run 으로 돌려야 종료코드가 기록된다.
+      add_inject "$LABEL — 아래를 실행해라 (명령은 엔진이 갖고 있다):"$'\n'"    bouncer run '$ID'"
       bouncer_state_update "$TASK" --arg k "$ID" '.shown[$k] = true'
     fi
-    [ -n "$BLOCKING" ] && add_failure "$LABEL — \`$CMD\`를 아직 통과하지 못했다"
+    [ -n "$BLOCKING" ] && add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"
   fi
 done < <(jq -c '.steps[]?' <<<"$STAGE_JSON")
 
@@ -225,6 +235,7 @@ $(bouncer_state "$TASK" '.last_failure')"
      | .continue_streak = 0
      | .reentry_count = 0
      | .allowed_stop = false
+     | .user_turns_at_wait = null
      | .history += [{stage:$n, at:$t}]'
   guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
@@ -318,7 +329,9 @@ if [ "$HUMAN_WAIT" = "1" ]; then
   # 사람이 답해야 하는데 Stop을 막으면 답할 기회가 없다 — 멈추게 둔다.
   # 다만 지시와 미충족 사유는 반드시 전달해야 한다. 여기서 버리면
   # 이 스테이지의 프롬프트가 모델에게 한 번도 도달하지 않는다.
-  bouncer_state_update "$TASK" '.allowed_stop = true'
+  # 지금 시점의 턴 수를 새겨둔다. 이보다 늘어나야 사람이 답한 것으로 인정한다.
+  bouncer_state_update "$TASK" --argjson n "$UT_NOW" \
+    '.allowed_stop = true | .user_turns_at_wait = (.user_turns_at_wait // $n)'
   if [ -n "$INJECT" ] || [ -n "$FAILURES" ]; then
     jq -n --arg c "[$STAGE] 아직 끝나지 않았다.${FAILURES:+$'\n\n'}${FAILURES:+미충족 조건:
 }$FAILURES${INJECT:+$'\n\n'}$INJECT" \

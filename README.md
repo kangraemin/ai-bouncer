@@ -171,7 +171,7 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 │   │   ├── workflow.yaml          ← 유일한 설정 파일
 │   │   ├── prompts/ engine/ hooks/ scripts/
 │   │   └── workflow.compiled.json ← 자동 생성 (gitignore)
-│   ├── settings.json              ← hook 5개 등록 (남의 hook은 건드리지 않는다)
+│   ├── settings.json              ← hook 6개 등록 (남의 hook은 건드리지 않는다)
 │   └── skills/dev-bounce/
 ├── .ai-bouncer/                   ← 런타임 상태 (gitignore)
 └── CLAUDE.md                      ← 규칙 블록 (마커 밖 내용은 보존)
@@ -191,6 +191,7 @@ hook 경로는 `${CLAUDE_PROJECT_DIR}` 기준이라 팀원과 커밋을 공유�
 | `SessionStart` | 재컴파일, 방치된 잠금 정리, 진행 중 작업 복원 |
 | `PreToolUse` | `forbid` 강제 — 타임아웃되면 차단이 안 되므로 극단적으로 가볍다 |
 | `PostToolUse` | ExitPlanMode·Skill 관찰 |
+| `UserPromptSubmit` | 사용자가 실제로 답했다는 사실만 기록 (내용은 읽지 않는다) |
 | `Stop` | **엔진 본체** — step 수행, 통과 판정, 단계 전이 |
 | `SessionEnd` | 자기 잠금만 해제 (Claude Code 기본 예산이 1.5초라 이 일만 한다) |
 
