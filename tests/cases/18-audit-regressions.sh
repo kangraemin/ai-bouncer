@@ -46,64 +46,7 @@ open(p, 'w').write(s)
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null \
-  || { no "e2e step 추가" "컴파일 실패"; echo
-echo "[감사가 테스트 없다고 지적한 것들]"
-export CLAUDE_CODE_SESSION_ID=S1
-bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
-
-# 전이하면 그 스테이지의 포기 표시만 지운다 (전부 지우면 엔진이 제안한 skip 이 닫힌다)
-bouncer start simple gv >/dev/null
-stop >/dev/null                                   # implement → verify
-python3 - "$(task_dir)/state.json" <<'PY'
-import json, sys
-p = sys.argv[1]; d = json.load(open(p))
-d['gave_up'] = {'implement': True, 'verify': True}
-json.dump(d, open(p, 'w'))
-PY
-stop >/dev/null                                   # 사람 대기
-user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
-bouncer run "verify/e2e" >/dev/null 2>&1
-stop >/dev/null                                   # verify → finalize
-[ "$(jq -r '.gave_up.verify // "없음"' "$(task_dir)/state.json")" = "없음" ] \
-  && ok "통과한 스테이지의 포기 표시는 지워진다" || no "verify 표시 잔류"
-[ "$(jq -r '.gave_up.implement // "없음"' "$(task_dir)/state.json")" = "true" ] \
-  && ok "아직 안 끝난 스테이지 표시는 남는다" || no "표시가 통째로 지워짐" "$(jq -c .gave_up "$(task_dir)/state.json")"
-bouncer cancel >/dev/null 2>&1
-
-# 미머지 병렬 작업에 finished_at 을 찍으면 ORPHAN 목록에서 사라진다
-bouncer start simple fin --parallel >/dev/null 2>&1
-WT3="$(jq -r '.worktree.path' "$(task_dir)/state.json")"
-if [ -d "$WT3" ]; then
-  git -C "$WT3" commit -q --allow-empty -m w
-  stop >/dev/null; stop >/dev/null
-  bouncer run "verify/e2e" >/dev/null 2>&1
-  user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
-  stop >/dev/null; stop >/dev/null; stop >/dev/null
-  [ -z "$(jq -r '.finished_at // ""' "$(task_dir)/state.json")" ] \
-    && ok "미머지 병렬 작업에 finished_at 을 안 찍는다" || no "finished_at 기록됨"
-  rm -f "$(task_dir)/.active"
-  says "$(basename "$(task_dir)")" bouncer scan \
-    && ok "그래서 ORPHAN 으로 보인다 (커밋이 갇히지 않는다)" || no "ORPHAN 미노출"
-fi
-bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
-
-# status 가 step id 를 보여줘야 skip 제안을 따라갈 수 있다
-bouncer start simple sid >/dev/null
-says 'id: implement/구현' bouncer status && ok "status가 step id를 보여준다" || no "id 미출력" "$(bouncer status|tail -3)"
-
-# cd 가 리터럴이 아니면 상대경로 쓰기를 막는다
-GU="$R/engine/lib/guard.py"
-CD_BAD=0
-for c in "cd /tmp && cd - && rm -f app.js" "cd \$PWD && rm -f app.js" \
-         "cd \"\$(pwd)\" && rm -f app.js" "(cd /tmp); rm -f app.js"; do
-  [ -n "$(printf '%s' "$c" | python3 "$GU" '["**","!docs/**"]' false '[]' "$T" '' "$T")" ] || CD_BAD=1
-done
-[ "$CD_BAD" = 0 ] && ok "비리터럴 cd 뒤 상대경로 쓰기 차단 (4건)" || no "비리터럴 cd 통과"
-[ -z "$(printf 'cd docs && rm -f x.md' | python3 "$GU" '["**","!docs/**"]' false '[]' "$T" '' "$T")" ] \
-  && ok "리터럴 cd 는 정상 통과" || no "정상 cd 차단됨"
-bouncer cancel >/dev/null 2>&1
-
-finish; exit; }
+  || abort_setup "e2e step 추가" "컴파일 실패"
 bouncer start simple off1 --off "verify/e2e" >/dev/null
 LATEST="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
 [ "$(jq -r '.choices["verify/e2e"]' "$LATEST/state.json")" = false ] \
