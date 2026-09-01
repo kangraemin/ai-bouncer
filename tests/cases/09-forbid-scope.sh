@@ -22,20 +22,53 @@ r=$(pre Bash "{\"command\":\"cat docs/plan.md\"}");      [ -z "$r" ] && ok "읽�
 r=$(pre Bash "{\"command\":\"bouncer status\"}");     [ -z "$r" ] && ok "bouncer 명령은 항상 허용" || no "bouncer 허용"
 # 스코프 모드에서 흔한 명령이 막히면 사용자가 도구를 꺼버린다.
 # (모드 인자를 경로로 오인, worktree 상대경로, git dry-run 등이 전부 여기서 걸렸다)
-for c in "chmod 755 docs/plan.md" "chown ram:staff docs/plan.md" "truncate -s 0 docs/plan.md" \
-         "mkdir -m 700 docs/sub" "cp src/app.js docs/copy.js" "npm test" \
-         "git fetch origin" "git checkout -b feature" "git restore --staged docs/plan.md" \
-         "git clean -n" "ls a*" "awk -F '|' '{print \$2}' docs/plan.md"; do
+# 스코프 모드에서 흔한 명령이 막히면 사용자가 도구를 꺼버린다.
+OVER=0
+while IFS= read -r c; do
+  [ -z "$c" ] && continue
   r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
-  [ -z "$r" ] || { no "스코프 모드 과차단" "$c → ${r:0:60}"; OVER=1; }
-done
-[ "${OVER:-0}" = 0 ] && ok "스코프 모드에서 흔한 명령은 통과 (12건)"
+  [ -z "$r" ] || { printf '     ↳ %s → %s\n' "$c" "${r:0:60}"; OVER=1; }
+done <<'PASSCASES'
+echo "$(date)"
+echo "$(grep -c x docs/plan.md)"
+git commit -m "$(cat msg.txt)"
+tar -czf /tmp/o.tgz docs
+rsync -a /tmp/b/ docs/d/
+split -b 1m /tmp/big docs/c_
+tar --directory=docs -xf /tmp/a.tgz
+chmod 755 docs/plan.md
+chown ram:staff docs/plan.md
+truncate -s 0 docs/plan.md
+mkdir -m 700 docs/sub
+cp src/app.js docs/copy.js
+npm test
+git fetch origin
+git checkout -b feature
+git restore --staged docs/plan.md
+git clean -n
+ls a*
+awk -F '|' '{print $2}' docs/plan.md
+PASSCASES
+[ "$OVER" = 0 ] && ok "스코프 모드에서 흔한 명령은 통과 (19건)" || no "스코프 모드 과차단" "위 항목"
 
-for c in "chmod 755 src/app.js" "mv src/app.js src/x.js" "rm -rf src" "git clean -fdx" \
-         "sort -osrc/out.txt docs/plan.md" "curl -osrc/x.js http://x"; do
+UNDER=0
+while IFS= read -r c; do
+  [ -z "$c" ] && continue
   r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
-  [ -n "$r" ] || { no "스코프 밖 쓰기 통과" "$c"; UNDER=1; }
-done
-[ "${UNDER:-0}" = 0 ] && ok "스코프 밖 쓰기는 여전히 차단 (6건)"
+  [ -n "$r" ] || { printf '     ↳ %s\n' "$c"; UNDER=1; }
+done <<'BLOCKCASES'
+cp b.js "$(echo src/app.js)"
+echo "$(rm -f src/app.js; echo '(')"
+tar -czf src/app.js docs
+tar xf /tmp/evil.tar
+chmod 755 src/app.js
+mv src/app.js src/x.js
+rm -rf src
+git clean -fdx
+sort -osrc/out.txt docs/plan.md
+curl -osrc/x.js http://x
+BLOCKCASES
+[ "$UNDER" = 0 ] && ok "스코프 밖 쓰기는 여전히 차단 (10건)" || no "스코프 밖 쓰기 통과" "위 항목"
+
 
 finish

@@ -134,6 +134,24 @@ while read x; do rm -f a.js; done
 r(){ rm -f a.js; }; r
 CASES
 
+group "치환이 단어를 부수는 형태" must_block <<'CASES'
+git "$(true)push" origin main
+git "$(echo push)" origin main
+bash "$(true)-c" "rm -f a.js"
+sed "$(true)-i" "" "s/a/b/" a.js
+cp b.js "$(true)a.js"
+cp b.js "$(echo a.js)"
+tee "$(true).ai-bouncer/tasks/x/state.json"
+echo "$(cd /tmp)" && rm -f a.js
+echo $(rm -f a.js)
+CASES
+
+group "치환 안을 못 읽게 만드는 형태" must_block <<'CASES'
+echo "$(rm -f a.js; echo '(')"
+echo $(( 0 + $(rm -f a.js; echo 1) ))
+CASES
+
+
 group "큰따옴표 안의 명령 치환" must_block <<'CASES'
 echo "$(rm -f a.js)"
 echo "$(printf pwned > a.js)"
