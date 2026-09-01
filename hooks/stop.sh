@@ -376,15 +376,22 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
        | select((.optional | not)
                 or (if ($st[0].choices | has($sid)) then $st[0].choices[$sid] else true end)) | $sid')
   fi
-  bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" --arg s "$STAGE" \
+  # 갱신이 실패하면(잠금 경합 등) 단계는 그대로인데 "완료" 를 보고하게 된다.
+  # 모델은 다음 단계라고 믿고 forbid 는 이전 단계 것을 강제한다.
+  if ! bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" --arg s "$STAGE" \
     '.current_stage = $n
      | .continue_streak = 0
      | .reentry_count = 0
      | .allowed_stop = false
      | .user_turns_at_wait = null
      | .returned_from = null
-     | .history += [{stage:$n, at:$t}]'
-  guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
+     | .history += [{stage:$n, at:$t}]'; then
+    guarded_block "⛔ [ai-bouncer] 단계 전이를 기록하지 못했다 (상태 파일 잠금 경합).
+잠시 뒤 다시 시도하면 된다. 계속 반복되면 `bouncer status` 로 확인하라."
+  fi
+  # 이 턴에 쌓인 지시·게이트 출력을 함께 내보낸다. 버리면 `.shown` 은 이미
+  # true 라 반송 뒤 재전달이 영영 안 되고, run 게이트 출력도 늘 사라진다.
+  guarded_block "${INJECT:+$INJECT$'\n\n'}✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
 
 # ── 미충족 ──
@@ -402,6 +409,9 @@ ON_FAIL="$(jq -r '.on_fail // empty' <<<"$STAGE_JSON")"
 if [ -n "$ON_FAIL" ] && { [ "$HUMAN_WAIT" != "1" ] || [ "$HARD_FAIL" = "1" ]; }; then
   CAN_FIX_HERE=1
   [ "$(jq -r '.forbid.edit_files' <<<"$STAGE_JSON")" = "true" ] && CAN_FIX_HERE=0
+  # 사람 확인 게이트가 함께 미충족이면 즉시 반송하면 안 된다 — 답할 기회를
+  # 한 번도 안 주고 되돌려보내게 된다 (README 의 verify 예제가 정확히 그 모양).
+  [ "$HUMAN_WAIT" = "1" ] && CAN_FIX_HERE=1
   ATTEMPTS="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
   [ -n "$ATTEMPTS" ] || ATTEMPTS=0
   ATTEMPTS=$(( ATTEMPTS + 1 ))
