@@ -87,8 +87,10 @@ WRITERS = {
     'cp': 'cp', 'ln': 'ln', 'install': 'last',
     # 쓰기 대상이 인자가 아니라 아카이브·패치 **내용**과 현재 디렉토리다.
     # 인자만 보면 읽기 소스밖에 안 보여 통째로 통과했다.
-    'unzip': 'cwd', 'tar': 'cwd', 'patch': 'cwd', 'cpio': 'cwd',
-    'rsync': 'cwd', 'ditto': 'cwd', 'split': 'cwd', 'csplit': 'cwd',
+    'unzip': 'cwd', 'patch': 'cwd', 'cpio': 'cwd',
+    'tar': 'tar',                 # 추출만 cwd 에 쓴다. 생성은 -f 대상에 쓴다
+    'rsync': 'last', 'ditto': 'last',   # 마지막 위치인자가 목적지다
+    'split': 'prefix', 'csplit': 'prefix',
     'mv': 'all',        # 원본이 사라지므로 원본도 쓰기 대상이다
     'xxd': 'second', 'uniq': 'second',
     'sed': 'sed', 'dd': 'dd',
@@ -409,12 +411,26 @@ def _ansi_c(body):
 
 
 def _match_close(t, k, oc, cc):
-    """t[k] 가 여는 괄호일 때 짝이 되는 닫는 괄호 위치를 돌려준다."""
-    depth = 0
+    """t[k] 가 여는 괄호일 때 짝이 되는 닫는 괄호 위치. 따옴표 안은 세지 않는다.
+
+    따옴표를 무시하면 `$(grep -c ')' f)` 의 `)` 를 짝으로 잡아 내용이 잘린다.
+    """
+    depth, q = 0, ''
     while k < len(t):
-        if t[k] == oc:
+        c = t[k]
+        if q:
+            if c == '\\' and q == '"':
+                k += 2; continue
+            if c == q:
+                q = ''
+            k += 1; continue
+        if c in '"\'':
+            q = c; k += 1; continue
+        if c == '\\':
+            k += 2; continue
+        if c == oc:
             depth += 1
-        elif t[k] == cc:
+        elif c == cc:
             depth -= 1
             if depth == 0:
                 return k
@@ -422,24 +438,36 @@ def _match_close(t, k, oc, cc):
     return -1
 
 
-def _extract_subs(body):
-    """문자열 안의 `$( … )` / 백틱 내용을 뽑는다."""
-    res, k = [], 0
+# lex() 가 만난 명령치환 내용. 바깥 명령과 **별도 세그먼트**로 따로 판정한다.
+# 예전에는 `;` 토큰으로 감싸 토큰 스트림에 끼워 넣었는데, 그러면 바깥 명령이
+# 인자를 잃고(`git "$(…)" origin main` → git 세그먼트가 빈 채로) 검사를 빠져나갔다.
+SUBS = []
+SUB_TOKEN = '\x00SUB\x00'      # 치환이 차지한 자리. 값을 알 수 없다는 표시
+
+
+def _strip_subs(body):
+    """문자열에서 치환을 걷어낸 리터럴을 돌려주고, 안쪽은 SUBS 에 모은다.
+
+    리터럴을 버리면 `"$(true)push"` 의 `push` 가 어떤 검사에도 안 닿는다.
+    bash 는 치환을 빈 문자열로 만들고 그 글자를 남긴다.
+    실패하면 None — 안을 못 보면 열어주지 않는다.
+    """
+    out_chars, k = [], 0
     while k < len(body):
         if body.startswith('$(', k) and (k == 0 or body[k - 1] != '\\'):
             e = _match_close(body, k + 1, '(', ')')
             if e < 0:
-                break
-            res.append(body[k + 2:e]); k = e + 1
+                return None
+            SUBS.append(body[k + 2:e]); k = e + 1
             continue
         if body[k] == '`' and (k == 0 or body[k - 1] != '\\'):
             e = body.find('`', k + 1)
             if e < 0:
-                break
-            res.append(body[k + 1:e]); k = e + 1
+                return None
+            SUBS.append(body[k + 1:e]); k = e + 1
             continue
-        k += 1
-    return res
+        out_chars.append(body[k]); k += 1
+    return ''.join(out_chars)
 
 
 def lex(cmd):
@@ -501,14 +529,11 @@ def lex(cmd):
             # bash 는 큰따옴표 안에서도 명령치환을 실행한다. 리터럴로만 보면
             # `echo "$(rm -rf .ai-bouncer)"` 가 단어 하나가 되어 모든 검사를 비껴간다.
             if _CMDSUB.search(body):
-                flush(); toks.append(('$(', 'st'))
-                # 안쪽을 별도 명령으로 떼어 판정한다. 통째로 막으면
-                # `git commit -m "$(cat msg)"` 같은 정상 사용까지 죽는다.
-                for sub in _extract_subs(body):
-                    inner = lex(sub)
-                    if inner is None:
-                        return None
-                    toks.append((';', 'op')); toks.extend(inner); toks.append((';', 'op'))
+                lit = _strip_subs(body)
+                if lit is None:
+                    return None         # 안을 못 읽었다 — 판정 불가
+                toks.append(('$(', 'st'))
+                buf.append(re.sub(r'\\\\(.)', r'\\1', lit) or SUB_TOKEN)
                 i = j + 1
                 continue
             buf.append(re.sub(r'\\(.)', r'\1', body)); i = j + 1
@@ -559,7 +584,12 @@ def lex(cmd):
             j = j - (len(close_s) - 1)
             inner = cmd[i + len(open_s):j]
             if _CMDSUB.search(inner):
-                flush(); toks.append(('$(', 'st'))   # 안에서 명령을 실행한다
+                # 안에서 명령을 실행한다. 예전엔 표식만 남기고 버려서
+                # `echo $(( 0 + $(rm -rf .ai-bouncer) ))` 가 통과했다.
+                lit = _strip_subs(inner)
+                if lit is None:
+                    return None
+                flush(); toks.append(('$(', 'st'))
             else:
                 buf.append(cmd[i:j + len(close_s)])
             i = j + len(close_s)
@@ -589,6 +619,30 @@ def lex(cmd):
             pending_heredocs.append(word)
             toks.append(('<<', 'op')); toks.append((word, 'heredoc'))
             i = k
+            continue
+        # 따옴표 밖 치환도 안쪽을 따로 떼어야 한다. 예전에는 `$(` 만 표식으로
+        # 남기고 안쪽 토큰이 바깥 세그먼트에 섞여, `echo $(git push …)` 가
+        # exe='echo' 로 읽혀 push 검사를 통째로 빠져나갔다.
+        if cmd.startswith('$(', i) and not cmd.startswith('$((', i):
+            e = _match_close(cmd, i + 1, '(', ')')
+            if e < 0:
+                return None
+            flush(); toks.append(('$(', 'st'))
+            SUBS.append(cmd[i + 2:e]); i = e + 1
+            continue
+        if cmd[i] == '`':
+            e = cmd.find('`', i + 1)
+            if e < 0:
+                return None
+            flush(); toks.append(('`', 'st'))
+            SUBS.append(cmd[i + 1:e]); i = e + 1
+            continue
+        if cmd.startswith('<(', i) or cmd.startswith('>(', i):
+            e = _match_close(cmd, i + 1, '(', ')')
+            if e < 0:
+                return None
+            flush(); toks.append((cmd[i:i + 2], 'st'))
+            SUBS.append(cmd[i + 2:e]); i = e + 1
             continue
         hit = next((o for o in STRUCT if cmd.startswith(o, i)), None)
         if hit:
@@ -759,21 +813,43 @@ def write_targets(exe, args):
     mode = WRITERS[exe]
     if mode == 'all':
         return pos
-    if mode == 'cwd':
-        # tar 는 목록 보기(-t)면 아무것도 안 쓴다
-        if exe == 'tar':
-            first = args[0] if args else ''
-            bundled = first if (first and not first.startswith('-')
-                                and re.fullmatch(r'[a-zA-Z]+', first)) else ''
-            if any(a.startswith('-') and not a.startswith('--') and 't' in a[1:] for a in args) \
-               or 't' in bundled:
-                return []
-        tgt = [a for i2, a in enumerate(args)
-               if a in ('-C', '--directory') and False] or []
+    def _dest_dir(default):
+        """`-C dir` / `--directory=dir` 로 목적지를 옮겼는가."""
         for i2, a in enumerate(args):
             if a in ('-C', '--directory', '-d', '--target-directory') and i2 + 1 < len(args):
                 return [args[i2 + 1]]
-        return ['.']
+            for pre in ('--directory=', '--target-directory=', '-C='):
+                if a.startswith(pre):
+                    return [a.split('=', 1)[1]]
+        return default
+
+    if mode == 'tar':
+        first = args[0] if args else ''
+        bundled = first if (first and not first.startswith('-')
+                            and re.fullmatch(r'[a-zA-Z]+', first)) else ''
+        letters = bundled + ''.join(
+            a[1:] for a in args if a.startswith('-') and not a.startswith('--'))
+        if 't' in letters or any(a in ('--list',) for a in args):
+            return []                       # 목록 보기는 아무것도 안 쓴다
+        if 'c' in letters or any(a in ('--create',) for a in args):
+            # 아카이브 생성 — `-f <파일>` 에만 쓴다
+            for i2, a in enumerate(args):
+                if a == '-f' and i2 + 1 < len(args):
+                    return [args[i2 + 1]]
+                if a.startswith('--file='):
+                    return [a.split('=', 1)[1]]
+            # `-czf out.tgz` 처럼 묶인 형태 — 'f' 가 있으면 첫 위치인자가 아카이브다.
+            # 대시 없는 옵션 묶음(`tar czf …`)은 위치인자에서 빼야 한다.
+            rest = pos[1:] if (bundled and pos and pos[0] == bundled) else pos
+            if 'f' in letters:
+                return rest[:1]
+            return []
+        return _dest_dir(['.'])             # 추출은 cwd(또는 -C)에 쓴다
+    if mode == 'prefix':
+        # `split -b 1m IN PREFIX` — 마지막 위치인자가 접두사다 (없으면 cwd 의 x*)
+        return pos[-1:] if len(pos) > 1 else ['.']
+    if mode == 'cwd':
+        return _dest_dir(['.'])
     if mode == 'ln':
         # `ln -sf SRC` 는 cwd 에 basename(SRC) 를 만든다
         if len(pos) == 1:
@@ -930,8 +1006,8 @@ def git_sub(cmd):
         if t.startswith('-'):
             i += 1
             continue
-        # 서브커맨드 자리에 변수가 오면 무엇인지 알 수 없다
-        if '$' in t or '`' in t:
+        # 서브커맨드 자리에 변수·치환이 오면 무엇인지 알 수 없다
+        if '$' in t or '`' in t or SUB_TOKEN in t:
             return None
         return t
     return ''
@@ -1346,6 +1422,20 @@ if TOKENS is None:
     out("따옴표가 닫히지 않아 명령을 판정할 수 없다.")
 
 SEGMENTS = split_segments(TOKENS)
+# 치환 안쪽을 같은 규칙으로 본다. 바깥 토큰 스트림에 끼워 넣으면
+# 바깥 명령이 인자를 잃으므로, **별도 세그먼트**로 덧붙인다.
+_work, _seen = list(SUBS), set()
+while _work:
+    _sub = _work.pop()
+    if not _sub.strip() or _sub in _seen or len(_seen) > 64:
+        continue
+    _seen.add(_sub)
+    del SUBS[:]
+    _t = lex(_sub)
+    if _t is None:
+        out("명령 치환 안을 판정할 수 없다. 값을 먼저 구해서 명령을 그대로 적어라.")
+    SEGMENTS.extend(split_segments(_t))
+    _work.extend(SUBS)
 check_engine_files(SEGMENTS)
 
 reset_cwd()
@@ -1420,6 +1510,9 @@ elif EDIT is not None:
             pos = [a for a in args if not a.startswith('-') and a.strip('"\'')]
             targets = write_targets(exe, args)
             for a in targets:
+                if SUB_TOKEN in a:
+                    out("쓰기 대상이 명령 치환이라 어느 파일인지 알 수 없다.\n"
+                        "경로를 그대로 적어라.")
                 if relative_and_unknown(a):
                     out("`cd -` / 서브셸 이동 뒤라 `%s` 가 어느 디렉토리인지 알 수 없다.\n"
                         "절대경로로 적거나, 이동을 한 번에 하나씩 해라." % a)
