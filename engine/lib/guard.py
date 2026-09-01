@@ -40,6 +40,27 @@ READ_ONLY = {
     'jq', 'shasum', 'md5sum', 'sha256sum',
     'sort', 'find', 'sed', 'xxd', 'base64', 'uniq', 'git', 'awk',  # 인자를 따로 본다
 }
+# 스코프 모드에서 "이 명령이 인자로 준 경로를 쓴다"고 보는 것들.
+# 여기 없는 명령(npm, make, ./build.sh)은 통과한다 — 셸 문법만으로 무엇을 쓰는지
+# 확정할 수 없기 때문이다. 이건 가드레일이지 샌드박스가 아니다.
+# 값은 "어느 인자가 쓰기 대상인가" 다. `cp a.js src/b.js` 에서 a.js는 읽기이므로
+# 전부 대조하면 스코프 밖 파일을 읽기만 해도 막힌다.
+#   all    모든 위치인자      last   마지막 위치인자만
+#   second 두 번째 위치인자   -x     그 플래그의 값만
+WRITERS = {
+    'rm': 'all', 'rmdir': 'all', 'truncate': 'all', 'touch': 'all', 'shred': 'all',
+    'chmod': 'all', 'chown': 'all', 'mkdir': 'all', 'unlink': 'all', 'tee': 'all',
+    'patch': 'all', 'ed': 'all', 'ex': 'all', 'vim': 'all', 'vi': 'all',
+    'gzip': 'all', 'gunzip': 'all', 'unzip': 'all', 'split': 'all', 'csplit': 'all',
+    'cp': 'last', 'mv': 'last', 'ln': 'last', 'install': 'last',
+    'xxd': 'second', 'uniq': 'second',
+    'sed': 'sed', 'dd': 'dd',
+    'sort': '-o', 'base64': '-o', 'curl': '-o', 'wget': '-O',
+}
+# 워킹트리를 통째로 되돌리는 git 서브커맨드 — 경로를 안 줘도 파일을 바꾼다
+GIT_TREE_WRITE = {'checkout', 'restore', 'reset', 'clean', 'apply', 'stash',
+                  'revert', 'merge', 'rebase', 'cherry-pick', 'pull'}
+
 # 실행 파일 이름을 가리는 래퍼. 벗겨내고 진짜 명령을 봐야 한다.
 WRAPPERS = {'env', 'command', 'nohup', 'time', 'stdbuf', 'timeout', 'nice',
             'ionice', 'setsid', 'caffeinate', 'xargs'}
@@ -170,6 +191,58 @@ def norm(p):
     if p.startswith(PROJECT + '/'):
         p = p[len(PROJECT) + 1:]
     return os.path.normpath(p) if p else '.'
+
+
+def glob_re(pat):
+    i, o = 0, ['^']
+    while i < len(pat):
+        if pat.startswith('**/', i):
+            o.append('(?:.*/)?'); i += 3
+        elif pat.startswith('**', i):
+            o.append('.*'); i += 2
+        elif pat[i] == '*':
+            o.append('[^/]*'); i += 1
+        elif pat[i] == '?':
+            o.append('[^/]'); i += 1
+        else:
+            o.append(re.escape(pat[i])); i += 1
+    return re.compile(''.join(o) + '$')
+
+
+def path_forbidden(p):
+    """이 경로가 edit_files 스코프에 걸리는가. 뒤에 오는 패턴이 이긴다(`!` 는 예외)."""
+    rel, hit = norm(p), False
+    for pat in EDIT:
+        neg = pat.startswith('!')
+        if glob_re(pat[1:] if neg else pat).match(rel):
+            hit = not neg
+    return hit
+
+
+def write_targets(exe, args):
+    """이 명령이 실제로 **쓰는** 인자만 골라낸다."""
+    pos = [a for a in args if not a.startswith('-') and a.strip('"\'')]
+    mode = WRITERS[exe]
+    if mode == 'all':
+        return pos
+    if mode == 'last':
+        return pos[-1:] if len(pos) > 1 else []      # 대상이 하나뿐이면 형태가 이상하다
+    if mode == 'second':
+        return pos[1:2]
+    if mode == 'sed':
+        return pos[1:] if any(a.startswith(('-i', '--in-place')) for a in args) else []
+    if mode == 'dd':
+        return [a.split('=', 1)[1] for a in args if a.startswith('of=')]
+    # 플래그의 값만 쓴다
+    hit = []
+    for i, a in enumerate(args):
+        if a == mode or (mode == '-o' and a in ('--output',)) \
+           or (mode == '-O' and a in ('--output-document',)):
+            if i + 1 < len(args):
+                hit.append(args[i + 1])
+        elif a.startswith(mode + '=') or a.startswith('--output='):
+            hit.append(a.split('=', 1)[1])
+    return hit
 
 
 def split_segments(tokens):
@@ -436,11 +509,8 @@ if TOKENS is None:
 SEGMENTS = split_segments(TOKENS)
 check_engine_files(SEGMENTS)
 
-if EDIT is not None:
-    # ── 읽기 전용 스테이지 ────────────────────────────────────
-    # edit_files 가 글로브 배열이어도 셸에 대해서는 전면 읽기 전용으로 다룬다.
-    # 셸 문법만으로 "무엇을 쓰는지" 를 확정할 수 없기 때문이다.
-    # 허용된 경로에 쓰는 것은 Edit/Write 도구로 하면 되고, 그건 스코프대로 통과한다.
+if EDIT is True:
+    # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
     bad = (set(TOKENS) & OPAQUE) | {t for t in TOKENS if '`' in t or '$(' in t}
     if bad:
         out("이 단계는 읽기 전용이다. 안을 확인할 수 없는 구문(%s)은 쓸 수 없다.\n"
@@ -455,8 +525,32 @@ if EDIT is not None:
         if exe:
             check_readonly_cmd(exe, cmd)
 
-elif PUSH:
-    # ── push 만 금지된 스테이지 ───────────────────────────────
+elif EDIT is not None:
+    # ── 경로 스코프 스테이지 (`edit_files: [글로브…]`) ─────────
+    # `!` 예외는 "여기는 써도 된다"는 뜻이다. 예전에는 배열이어도 전면 읽기 전용으로
+    # 다뤄서, 구현 단계에 스코프를 걸면 `npm test` 조차 못 돌리는 죽은 스테이지가 됐다.
+    for seg in SEGMENTS:
+        clean, redirs = parse_redirects(seg)
+        for op, tgt in redirs:
+            if op != '<' and path_forbidden(tgt):
+                out("이 단계에서 %s 에 쓸 수 없다." % tgt)
+        if not clean:
+            continue
+        exe, cmd, env = resolve_exe(clean)
+        check_env(env, False)
+        args = cmd[1:]
+        if exe == 'git':
+            sub = git_sub(cmd)
+            if sub in GIT_TREE_WRITE:
+                out("`git %s` 는 워킹트리를 통째로 바꾼다. 이 단계에서는 허용되지 않는다.\n"
+                    "고칠 수 있는 범위가 정해져 있다면 그 파일만 직접 수정해라." % sub)
+        elif exe in WRITERS:
+            for a in write_targets(exe, args):
+                if path_forbidden(a):
+                    out("`%s` 로 %s 를 고칠 수 없다." % (exe, a))
+
+if PUSH:
+    # ── push 금지 (스코프 모드와 함께 걸릴 수 있으므로 독립적으로 본다) ──
     for seg in SEGMENTS:
         clean, _ = parse_redirects(seg)
         if not clean:
