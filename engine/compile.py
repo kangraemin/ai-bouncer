@@ -287,7 +287,7 @@ STAGE_KEYS = {'steps', 'forbid', 'on_fail'}
 STEP_KEYS = {'label', 'inject', 'inject_file', 'run', 'by', 'timeout', 'blocking', 'optional'}
 ENGINE_TIMEOUT_MAX = 60   # Stop hook 예산을 먹지 않게. 넘으면 by: model을 써야 한다.
 FORBID_KEYS = {'edit_files', 'push', 'bash', 'reason'}
-BLOCKING_VALUES = (True, 'plan_approved')
+BLOCKING_VALUES = (True, 'plan_approved', 'checklist')
 # 플러그인 스킬은 이름에 콜론이 들어간다 (예: telegram:access)
 SKILL_RE = re.compile(r'^skill:[A-Za-z0-9][\w.:-]*$')
 
@@ -297,7 +297,7 @@ def _valid_blocking(v):
     if isinstance(v, bool):
         return v is True
     if isinstance(v, str):
-        return v == 'plan_approved' or bool(SKILL_RE.match(v))
+        return v in ('plan_approved', 'checklist') or bool(SKILL_RE.match(v))
     return False
 
 

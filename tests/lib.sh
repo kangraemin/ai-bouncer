@@ -65,8 +65,9 @@ stop(){ hook stop "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 # Stop 만으로는 못 넘어간다 — 사람 턴이 있어야 한다.
 pass_implement(){
   stop >/dev/null
+  bouncer todo add '작업' >/dev/null 2>&1
+  bouncer todo done 1 >/dev/null 2>&1
   user_turn >/dev/null
-  bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
   stop >/dev/null
 }
 # verify 의 "검증 보고" 게이트를 통과시킨다 (사람 대기 표시 → 사람 턴 → done).

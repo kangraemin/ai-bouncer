@@ -11,14 +11,25 @@ bouncer start simple "오타 수정" >/dev/null
 r=$(pre Edit "{\"file_path\":\"$T/app.js\"}")
 [ -z "$r" ] && ok "바로 수정 가능" || no "수정 가능" "차단됨"
 
-# implement 에 완료 대조 게이트가 있다 — Stop 만으로는 못 넘어간다
+# implement 의 완료 대조는 **엔진이 항목 수를 세는** 게이트다 (자기보고 아님)
 r=$(stop)
 [ "$(stage)" = implement ] && ok "Stop 만으로는 구현이 끝나지 않는다" || no "게이트 없음" "$(stage)"
 printf '%s' "$r" | jq -r '.reason // .hookSpecificOutput.additionalContext // ""' \
-  | grep -q '구현 완료 대조' && ok "미충족 사유에 대조 단계가 뜬다" || no "사유 불명확" "${r:0:70}"
+  | grep -q '할 일 목록이 비어 있다' && ok "목록이 비면 그렇게 알린다" || no "사유 불명확" "${r:0:70}"
+
+bouncer todo add 'A 구현' 'B 구현' >/dev/null
+bouncer todo done 1 >/dev/null
+r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
+printf '%s' "$r" | grep -q '남은 항목 1/2' && ok "남은 항목 수를 센다" || no "항목 수 미집계" "${r:0:60}"
+[ "$(stage)" = implement ] && ok "남은 항목이 있으면 못 넘어간다" || no "전이됨" "$(stage)"
+
+bouncer todo done 2 >/dev/null
+r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
+printf '%s' "$r" | grep -q '사용자에게 보여주고' \
+  && ok "세운 직후 전부 체크하면 통과하지 않는다" || no "같은 턴 통과됨" "${r:0:60}"
+
 user_turn >/dev/null
-bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
-stop >/dev/null; [ "$(stage)" = verify ] && ok "대조 보고 후 verify로 전이" || no "전이" "$(stage)"
+stop >/dev/null; [ "$(stage)" = verify ] && ok "목록 완료 + 사용자 턴 후 전이" || no "전이" "$(stage)"
 
 # 실제 순서: 엔진이 보고를 요구하며 멈춤 허용 → 사용자 턴 → 모델이 done → 다음 Stop에서 전이
 stop >/dev/null
@@ -33,7 +44,8 @@ bouncer start simple "우회 시도" >/dev/null
 # implement 에 완료 대조 게이트가 생겼다 — Stop 만으로는 못 넘어간다
 stop >/dev/null                                  # 사람 대기 표시
 user_turn >/dev/null
-bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+bouncer todo add 'x' >/dev/null; bouncer todo done 1 >/dev/null
+user_turn >/dev/null
 stop >/dev/null   # implement -> verify
 bouncer done "verify/검증 보고" >/dev/null
 stop >/dev/null

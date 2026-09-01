@@ -126,6 +126,11 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 > PreToolUse는 타임아웃되면 차단이 **아예 안 된다**(공식 문서: *"don't count on a
 > stalled hook to act as a gate"*). 그래서 이 검사는 `jq` 한 번만 하고 명령을 실행하지 않는다.
 
+> `blocking: checklist` 는 자기보고가 아니다 — `bouncer todo` 로 세운 항목을
+> **엔진이 센다.** 목록이 비었거나 남은 항목이 있으면 통과하지 않고,
+> 세운 직후 같은 턴에 전부 체크해도 통과하지 않는다(사용자가 한 번은 봐야 한다).
+> 뺀 항목은 `dropped` 에 남아 조용히 사라지지 않는다.
+
 ## state.json 필드
 
 | 필드 | 누가 쓰나 | 뜻 |
@@ -135,6 +140,9 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | `shown` | Stop | 이미 전달한 inject |
 | `choices` | `start --off` | optional step의 on/off |
 | `skipped` | `bouncer skip` | 엔진이 포기한 뒤 이번 작업만 면제한 step |
+| `checklist` | `bouncer todo` | 할 일 목록. `blocking: checklist` 가 **엔진이 세서** 판정한다 |
+| `checklist_turn` | `bouncer todo` | 목록을 마지막으로 고친 시점의 사용자 턴 수. 세우자마자 전부 체크하는 것을 막는다 |
+| `dropped` | `bouncer todo drop` | 범위에서 뺀 항목. 조용히 사라지지 않게 남긴다 |
 | `skip_allowed` | Stop | 엔진이 포기하며 **제안한 step id 목록**. `bouncer skip` 은 여기 있는 것만 열어주고, 쓰면 그 id 를 소모한다 |
 | `stage_attempts` | Stop | on_fail 반송 판단용 시도 횟수 |
 | `loops` | Stop | 스테이지 쌍별 왕복 횟수 (`max_loops`) |
@@ -151,7 +159,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | 체인에 정의 없는 스테이지 | 오타로 단계가 조용히 사라진다 |
 | `on_fail`이 뒤쪽/체인 밖 | 되돌아가기만 허용 (무한 전진 방지) |
 | `blocking`·`optional`인데 `label` 없음 | 진행 상태를 위치가 아닌 이름으로 추적 |
-| `blocking` 값이 목록 밖 | `true` / `plan_approved` / `skill:<이름>` 외 |
+| `blocking` 값이 목록 밖 | `true` / `plan_approved` / `checklist` / `skill:<이름>` 외 |
 | 같은 스테이지에 중복된 `label` | step id가 겹쳐 진행 기록이 엉킨다 |
 | 한 체인에 같은 스테이지가 두 번 | |
 | `version`이 1이 아님 | |
