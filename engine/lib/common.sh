@@ -14,10 +14,24 @@ BOUNCER_ROOT="$(cd "$BOUNCER_LIB_DIR/../.." && pwd)"
 #
 #   <프로젝트>/.claude/ai-bouncer/   설정 + 엔진 (workflow.yaml, hooks, engine)
 #   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
-bouncer_data_dir()      { printf '%s/.claude/ai-bouncer'                    "${1:-$PWD}"; }
-bouncer_workflow_yaml() { printf '%s/.claude/ai-bouncer/workflow.yaml'      "${1:-$PWD}"; }
-bouncer_compiled_file() { printf '%s/.claude/ai-bouncer/workflow.compiled.json' "${1:-$PWD}"; }
-bouncer_tasks_dir()     { printf '%s/.ai-bouncer/tasks'                     "${1:-$PWD}"; }
+# 설치 지점을 현재 위치에서 위로 올라가며 찾는다.
+# 하위 디렉토리나 worktree에서 실행하면 작업이 사라진 것처럼 보이던 원인이다.
+bouncer_project_root() {
+  local d="${1:-$PWD}"
+  d="$(cd "$d" 2>/dev/null && pwd)" || { printf '%s' "${1:-$PWD}"; return; }
+  while [ "$d" != "/" ]; do
+    [ -f "$d/.claude/ai-bouncer/workflow.yaml" ] && { printf '%s' "$d"; return; }
+    d="$(dirname "$d")"
+  done
+  # 설치를 못 찾으면 git 루트, 그것도 없으면 준 경로 그대로
+  d="$(git -C "${1:-$PWD}" rev-parse --show-toplevel 2>/dev/null)" \
+    && { printf '%s' "$d"; return; }
+  printf '%s' "${1:-$PWD}"
+}
+bouncer_data_dir()      { printf '%s/.claude/ai-bouncer'                    "$(bouncer_project_root "${1:-$PWD}")"; }
+bouncer_workflow_yaml() { printf '%s/.claude/ai-bouncer/workflow.yaml'      "$(bouncer_project_root "${1:-$PWD}")"; }
+bouncer_compiled_file() { printf '%s/.claude/ai-bouncer/workflow.compiled.json' "$(bouncer_project_root "${1:-$PWD}")"; }
+bouncer_tasks_dir()     { printf '%s/.ai-bouncer/tasks'                     "$(bouncer_project_root "${1:-$PWD}")"; }
 
 # 설정은 workflow.yaml의 settings 섹션에 있고, 컴파일되어 compiled.json에 들어간다.
 # 별도 config 파일은 없다.
