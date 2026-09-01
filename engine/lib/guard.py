@@ -84,7 +84,11 @@ WRITERS = {
     'chmod': 'all', 'chown': 'all', 'mkdir': 'all', 'unlink': 'all', 'tee': 'all',
     'patch': 'all', 'ed': 'all', 'ex': 'all', 'vim': 'all', 'vi': 'all',
     'gzip': 'all', 'gunzip': 'all', 'unzip': 'all', 'split': 'all', 'csplit': 'all',
-    'cp': 'cp', 'ln': 'last', 'install': 'last',
+    'cp': 'cp', 'ln': 'ln', 'install': 'last',
+    # 쓰기 대상이 인자가 아니라 아카이브·패치 **내용**과 현재 디렉토리다.
+    # 인자만 보면 읽기 소스밖에 안 보여 통째로 통과했다.
+    'unzip': 'cwd', 'tar': 'cwd', 'patch': 'cwd', 'cpio': 'cwd',
+    'rsync': 'cwd', 'ditto': 'cwd', 'split': 'cwd', 'csplit': 'cwd',
     'mv': 'all',        # 원본이 사라지므로 원본도 쓰기 대상이다
     'xxd': 'second', 'uniq': 'second',
     'sed': 'sed', 'dd': 'dd',
@@ -195,6 +199,11 @@ GIT_SUB = {
                               '--rename-section', '--remove-section', '-e', '--edit'}),
 }
 GIT_PUSH_SUBS = {'push', 'send-pack', 'svn', 'p4', 'request-pull'}
+# 아는 서브커맨드 전부. 여기 없는 것이 서브커맨드 자리에 오면 치환에 가려진 것이다.
+KNOWN_GIT_SUBS = (GIT_READ | set(GIT_SUB) | GIT_PUSH_SUBS | GIT_TREE_WRITE
+                  | {'commit', 'add', 'tag', 'init', 'clone', 'fetch', 'branch',
+                     'log', 'status', 'diff', 'show', 'help', 'version', 'gc',
+                     'prune', 'fsck', 'bundle', 'archive', 'describe', 'blame'})
 
 # ── 쓰기 인자 ────────────────────────────────────────────────
 # 명령별로 좁혀야 한다 — `-o`는 sort에서 출력이지만 grep에서는 --only-matching,
@@ -307,7 +316,7 @@ OPAQUE = {'(', ')', '{', '}', '$', '`', '<(', '>('}
 SEPARATOR_BASE = {';', '&&', '||', '|', '&', ';;', '|&', '\n'}
 
 # 리다이렉트 연산자. 앞에 붙는 fd 번호는 별도 토큰으로 떨어지므로 여기 없다.
-REDIR = re.compile(r'^(>{1,2}\|?|<|<>|&>{1,2}|>&)$')
+REDIR = re.compile(r'^(>{1,2}\|?|<|<<<|<>|&>{1,2}|>&)$')
 # 엔진 소유 경로. 부분문자열이 아니라 **경로 성분**으로 본다 —
 # `.ai-bouncer/tasks` 만 보면 부모인 `rm -rf .ai-bouncer` 를 놓쳐 게이트가 통째로 사라진다.
 ENGINE_DIRS = (('.ai-bouncer',), ('.claude', 'ai-bouncer'))
@@ -330,6 +339,10 @@ def is_bouncer(tok):
         # 설치본은 PATH 에 `bouncer` 로만 놓인다. `bouncer.sh` 는 정의상
         # 엔진일 수 없는데도 면제를 받아 엔진 파일 검사까지 건너뛰었다.
         return t == 'bouncer'
+    full = abspath(t)
+    roots = [r for r in (PROJECT, WORKTREE) if r]
+    if roots and full and not any(full.startswith(r + '/') for r in roots):
+        return False        # 다른 곳에 심어둔 동명 스크립트는 엔진이 아니다
     return t.replace('\\', '/').endswith('.claude/ai-bouncer/engine/bouncer.sh')
 # 엔진 파일을 **읽기만** 하는 것은 막을 이유가 없다.
 # (설정을 확인하려는 것뿐인데 스테이지마다 다르게 막히면 혼란만 준다)
@@ -359,6 +372,8 @@ OPS = (';;', '&&', '||', '|&', '&>>', '&>', '>>', '>|', '>&', '<<<', '<>',
 STRUCT = ('$(', '<(', '>(', '`', '{', '}', '(', ')')
 
 
+# 이스케이프되지 않은 `$(` 또는 백틱 (큰따옴표 안에서도 실행된다)
+_CMDSUB = re.compile(r'(?<!\\)\$\((?!\()|(?<!\\)`')
 ANSI_C = {'a': '\a', 'b': '\b', 'e': '\x1b', 'E': '\x1b', 'f': '\f', 'n': '\n',
           'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', "'": "'", '"': '"', '?': '?'}
 HEREDOC = re.compile(r'<<-?(?!<)\s*')
@@ -391,6 +406,40 @@ def _ansi_c(body):
         else:
             out.append(e); i += 2
     return ''.join(out)
+
+
+def _match_close(t, k, oc, cc):
+    """t[k] 가 여는 괄호일 때 짝이 되는 닫는 괄호 위치를 돌려준다."""
+    depth = 0
+    while k < len(t):
+        if t[k] == oc:
+            depth += 1
+        elif t[k] == cc:
+            depth -= 1
+            if depth == 0:
+                return k
+        k += 1
+    return -1
+
+
+def _extract_subs(body):
+    """문자열 안의 `$( … )` / 백틱 내용을 뽑는다."""
+    res, k = [], 0
+    while k < len(body):
+        if body.startswith('$(', k) and (k == 0 or body[k - 1] != '\\'):
+            e = _match_close(body, k + 1, '(', ')')
+            if e < 0:
+                break
+            res.append(body[k + 2:e]); k = e + 1
+            continue
+        if body[k] == '`' and (k == 0 or body[k - 1] != '\\'):
+            e = body.find('`', k + 1)
+            if e < 0:
+                break
+            res.append(body[k + 1:e]); k = e + 1
+            continue
+        k += 1
+    return res
 
 
 def lex(cmd):
@@ -443,12 +492,26 @@ def lex(cmd):
             j, out = i + 1, []
             while j < n and cmd[j] != '"':
                 if cmd[j] == '\\' and j + 1 < n:
-                    out.append(cmd[j + 1]); j += 2
+                    out.append(cmd[j:j + 2]); j += 2
                 else:
                     out.append(cmd[j]); j += 1
             if j >= n:
                 return None
-            buf.append(''.join(out)); i = j + 1
+            body = ''.join(out)
+            # bash 는 큰따옴표 안에서도 명령치환을 실행한다. 리터럴로만 보면
+            # `echo "$(rm -rf .ai-bouncer)"` 가 단어 하나가 되어 모든 검사를 비껴간다.
+            if _CMDSUB.search(body):
+                flush(); toks.append(('$(', 'st'))
+                # 안쪽을 별도 명령으로 떼어 판정한다. 통째로 막으면
+                # `git commit -m "$(cat msg)"` 같은 정상 사용까지 죽는다.
+                for sub in _extract_subs(body):
+                    inner = lex(sub)
+                    if inner is None:
+                        return None
+                    toks.append((';', 'op')); toks.extend(inner); toks.append((';', 'op'))
+                i = j + 1
+                continue
+            buf.append(re.sub(r'\\(.)', r'\1', body)); i = j + 1
             continue
         if c == '\n' and pending_heredocs:
             # 히어독 본문을 종료어까지 건너뛴다
@@ -478,11 +541,24 @@ def lex(cmd):
         ar = next((a for a in ARITH if cmd.startswith(a[0], i)), None)
         if ar:
             open_s, close_s = ar
-            j = cmd.find(close_s, i + len(open_s))
-            if j < 0:
+            # `$(( $(( 1 )) ))` 처럼 중첩될 수 있다. 첫 `))` 로 닫으면 잉여
+            # 괄호가 구조 토큰으로 남아 순수 읽기가 막힌다.
+            oc, cc = open_s[-1], close_s[-1]
+            depth = open_s.count(oc)
+            j = i + len(open_s)
+            while j < n and depth > 0:
+                if cmd[j] == oc:
+                    depth += 1
+                elif cmd[j] == cc:
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if depth > 0 or j >= n:
                 return None             # 닫히지 않았다 — 판정 불가
+            j = j - (len(close_s) - 1)
             inner = cmd[i + len(open_s):j]
-            if '$(' in inner or '`' in inner:
+            if _CMDSUB.search(inner):
                 flush(); toks.append(('$(', 'st'))   # 안에서 명령을 실행한다
             else:
                 buf.append(cmd[i:j + len(close_s)])
@@ -495,17 +571,25 @@ def lex(cmd):
             q = ''
             if j < n and cmd[j] in '"\'':
                 q = cmd[j]; j += 1
-            k = j
-            while k < n and (cmd[k].isalnum() or cmd[k] in '_-.'):
-                k += 1
-            word = cmd[j:k]
+            # `<<\EOF` 나 `<<EO\F` 처럼 백슬래시로 인용할 수 있다.
+            # bash 는 백슬래시를 지운 것을 종료어로 쓴다. 이걸 모르면 종료어가
+            # 어긋나 뒤 명령이 통째로 본문으로 삼켜졌다.
+            k, wchars = j, []
+            while k < n:
+                if cmd[k] == '\\' and k + 1 < n:
+                    wchars.append(cmd[k + 1]); k += 2; continue
+                if cmd[k].isalnum() or cmd[k] in '_-.':
+                    wchars.append(cmd[k]); k += 1; continue
+                break
+            word = ''.join(wchars)
             if q and k < n and cmd[k] == q:
                 k += 1
-            if word:
-                pending_heredocs.append(word)
-                toks.append(('<<', 'op')); toks.append((word, 'heredoc'))
-                i = k
-                continue
+            if not word:
+                return None            # 종료어를 못 읽었다 — 판정 불가
+            pending_heredocs.append(word)
+            toks.append(('<<', 'op')); toks.append((word, 'heredoc'))
+            i = k
+            continue
         hit = next((o for o in STRUCT if cmd.startswith(o, i)), None)
         if hit:
             flush(); toks.append((hit, 'st')); i += len(hit)
@@ -632,6 +716,12 @@ def path_forbidden(p):
     스코프는 프로젝트 안에서만 뜻이 있다. `**` 는 `^.*$` 라 절대경로까지 삼켜서,
     예전에는 `/tmp/scratch.txt` 조차 "스코프 안"이 되어 막혔다.
     """
+    a = abspath(p)
+    # 다른 작업의 worktree 는 그 작업의 스코프가 따로 있다. 여기서 확인할 수
+    # 없으므로 손대지 못하게 한다 (병렬 작업 A 가 B 의 트리를 고치던 구멍).
+    if a and '/.ai-bouncer/worktrees/' in a + '/' \
+       and not (WORKTREE and (a == WORKTREE or a.startswith(WORKTREE + '/'))):
+        return True
     rel = norm(p)
     if rel.startswith('/') or rel.startswith('../'):
         return False                    # 프로젝트 밖 — 이 스코프의 관심사가 아니다
@@ -669,6 +759,26 @@ def write_targets(exe, args):
     mode = WRITERS[exe]
     if mode == 'all':
         return pos
+    if mode == 'cwd':
+        # tar 는 목록 보기(-t)면 아무것도 안 쓴다
+        if exe == 'tar':
+            first = args[0] if args else ''
+            bundled = first if (first and not first.startswith('-')
+                                and re.fullmatch(r'[a-zA-Z]+', first)) else ''
+            if any(a.startswith('-') and not a.startswith('--') and 't' in a[1:] for a in args) \
+               or 't' in bundled:
+                return []
+        tgt = [a for i2, a in enumerate(args)
+               if a in ('-C', '--directory') and False] or []
+        for i2, a in enumerate(args):
+            if a in ('-C', '--directory', '-d', '--target-directory') and i2 + 1 < len(args):
+                return [args[i2 + 1]]
+        return ['.']
+    if mode == 'ln':
+        # `ln -sf SRC` 는 cwd 에 basename(SRC) 를 만든다
+        if len(pos) == 1:
+            return [os.path.basename(pos[0].rstrip('/')) or '.']
+        return pos[-1:]
     if mode == 'cp':
         # `cp -t <디렉토리> a b` 는 대상이 앞에 온다
         for i2, a in enumerate(args):
@@ -820,6 +930,9 @@ def git_sub(cmd):
         if t.startswith('-'):
             i += 1
             continue
+        # 서브커맨드 자리에 변수가 오면 무엇인지 알 수 없다
+        if '$' in t or '`' in t:
+            return None
         return t
     return ''
 
@@ -864,6 +977,12 @@ def is_engine_path(tok):
     worktrees 예외는 **그 지점까지의 접두에만** 적용한다. 뒤에 다시 엔진 성분이
     나오면(worktree 안의 .claude/ai-bouncer/) 그건 여전히 엔진 파일이다.
     """
+    a = abspath(tok)
+    roots = [r for r in (PROJECT, WORKTREE) if r]
+    # `cd /tmp && rm -rf .ai-bouncer` 는 우리 것이 아니다. 프로젝트 밖의
+    # 동명 디렉토리까지 막으면 근거 없는 차단이 된다.
+    if a and roots and not any(a == r or a.startswith(r + '/') for r in roots):
+        return False
     p = norm(tok).replace('\\', '/')
     parts = p.split('/')
     # `.claude` 를 통째로 지우면 엔진·설정이 전부 사라진다. 부모 디렉토리 자체를 막는다.
@@ -906,12 +1025,22 @@ def glob_could_hit_engine(tok):
     return any(rx.match(x) for x in targets)
 
 
+def reset_cwd():
+    """판정 패스를 새로 시작할 때 cd 추적을 초기화한다.
+
+    EDIT 패스 마지막 세그먼트의 `cd` 가 PUSH 패스 첫 세그먼트로 새어,
+    `touch src/a.js && cd -` 처럼 **쓰기보다 뒤에 오는 cd** 가 앞을 막았다.
+    """
+    EFFECTIVE_CWD[0] = ''
+
+
 def check_engine_files(segments):
     """엔진 파일은 어느 스테이지에서도 직접 **수정**할 수 없다.
 
     세그먼트마다 따로 본다. 줄 전체의 첫 토큰이 bouncer 인지로 면제하면
     `bouncer status && echo x > state.json` 이 통째로 빠져나간다.
     """
+    reset_cwd()
     for seg in segments:
         clean, redirs, struct = parse_redirects(seg)
         # 리다이렉트 대상은 bouncer 자신의 명령이라도 검사한다.
@@ -959,6 +1088,7 @@ def check_engine_files(segments):
             continue                    # 읽기는 자유
         if any(is_engine_path(t) for t in clean):
             out(ENGINE_MSG)
+        track_cd(exe, cmd[1:], struct)
 
 
 SINK_OK = {'/dev/null', '/dev/stdout', '/dev/stderr', '/dev/tty'}
@@ -966,8 +1096,8 @@ SINK_OK = {'/dev/null', '/dev/stdout', '/dev/stderr', '/dev/tty'}
 
 def redirect_writes(op, tgt):
     """이 리다이렉트가 실제로 파일을 만드는가."""
-    if op == '<':
-        return False                    # 입력 리다이렉트는 아무것도 쓰지 않는다
+    if op in ('<', '<<<'):
+        return False                    # 입력·히어스트링은 아무것도 쓰지 않는다
     if op == '>&' and tgt.isdigit():
         return False                    # 2>&1 같은 fd 복제
     return tgt not in SINK_OK
@@ -1131,8 +1261,18 @@ def check_readonly_cmd(exe, cmd):
             if not a.startswith('-') and awk_writes(a):
                 out("이 awk 프로그램은 파일을 쓰거나 명령을 실행할 수 있다: %s" % a[:60])
     if exe == 'tar':
-        mm = [re.match(r'-?([a-zA-Z]+)', a) for a in args if not a.startswith('--')]
+        # `-` 로 시작하는 인자만 옵션이다. 파일 이름에서 앞 글자를 뽑으면
+        # `tar xf t.tar` 의 `t` 가 목록 플래그로 오인돼 추출이 통과했다.
+        opt_args = [a for a in args if a.startswith('-') and not a.startswith('--')]
+        # `tar tf x.tar` 처럼 대시 없는 묶음도 전통적 옵션이다. 단 tar 옵션
+        # 글자로만 이뤄진 **첫** 인자일 때만 — 파일 이름을 옵션으로 읽으면 안 된다.
+        if args and not args[0].startswith('-') and re.fullmatch(r'[a-zA-Z]+', args[0]) \
+           and set(args[0]) <= set('ctxurdAtfvzjJZphmOWSPkKUlL'):
+            opt_args.insert(0, '-' + args[0])
+        mm = [re.match(r'-([a-zA-Z]+)', a) for a in opt_args]
         letters = ''.join(m.group(1) for m in mm if m)
+        if any(a.startswith('--to-command') for a in args):
+            out("`tar --to-command` 은 임의 명령을 실행한다. 허용되지 않는다.")
         if not ('t' in letters or any(a in ('--list', '--test-label') for a in args)):
             out("`tar` 는 목록 보기(`-t`) 외에는 파일을 쓴다. 이 단계에서는 허용되지 않는다.")
     if exe == 'find' and any(a in ('-exec', '-execdir', '-delete', '-ok', '-okdir')
@@ -1149,12 +1289,18 @@ def check_push_cmd(exe, cmd, struct=()):
         out(OPAQUE_MSG % exe)
     if exe == 'env -S':
         out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.")
+    # 명령치환이 섞였는데 서브커맨드가 아는 것이 아니면, 치환이 그 자리를
+    # 차지했다는 뜻이다 (`git $(echo push) origin main`).
     if exe == 'git' and struct:
-        out("git 인자에 명령 치환(`$(…)`)이 있어 무엇을 하는지 판정할 수 없다.\n"
-            "이 단계에서는 서브커맨드를 그대로 적어야 한다.")
-    # `git $x`, `git $(echo push)` — 서브커맨드를 가리면 판정할 수 없다.
-    if exe == 'git' and any('$' in a or '`' in a for a in cmd[1:]):
-        out("git 인자에 변수·명령 치환이 있어 무엇을 하는지 판정할 수 없다.\n"
+        _sub = git_sub(cmd)
+        if _sub is None or (_sub and _sub not in KNOWN_GIT_SUBS):
+            out("git 서브커맨드 자리에 명령 치환(`$(…)`)이 있어 판정할 수 없다.\n"
+                "이 단계에서는 서브커맨드를 그대로 적어야 한다.")
+    # `git $x`, `git $(echo push)` — 서브커맨드 자리를 가리면 판정할 수 없다.
+    # 인자에 치환이 있는 것 자체는 문제가 아니다 (`git commit -m "$(cat msg)"`).
+    if exe == 'git' and not git_sub(cmd) \
+       and any('$' in a or '`' in a for a in cmd[1:]):
+        out("git 서브커맨드 자리에 변수·명령 치환이 있어 무엇을 하는지 판정할 수 없다.\n"
             "이 단계에서는 서브커맨드를 그대로 적어야 한다.")
     if exe == 'git-push':
         out("push가 차단되었다.")
@@ -1201,15 +1347,6 @@ if TOKENS is None:
 
 SEGMENTS = split_segments(TOKENS)
 check_engine_files(SEGMENTS)
-
-def reset_cwd():
-    """판정 패스를 새로 시작할 때 cd 추적을 초기화한다.
-
-    EDIT 패스 마지막 세그먼트의 `cd` 가 PUSH 패스 첫 세그먼트로 새어,
-    `touch src/a.js && cd -` 처럼 **쓰기보다 뒤에 오는 cd** 가 앞을 막았다.
-    """
-    EFFECTIVE_CWD[0] = ''
-
 
 if EDIT is True:
     # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
