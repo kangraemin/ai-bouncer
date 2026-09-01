@@ -195,7 +195,8 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
 | `bouncer cancel` | 작업 취소 |
 | `bouncer skip <step-id>` | 엔진이 포기한 조건을 이번 작업에서만 건너뛴다 (사용자가 요청할 때만) |
 | `bouncer release [--force]` | 죽은 세션이 남긴 잠금 확인 / 회수 |
-| `bouncer resume <task-id>` | 잠금이 풀린 미완 작업을 이어받는다 (`scan`의 `ORPHAN` 줄) |
+| `bouncer resume` | 이어받을 수 있는 미완 작업 목록 (인자 없으면 조회) |
+| `bouncer resume <task-id>` | 그 작업을 이어받는다 (`scan`의 `ORPHAN` 줄) |
 | `bouncer workflows` | 정의된 모드 목록 |
 | `bouncer worktree finalize` | 병렬 작업을 base로 FF 머지하고 정리 |
 | `bouncer check` | `workflow.yaml`을 고친 뒤 유효한지 검사 |
