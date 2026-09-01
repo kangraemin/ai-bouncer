@@ -62,6 +62,7 @@ OPTION   <워크플로우> <단계> <id> <이름>       시작할 때 물어볼 
 |---|---|
 | `MINE` | 이미 진행 중이다. 요청이 그 작업의 연장이면 `bouncer status`로 남은 조건을 보고 이어서 한다. Step 2~4는 건너뛴다 |
 | `OTHER`만 있음 | 다른 세션이 작업 중이다. Step 2로 가되 Step 4에서 병렬 여부를 묻는다. 그 세션이 죽은 것 같으면 `bouncer release`로 누가 잡고 있는지 보여주고 회수 여부를 **사용자에게 묻는다** |
+| `ORPHAN` 줄이 있음 | 잠금이 풀린 미완 작업이다 (세션이 죽었거나 회수됨). 요청이 그 작업의 연장인지 **사용자에게 확인하고**, 맞으면 `bouncer resume <task-id>` 로 이어받는다 |
 | `NONE` | Step 2 |
 
 **`bouncer: command not found`가 나오면** 두 가지 경우다. 먼저 구분해라:
@@ -192,6 +193,7 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
 | `bouncer cancel` | 작업 취소 |
 | `bouncer skip <step-id>` | 엔진이 포기한 조건을 이번 작업에서만 건너뛴다 (사용자가 요청할 때만) |
 | `bouncer release [--force]` | 죽은 세션이 남긴 잠금 확인 / 회수 |
+| `bouncer resume <task-id>` | 잠금이 풀린 미완 작업을 이어받는다 (`scan`의 `ORPHAN` 줄) |
 | `bouncer workflows` | 정의된 모드 목록 |
 | `bouncer worktree finalize` | 병렬 작업을 base로 FF 머지하고 정리 |
 | `bouncer check` | `workflow.yaml`을 고친 뒤 유효한지 검사 |
