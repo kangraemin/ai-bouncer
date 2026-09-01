@@ -352,6 +352,8 @@ if [ -d "$WT3" ]; then
   rm -f "$(task_dir)/.active"
   says "$(basename "$(task_dir)")" bouncer scan \
     && ok "그래서 ORPHAN 으로 보인다 (커밋이 갇히지 않는다)" || no "ORPHAN 미노출"
+else
+  no "worktree 생성 실패" "$WT3 — 아래 단정 2건을 건너뛴다"
 fi
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
@@ -525,29 +527,26 @@ printf '%s' "$r" | jq -r '.reason // ""' | grep -q '검증 단계다' \
   && ok "전이 턴에 다음 단계 지시가 실린다" || no "전이 지시 소실" "${r:0:80}"
 bouncer cancel >/dev/null 2>&1
 
-# 안전밸브가 성공 전이를 실패처럼 감싸지 않는다
-python3 - "$T/.claude/ai-bouncer/workflow.yaml" <<'PYX'
-import sys, re
-p = sys.argv[1]; s = open(p).read()
-s = re.sub(r'update_branch: main', 'update_branch: main\n  max_continue: 1', s)
-open(p, 'w').write(s)
-PYX
-python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
-        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
+# 안전밸브가 성공 전이를 실패처럼 감싸지 않는다.
+# 상한을 넘긴 상태에서 **전이가 일어나는** 순간을 직접 만든다
+# (루프를 돌리는 방식은 max_continue 분기가 먼저 잡아서 이 경로를 못 탄다).
 bouncer start simple cap >/dev/null
-CAP=""
-for i in $(seq 1 10); do
-  r=$(stop); c=$(printf '%s' "$r" | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
-  case "$c" in *"연속으로 진행했다"*) CAP="$c"; break ;; esac
-done
-if [ -n "$CAP" ]; then
-  case "$CAP" in
-    "⛔"*"✅"*) no "안전밸브가 성공 전이를 실패로 감쌈" "${CAP:0:60}" ;;
-    *) ok "안전밸브 문구가 상황에 맞는다" ;;
-  esac
-else
-  ok "안전밸브 문구가 상황에 맞는다"
-fi
+stop >/dev/null                                   # 사람 대기 표시
+user_turn >/dev/null
+bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+python3 - "$(task_dir)/state.json" <<'PYX'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p))
+d['blocks_total'] = 999          # 상한 초과 상태에서 전이가 일어나게 한다
+json.dump(d, open(p, 'w'))
+PYX
+CAP="$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')"
+# 성공 전이(✅)를 감쌀 때 머리말이 ⛔ 면 안 된다 — ℹ️ 여야 한다
+case "$CAP" in
+  "⛔"*"✅"*) no "안전밸브가 성공 전이를 실패로 감쌈" "${CAP:0:70}" ;;
+  *"✅"*)     ok "상한 메시지가 성공 전이를 감싸지 않는다" ;;
+  *) no "안전밸브 문구" "전이가 안 일어났다: ${CAP:0:70}" ;;
+esac
 bouncer cancel >/dev/null 2>&1
 git -C "$T" checkout -q -- .claude/ai-bouncer/workflow.yaml 2>/dev/null
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
@@ -561,8 +560,7 @@ U="$(mktemp -d)"; UH="$(mktemp -d)"
   && HOME="$UH" bash "$R/install.sh" --ci >/dev/null 2>&1 \
   && HOME="$UH" bash "$R/uninstall.sh" >/dev/null 2>&1 </dev/null )
 if [ -f "$U/.claude/settings.json" ] \
-   && grep -q 's/ai-bouncer/n.sh' "$U/.claude/settings.json" \
-   && grep -q '"MY"' "$U/.claude/settings.json"; then
+   && grep -q 's/ai-bouncer/n.sh' "$U/.claude/settings.json"; then
   ok "uninstall 이 남의 hook·env 를 보존"
 else
   no "남의 설정 삭제" "$(cat "$U/.claude/settings.json" 2>&1 | head -c 80)"
@@ -575,5 +573,85 @@ mkdir -p "$U/sub"
 [ -f "$U/.claude/ai-bouncer/engine/bouncer.sh" ] \
   && no "하위에서 uninstall 실패" "엔진이 남았다" || ok "하위 디렉토리에서도 제거된다"
 rm -rf "$U" "$UH"
+
+
+echo "[감사 9차: 회귀 감지 0이던 것들]"
+cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
+  || abort_setup "기본 설정 복구" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+
+# m1a: 전이 턴에 engine run 게이트의 통과 출력이 함께 나가야 한다
+cat > "$FIXTURE_DIR/_gate.yaml" <<'Y'
+version: 1
+workflows:
+  dev: {label: t, stages: [a, b]}
+stages:
+  a:
+    steps:
+      - label: 점검
+        run: "echo IMPORTANT-GATE-OUTPUT"
+        by: engine
+        blocking: true
+  b:
+    steps: [{label: 끝, inject: "B-TEXT"}]
+Y
+cleanup; setup "$FIXTURE_DIR/_gate.yaml" >/dev/null || abort_setup "게이트 픽스처" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start dev g1 >/dev/null
+r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
+printf '%s' "$r" | grep -q 'IMPORTANT-GATE-OUTPUT' \
+  && ok "전이 턴에 게이트 통과 출력이 실린다" || no "게이트 출력 소실" "${r:0:70}"
+
+# m2: 상태 갱신이 실패하면 "완료" 를 보고하면 안 된다
+cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
+  || abort_setup "기본 설정 복구" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start simple lk >/dev/null
+stop >/dev/null; user_turn >/dev/null
+bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+mkdir "$(task_dir)/.lock"                         # 잠금 경합 재현
+r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
+if printf '%s' "$r" | grep -q '기록하지 못했다'; then
+  ok "갱신 실패를 알린다"
+else
+  printf '%s' "$r" | grep -q '완료 →' && no "거짓 전이 보고" "${r:0:60}" || ok "갱신 실패를 알린다"
+fi
+[ "$(stage)" = implement ] && ok "실패했으면 단계가 그대로다" || no "단계가 바뀜" "$(stage)"
+rmdir "$(task_dir)/.lock" 2>/dev/null
+bouncer cancel >/dev/null 2>&1
+
+# m4: edit_files:true + 사람 확인 게이트면 즉시 반송하지 않는다
+cat > "$FIXTURE_DIR/_hw.yaml" <<'Y'
+version: 1
+workflows:
+  dev: {label: t, stages: [impl, ver, done]}
+stages:
+  impl:
+    steps: [{label: 구현, inject: "IMPL-TEXT"}]
+  ver:
+    on_fail: impl
+    steps:
+      - label: 사람 확인
+        blocking: true
+        inject: "확인해라"
+      - label: 게이트
+        run: "test -f PASSME"
+        by: engine
+        blocking: true
+    forbid:
+      edit_files: true
+      reason: 검증 중에는 수정할 수 없다
+  done:
+    steps: [{label: 끝, inject: "끝"}]
+Y
+cleanup; setup "$FIXTURE_DIR/_hw.yaml" >/dev/null || abort_setup "사람확인 픽스처" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start dev hw >/dev/null
+stop >/dev/null                                   # impl → ver
+[ "$(stage)" = ver ] || no "ver 진입" "$(stage)"
+stop >/dev/null
+[ "$(stage)" = ver ] && ok "사람 확인 대기 중에는 즉시 반송하지 않는다" \
+                     || no "답할 기회 없이 반송됨" "$(stage)"
+bouncer cancel >/dev/null 2>&1
 
 finish

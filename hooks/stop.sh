@@ -297,7 +297,7 @@ if [ -z "$FAILURES" ]; then
       if [ "$NS" -ge "$MAX_CONTINUE" ] 2>/dev/null; then
         bouncer_state_update "$TASK" \
           '.allowed_stop = true | .continue_streak = 0 | .returned_to = null | .returned_tree = null'
-        jq -n --arg c "⛔ [$STAGE] 되돌아온 뒤 ${NS}번 동안 작업 트리가 그대로다.
+        jq -n --arg c "${INJECT:+$INJECT$'\n\n'}⛔ [$STAGE] 되돌아온 뒤 ${NS}번 동안 작업 트리가 그대로다.
 고칠 수 없거나 고칠 것이 없는 상태로 보인다. 사용자에게 넘긴다.
 
 직전 실패:
@@ -315,7 +315,7 @@ $(skip_hint)
 
 이대로 다시 검증에 보내면 같은 결과가 나온다. 무엇이 틀렸는지 다시 보고 실제로 고쳐라.
 직전 실패:
-$(bouncer_state "$TASK" '.last_failure')"
+$(bouncer_state "$TASK" '.last_failure')${INJECT:+$'\n\n'}$INJECT"
     fi
     # returned_from 도 같이 지운다. 안 지우면 반송 판정이 계속 켜져 있다.
     bouncer_state_update "$TASK" '.returned_to = null | .returned_tree = null | .returned_from = null'
@@ -351,8 +351,12 @@ $(bouncer_state "$TASK" '.last_failure')"
 worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다."
     fi
     # 종단 도달 — lock 해제. 작업 문서는 남긴다.
-    bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" \
-      '.finished_at = $t | .allowed_stop = false'
+    # 실패하면 .active 만 지워져 끝난 작업이 영구히 미완(ORPHAN)으로 뜬다
+    if ! bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" \
+      '.finished_at = $t | .allowed_stop = false'; then
+      guarded_block "⛔ [ai-bouncer] 완료를 기록하지 못했다 (상태 파일 잠금 경합).
+잠시 뒤 다시 시도하면 된다."
+    fi
     rm -f "$TASK/.active"
     [ -n "$INJECT" ] && jq -n --arg c "$INJECT" \
       '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
@@ -387,7 +391,7 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
      | .returned_from = null
      | .history += [{stage:$n, at:$t}]'; then
     guarded_block "⛔ [ai-bouncer] 단계 전이를 기록하지 못했다 (상태 파일 잠금 경합).
-잠시 뒤 다시 시도하면 된다. 계속 반복되면 `bouncer status` 로 확인하라."
+잠시 뒤 다시 시도하면 된다. 계속 반복되면 \`bouncer status\` 로 확인하라."
   fi
   # 이 턴에 쌓인 지시·게이트 출력을 함께 내보낸다. 버리면 `.shown` 은 이미
   # true 라 반송 뒤 재전달이 영영 안 되고, run 게이트 출력도 늘 사라진다.
@@ -438,7 +442,7 @@ $FAILURES" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
       # 이미 상한이면 카운터를 더 올리지 않는다 — 숫자가 실제 왕복 횟수와 어긋난다.
       bouncer_state_update "$TASK" \
         '.allowed_stop = true | .continue_streak = 0 | .reentry_count = 0'
-      jq -n --arg c "⛔ [$STAGE] ↔ [$ON_FAIL] 사이를 ${LOOPS}번 왕복했다.
+      jq -n --arg c "${INJECT:+$INJECT$'\n\n'}⛔ [$STAGE] ↔ [$ON_FAIL] 사이를 ${LOOPS}번 왕복했다.
 같은 자리를 돌고 있으므로 더 밀지 않고 사용자에게 넘긴다.
 
 미충족 조건:
@@ -470,7 +474,9 @@ $(skip_hint)
     # 되돌려 보낸 시점의 작업 트리를 기억해둔다. 아무것도 안 바뀌었는데
     # 다시 전진시키면 같은 검사를 같은 코드에 돌리는 헛바퀴가 된다.
     TREE="$(bouncer_tree_hash "$WORK_ROOT")"
-    bouncer_state_update "$TASK" --arg back "$ON_FAIL" --argjson ids "$IDS" \
+    # 전진 전이와 같은 이유로 rc 를 봐야 한다. 갱신이 실패하면 단계는
+    # 그대로인데 "되돌아간다" 를 보고하고, loops·evidence 초기화도 유실된다.
+    if ! bouncer_state_update "$TASK" --arg back "$ON_FAIL" --argjson ids "$IDS" \
       --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" --argjson n "$LOOPS" --arg tree "$TREE" --arg pair "$PAIR" '
         .current_stage = $back
         | .returned_tree = $tree
@@ -482,7 +488,10 @@ $(skip_hint)
         | .stage_attempts[$s] = 0
         | .continue_streak = 0
         | .allowed_stop = false
-        | .history += [{stage:$back, at:$t, returned_from:$s}]'
+        | .history += [{stage:$back, at:$t, returned_from:$s}]'; then
+      guarded_block "⛔ [ai-bouncer] 반송을 기록하지 못했다 (상태 파일 잠금 경합).
+잠시 뒤 다시 시도하면 된다."
+    fi
     guarded_block "↩️ [$STAGE] 조건을 충족하지 못해 [$ON_FAIL] 단계로 되돌아간다. (${LOOPS}/${MAX_LOOPS}회)
 
 미충족 조건:
@@ -516,7 +525,7 @@ else
 fi
 if [ "$REENTRY_N" -gt $(( MAX_CONTINUE * 2 )) ] 2>/dev/null; then
   bouncer_state_update "$TASK" '.allowed_stop = true | .continue_streak = 0 | .reentry_count = 0'
-  jq -n --arg c "⛔ [$STAGE] Stop hook 재진입이 비정상적으로 반복됐다 (${REENTRY_N}회).
+  jq -n --arg c "${INJECT:+$INJECT$'\n\n'}⛔ [$STAGE] Stop hook 재진입이 비정상적으로 반복됐다 (${REENTRY_N}회).
 워크플로우를 더 밀지 않고 세션을 사용자에게 돌려준다.
 
 미충족 조건:
@@ -526,7 +535,7 @@ fi
 
 if [ "$STREAK" -ge "$MAX_CONTINUE" ] 2>/dev/null; then
   bouncer_state_update "$TASK" '.allowed_stop = true | .continue_streak = 0'
-  jq -n --arg c "⛔ ${MAX_CONTINUE}회 연속 진행했지만 [$STAGE] 단계를 벗어나지 못했다.
+  jq -n --arg c "${INJECT:+$INJECT$'\n\n'}⛔ ${MAX_CONTINUE}회 연속 진행했지만 [$STAGE] 단계를 벗어나지 못했다.
 
 미충족 조건:
 $FAILURES

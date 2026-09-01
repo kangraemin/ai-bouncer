@@ -336,7 +336,10 @@ ENGINE_DIRS = (('.ai-bouncer',), ('.claude', 'ai-bouncer'))
 # 병렬 작업용 worktree는 ~/.ai-bouncer/worktrees/ 에 산다. 거기 있는 소스 파일은
 # 엔진 상태가 아니라 **작업 대상**이라 막으면 안 된다.
 ENGINE_EXEMPT = (('.ai-bouncer', 'worktrees'),)
+# settings.json 은 hook 등록을 담는다. 여기서 6개 등록을 지우면 그 뒤로
+# 게이트가 통째로 사라진다 — 엔진 파일과 같은 급으로 보호한다.
 ENGINE_FILES = ('workflow.compiled.json',)
+ENGINE_SETTINGS = ('.claude', 'settings.json')
 # 이 디렉토리 자체를 지우면 그 아래 엔진이 통째로 사라진다
 ENGINE_PARENTS = ('.claude',)
 ENGINE_MARKERS = ('.ai-bouncer', 'ai-bouncer/', 'workflow.compiled.json')
@@ -1162,6 +1165,8 @@ def is_engine_path(tok):
         return False
     p = norm(tok).replace('\\', '/')
     parts = p.split('/')
+    if len(parts) >= 2 and tuple(parts[-2:]) == ENGINE_SETTINGS:
+        return True
     # `.claude` 를 통째로 지우면 엔진·설정이 전부 사라진다. 부모 디렉토리 자체를 막는다.
     if parts and parts[-1] in ENGINE_PARENTS and not p.startswith('/'):
         return True
