@@ -51,6 +51,9 @@ echo `rm -f a.js`
 CASES
 
 group "리다이렉트 (fd 접두·noclobber 포함)" must_block <<'CASES'
+echo x >& a.js
+echo x 1>& a.js
+echo x <> a.js
 > a.js
 echo x 1> a.js
 echo x 2> a.js
@@ -106,7 +109,54 @@ make install
 npx tsx x.ts
 CASES
 
+group "허용 명령의 숨은 쓰기 모드" must_block <<'CASES'
+sed -n '1w pwn.txt' a.js
+sed -n '$w pwn.txt' a.js
+sed -n '1,$w pwn.txt' a.js
+sed -n '1W pwn.txt' a.js
+sed --in-place s/a/b/ a.js
+uniq a.js pwn.txt
+xxd a.js pwn.txt
+sort -o pwn.txt a.js
+sort --output=pwn.txt a.js
+base64 -i a.js -o pwn.txt
+find . -name '*.js' -fprint pwn.txt
+git diff --output=pwn.txt HEAD
+CASES
+
+group "awk 프로그램 안의 쓰기·실행" must_block <<'CASES'
+awk 'BEGIN{system("rm -f a.js")}'
+awk '{print $1 > "pwn.txt"}' a.js
+awk 'BEGIN{f="pwn.txt"; print "x" > f}'
+awk 'BEGIN{h=".git/hooks/pre-commit"; print "#!/bin/sh" > h}'
+awk '{print $1 >> "pwn.txt"}' a.js
+awk '{print | "sh"}' a.js
+awk -f prog.awk a.js
+CASES
+
+group "환경변수로 실행 대상 바꾸기" must_block <<'CASES'
+GIT_EXTERNAL_DIFF=touch git diff
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.zz GIT_CONFIG_VALUE_0=push git zz
+LD_PRELOAD=/tmp/x.so cat a.js
+PATH=/tmp cat a.js
+CASES
+
+group "허용 명령을 앞에 붙여 면제받기" must_block <<'CASES'
+bouncer status && echo H >& .claude/ai-bouncer/state.json
+bouncer status && rm -f a.js
+CASES
+
 group "git 쓰기 서브커맨드·별칭" must_block <<'CASES'
+git symbolic-ref HEAD refs/heads/evil
+git branch pwnb
+git branch -d main
+git branch --set-upstream-to=origin/x
+git tag pwnt
+git tag -d v1
+git config user.name evil
+git remote add o url
+git stash
+git reflog delete HEAD@{0}
 git checkout HEAD -- a.js
 git restore a.js
 git reset --hard HEAD~1
@@ -134,6 +184,13 @@ exec rm -f a.js
 CASES
 
 group "push 위장" must_block <<'CASES'
+env git push
+command git push
+nohup git push
+git send-pack /tmp/r main
+git svn dcommit
+echo main | xargs git push origin
+GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.zz GIT_CONFIG_VALUE_0=push git zz
 git push
 "git" push
 git -C . push
@@ -144,6 +201,8 @@ git-push origin main
 CASES
 
 group "경로 정규화 우회" must_block <<'CASES'
+echo HACKED > .claude//ai-bouncer/state.json
+echo HACKED > .claude/./ai-bouncer/state.json
 rm docs/../a.js
 rm ./docs/../a.js
 rm docs/x/../../a.js
@@ -197,6 +256,40 @@ echo "a -> b"
 diff a.js b.js
 file a.js
 stat a.js
+wc -l < a.js
+grep -c x < a.js
+git log 2>&1 | head -5
+cd docs && ls
+cd docs && grep -rn x .
+git branch -a
+git branch --show-current
+git branch
+git tag -l
+git for-each-ref --format='%(refname)'
+git show-branch
+git remote
+git config user.name
+git symbolic-ref HEAD
+git reflog
+printenv PATH
+ps aux | grep x
+[ -f a.js ]
+command -v git
+env
+sw_vers
+find . -name '*.js' | xargs grep -l x
+ls | xargs wc -l
+awk '{print $1}' a.js
+awk -F, '{print $2}' a.js
+awk 'NF > 3' a.js
+awk '$1 > 5 {print}' a.js
+sed -n '/^w /p' a.js
+sed 's/word/x/' a.js
+grep -o 'TODO.*' a.js
+grep -w foo a.js
+base64 -i a.js
+xxd -l 32 a.js
+uniq a.js
 CASES
 
 printf '\n[구현 단계 — push만 금지]\n'
