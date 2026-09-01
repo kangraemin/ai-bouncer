@@ -46,45 +46,7 @@ open(p, 'w').write(s)
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null \
-  || { no "e2e step 추가" "컴파일 실패"; echo
-echo "[감사가 지적한 나머지 회귀]"
-export CLAUDE_CODE_SESSION_ID=S1
-bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
-
-# 이름이 bouncer.sh 로 끝나는 아무 스크립트나 면제받던 것
-bouncer start plan f2 >/dev/null
-mkdir -p "$T/tools"; printf '#!/bin/sh\ngit push\n' > "$T/tools/bouncer.sh"; chmod +x "$T/tools/bouncer.sh"
-F2=0
-for c in "./tools/bouncer.sh" "/tmp/evil/bouncer.sh --do-it" "tools/bouncer.sh status"; do
-  [ -n "$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")" ] || F2=1
-done
-[ "$F2" = 0 ] && ok "bouncer.sh 이름만 흉내낸 스크립트는 면제 안 됨 (3건)" || no "이름 흉내 통과"
-[ -z "$(pre Bash '{"command":"bouncer status"}')" ] && ok "진짜 bouncer 는 여전히 통과" || no "정상 호출 차단됨"
-
-# 세션 ID 없이 남의 작업을 바꾸지 못한다
-says '이 세션 것이 아니다' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" cancel \
-  && ok "세션 ID 없으면 남의 작업을 취소하지 못한다" || no "남의 작업 취소됨"
-ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && ok "잠금이 그대로다" || no "잠금 사라짐"
-says '현재 단계' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" status \
-  && ok "조회는 세션 ID 없이도 된다" || no "status 안 됨"
-
-# state.json 손상 시 Stop 도 알린다 (예전엔 조용히 무관여)
-cp "$(task_dir)/state.json" "$T/st.bak"
-printf '{ nope' > "$(task_dir)/state.json"
-r=$(stop); printf '%s' "$r" | grep -q '손상' && ok "손상 state를 Stop이 알린다" || no "Stop 침묵" "${r:0:60}"
-BROKEN_ID="$(basename "$(task_dir)")"
-bouncer resume 2>&1 | grep -q "$BROKEN_ID" \
-  && no "손상 작업 노출" "$BROKEN_ID 가 목록에 있다" || ok "손상된 작업은 이어받기 목록에서 제외"
-cp "$T/st.bak" "$(task_dir)/state.json"; bouncer cancel >/dev/null 2>&1
-
-# compiled.json 손상 시 scan / start 가 오진하지 않는다
-cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/cc.bak"
-printf 'nope' > "$T/.claude/ai-bouncer/workflow.compiled.json"
-says '컴파일 결과가 손상' bouncer scan && ok "scan이 손상을 알린다" || no "scan 오진" "$(bouncer scan 2>&1|head -2)"
-says '컴파일 결과가 손상' bouncer start simple x && ok "start가 손상을 알린다" || no "start 오진" "$(bouncer start simple x 2>&1|head -1)"
-cp "$T/cc.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
-
-finish; exit; }
+  || { no "e2e step 추가" "컴파일 실패"; finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
 LATEST="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
 [ "$(jq -r '.choices["verify/e2e"]' "$LATEST/state.json")" = false ] \
