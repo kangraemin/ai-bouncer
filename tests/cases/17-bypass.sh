@@ -41,6 +41,22 @@ git push origin main"; do
 done
 [ "$NL_BAD" = 0 ] && ok "개행으로 명령 잇기 (4건)" || no "개행으로 명령 잇기" "위 항목 통과됨"
 
+# `<<` 는 히어독만이 아니다. 산술 좌시프트·히어스트링을 히어독으로 오인하면
+# 종료어를 못 찾아 **명령 끝까지** 본문으로 삼키고, 뒤 줄이 검사에서 사라진다.
+SH_BAD=0
+for c in "echo \$((1<<2))
+rm -f a.js" "echo \$[1<<4]
+rm -f a.js" "echo \$(( 1<<2 ))
+rm -f a.js" "v=\$((1<<2))
+rm -f a.js" "let y=1<<3
+rm -f a.js" "grep x <<<word
+rm -f a.js" "cat <<'EOF'
+종료어 없음"; do
+  [ -n "$(B "$c")" ] || { SH_BAD=1; printf '     ↳ %s\n' "$(printf '%s' "$c" | tr '\n' '⏎')"; }
+done
+[ "$SH_BAD" = 0 ] && ok "시프트·히어스트링으로 뒤 줄 숨기기 (7건)" \
+                  || no "시프트·히어스트링으로 뒤 줄 숨기기" "위 항목 통과됨"
+
 
 group "인자가 곧 코드인 것" must_block <<'CASES'
 eval "rm -f a.js"
@@ -387,6 +403,9 @@ grep -w foo a.js
 base64 -i a.js
 xxd -l 32 a.js
 uniq a.js
+echo $((1+2))
+echo $[1+2]
+echo $((1<<2))
 sed -e's/main/x/' a.js
 env ls -S
 tar -tf x.tar
