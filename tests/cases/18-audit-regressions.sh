@@ -74,6 +74,34 @@ r=$(stop S3)
 printf '%s' "$r" | grep -q '작업 트리가 사라졌다' && ok "worktree 소실을 알린다" || no "소실 감지" "${r:0:100}"
 bouncer cancel >/dev/null 2>&1
 
+echo
+echo "[손상된 state.json]"
+bouncer start simple broken >/dev/null 2>&1
+BT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
+cp "$BT/state.json" "$BT/state.bak"
+echo '{ broken' > "$BT/state.json"
+if bouncer status >/dev/null 2>&1; then no "손상 state 보고" "rc=0으로 조용히 성공"; else ok "손상 state는 실패로 알린다"; fi
+says '손상' bouncer status && ok "무엇이 문제인지 말한다" || no "손상 안내 없음"
+mv "$BT/state.bak" "$BT/state.json"; bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[종단 스테이지에 통과 조건]"
+cat > "$T/term.yaml" <<'Y'
+version: 1
+workflows:
+  s: {label: t, stages: [implement, done]}
+stages:
+  implement:
+    steps: [{label: 구현, inject: "x"}]
+  done:
+    steps: [{label: 완료, inject: "끝", blocking: true}]
+Y
+if python3 "$R/engine/compile.py" "$T/term.yaml" >/dev/null 2>&1; then
+  no "종단 blocking 거부" "통과됨 — 작업이 영원히 안 끝난다"
+else
+  ok "종단 스테이지의 통과 조건을 거부"
+fi
+
 finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
 LATEST="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
@@ -146,5 +174,33 @@ rm -rf "$WT"
 r=$(stop S3)
 printf '%s' "$r" | grep -q '작업 트리가 사라졌다' && ok "worktree 소실을 알린다" || no "소실 감지" "${r:0:100}"
 bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[손상된 state.json]"
+bouncer start simple broken >/dev/null 2>&1
+BT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
+cp "$BT/state.json" "$BT/state.bak"
+echo '{ broken' > "$BT/state.json"
+if bouncer status >/dev/null 2>&1; then no "손상 state 보고" "rc=0으로 조용히 성공"; else ok "손상 state는 실패로 알린다"; fi
+says '손상' bouncer status && ok "무엇이 문제인지 말한다" || no "손상 안내 없음"
+mv "$BT/state.bak" "$BT/state.json"; bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[종단 스테이지에 통과 조건]"
+cat > "$T/term.yaml" <<'Y'
+version: 1
+workflows:
+  s: {label: t, stages: [implement, done]}
+stages:
+  implement:
+    steps: [{label: 구현, inject: "x"}]
+  done:
+    steps: [{label: 완료, inject: "끝", blocking: true}]
+Y
+if python3 "$R/engine/compile.py" "$T/term.yaml" >/dev/null 2>&1; then
+  no "종단 blocking 거부" "통과됨 — 작업이 영원히 안 끝난다"
+else
+  ok "종단 스테이지의 통과 조건을 거부"
+fi
 
 finish

@@ -85,6 +85,14 @@ s = re.sub(r'(?m)^\.ai-bouncer/$\n?', '', s)
 open(p, 'w').write(s)
 PYG
   printf '  .gitignore에서 .ai-bouncer/ 제거\n'
+  # 무시 규칙을 지우면 남아 있는 런타임 디렉토리가 미추적으로 드러나
+  # 제거 직후 워킹트리가 더러워진다. 진행 중 작업이 없으면 같이 치운다.
+  if [ -d "$PWD/.ai-bouncer" ] && [ -z "$(ls -A "$PWD/.ai-bouncer" 2>/dev/null)" ]; then
+    rmdir "$PWD/.ai-bouncer" 2>/dev/null
+  elif [ -d "$PWD/.ai-bouncer" ]; then
+    printf '  ⚠️ %s/.ai-bouncer 가 남아 있다 (진행 중 작업 기록).\n' "$PWD"
+    printf '     git이 이제 이걸 미추적으로 본다 — 지우려면: rm -rf .ai-bouncer\n'
+  fi
 fi
 
 # ── 2. manifest 기반 파일 제거 ───────────────────────────────
@@ -139,6 +147,18 @@ for f in "$PWD/CLAUDE.md" "$PWD/.gitignore"; do
 done
 [ -f "$SETTINGS" ] && [ "$(jq -c . "$SETTINGS" 2>/dev/null)" = "{}" ] && rm -f "$SETTINGS"
 rmdir "$ROOT/skills" "$ROOT" 2>/dev/null
+
+# 이 레포용 worktree 디렉토리 잔재 정리. 살아 있는 worktree는 건드리지 않는다.
+WT_DIR="$HOME/.ai-bouncer/worktrees/$(basename "$PWD")"
+if [ -d "$WT_DIR" ]; then
+  if rmdir "$WT_DIR" 2>/dev/null; then
+    printf '  빈 worktree 디렉토리 제거\n'
+    rmdir "$HOME/.ai-bouncer/worktrees" "$HOME/.ai-bouncer" 2>/dev/null
+  else
+    printf '  ⚠️ 아직 남아 있는 병렬 작업 worktree: %s\n' "$WT_DIR"
+    printf '     정리하려면: git worktree list 로 확인 후 git worktree remove\n'
+  fi
+fi
 
 # 다른 프로젝트가 아직 쓰고 있으면 심볼릭 링크를 살려둔다. 아니면 끊어진 링크가 남는다.
 BINLINK="$HOME/.local/bin/bouncer"

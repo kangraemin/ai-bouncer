@@ -235,6 +235,12 @@ $(jq -r 'keys[] | "  " + .' <<<"$choices")"
 # ── 상태 ─────────────────────────────────────────────────────
 cmd_status() {
   need_task
+  # 빈 필드를 늘어놓고 rc=0으로 끝내면 사용자는 정상인 줄 안다.
+  jq -e . "$TASK/state.json" >/dev/null 2>&1 \
+    || die "state.json이 손상됐다: $TASK/state.json
+hook은 이 상태에서 작업을 진행시키지 않는다.
+  · 작업을 포기한다: bouncer cancel
+  · 잠금만 푼다:     bouncer release --force"
   local wf; wf="$(bouncer_state "$TASK" '.workflow')"
   printf '작업:      %s\n워크플로우: %s\n체인:      %s\n현재 단계:  %s\n작업 위치:  %s\n' \
     "$(bouncer_state "$TASK" '.task_id')" "$wf" \
