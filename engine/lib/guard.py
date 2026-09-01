@@ -389,6 +389,25 @@ def tokenize(cmd):
     return lex(cmd)
 
 
+# 명령 안에서 `cd` 로 옮겨간 위치. 세그먼트를 순서대로 보며 갱신한다.
+EFFECTIVE_CWD = ['']
+
+
+def cwd_now():
+    return EFFECTIVE_CWD[0] or CWD or PROJECT
+
+
+def track_cd(exe, args):
+    """`cd <dir>` 세그먼트면 이후 상대경로의 기준을 옮긴다."""
+    if exe not in ('cd', 'pushd'):
+        return
+    tgt = next((a for a in args if not a.startswith('-')), None)
+    if tgt is None:
+        EFFECTIVE_CWD[0] = os.path.expanduser('~')
+        return
+    EFFECTIVE_CWD[0] = abspath(tgt)
+
+
 def abspath(p):
     """토큰을 절대경로로 편다. 상대경로는 **세션 cwd** 기준이다.
 
@@ -400,7 +419,7 @@ def abspath(p):
     p = p.strip('"\'')
     if not p:
         return ''
-    base = p if os.path.isabs(p) else os.path.join(CWD or PROJECT, p)
+    base = p if os.path.isabs(p) else os.path.join(cwd_now(), p)
     # 대상 자체는 없을 수 있으므로(새로 만드는 파일) 상위만 링크를 푼다.
     head, tail = os.path.split(os.path.normpath(base))
     return os.path.normpath(os.path.join(_real(head) or head, tail)) if tail else _real(base)
@@ -779,8 +798,7 @@ def check_outside(seg_tokens, redirs, exe, args):
     bad = [t for op, t in redirs if redirect_writes(op, t) and outside_worktree(t)]
     if exe in WRITERS:
         bad += [a for a in write_targets(exe, args) if outside_worktree(a)]
-    if exe in ('cd', 'pushd'):
-        bad += [a for a in args if not a.startswith('-') and outside_worktree(a)]
+
     if bad:
         out("이 작업은 별도 worktree에서 진행 중이다:\n    %s\n"
             "그 밖을 건드리려 한다: %s\n\n"
@@ -964,6 +982,7 @@ if EDIT is True:
         check_outside(clean, redirs, exe, cmd[1:])
         if exe:
             check_readonly_cmd(exe, cmd)
+        track_cd(exe, cmd[1:])
 
 elif EDIT is not None:
     # ── 경로 스코프 스테이지 (`edit_files: [글로브…]`) ─────────
@@ -1013,6 +1032,7 @@ elif EDIT is not None:
             for a in targets:
                 if path_forbidden(a):
                     out("`%s` 로 %s 를 고칠 수 없다." % (exe, a))
+        track_cd(exe, args)
 
 if PUSH:
     # ── push 금지 (스코프 모드와 함께 걸릴 수 있으므로 독립적으로 본다) ──
@@ -1024,6 +1044,7 @@ if PUSH:
         check_env(env, False)
         check_outside(clean, redirs, exe, cmd[1:])
         check_push_cmd(exe, cmd, struct)
+        track_cd(exe, cmd[1:])
 
 if EDIT is None and not PUSH and WORKTREE:
     for seg in SEGMENTS:
@@ -1032,6 +1053,7 @@ if EDIT is None and not PUSH and WORKTREE:
             continue
         exe, cmd, _ = resolve_exe(clean)
         check_outside(clean, redirs, exe, cmd[1:])
+        track_cd(exe, cmd[1:])
 
 for pat in PATTERNS:
     try:

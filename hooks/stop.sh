@@ -119,6 +119,10 @@ if [ ! -d "$WORK_ROOT" ]; then
     (prune 없이 add만 하면 '이미 등록된 worktree' 라며 실패한다)"
 fi
 add_failure() { FAILURES="${FAILURES}${FAILURES:+$'\n'}- $1"; }
+# 막고 있는 step 의 id 를 모아둔다. "건너뛴다"를 제안하면서 id 를 안 주면
+# 모델이 compiled.json 을 직접 읽지 않는 한 그 제안을 실행할 수 없다.
+BLOCKING_IDS=""
+add_blocking_id() { BLOCKING_IDS="${BLOCKING_IDS}${BLOCKING_IDS:+ }$1"; }
 
 while IFS= read -r step; do
   [ -z "$step" ] && continue
@@ -161,15 +165,15 @@ while IFS= read -r step; do
 
     case "$BLOCKING" in
       plan_approved)
-        add_failure "계획이 아직 승인되지 않았다 — ExitPlanMode 승인 필요 ($LABEL)"
+        add_failure "계획이 아직 승인되지 않았다 — ExitPlanMode 승인 필요 ($LABEL)"; add_blocking_id "$ID"
         HUMAN_WAIT=1 ;;
       skill:*)
-        add_failure "'${BLOCKING#skill:}' 스킬을 아직 실행하지 않았다 ($LABEL)" ;;
+        add_failure "'${BLOCKING#skill:}' 스킬을 아직 실행하지 않았다 ($LABEL)"; add_blocking_id "$ID" ;;
       *)
         if [ "$DONE" != "true" ]; then
           add_inject "→ 위를 마쳤으면 실행: bouncer done '$ID'   ($LABEL)"
         fi
-        add_failure "사용자 확인 대기 중 ($LABEL)"
+        add_failure "사용자 확인 대기 중 ($LABEL)"; add_blocking_id "$ID"
         HUMAN_WAIT=1 ;;
     esac
     continue
@@ -197,7 +201,7 @@ while IFS= read -r step; do
       bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = true'
       [ -n "$TAIL" ] && add_inject "[$LABEL] 통과 (exit 0)"$'\n'"$TAIL"
     elif [ -n "$BLOCKING" ]; then
-      add_failure "$LABEL — \`$CMD\` 실패 (exit $RC)"
+      add_failure "$LABEL — \`$CMD\` 실패 (exit $RC)"; add_blocking_id "$ID"
       add_inject "[$LABEL] 실패 (exit $RC)"$'\n'"$TAIL"
     fi
   else
@@ -208,7 +212,7 @@ while IFS= read -r step; do
       add_inject "$LABEL — 아래를 실행해라 (명령은 엔진이 갖고 있다):"$'\n'"    bouncer run '$ID'"
       bouncer_state_update "$TASK" --arg k "$ID" '.shown[$k] = true'
     fi
-    [ -n "$BLOCKING" ] && add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"
+    [ -n "$BLOCKING" ] && add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"; add_blocking_id "$ID"
   fi
 done < <(jq -c '.steps[]?' <<<"$STAGE_JSON")
 
@@ -238,7 +242,8 @@ $(bouncer_state "$TASK" '.last_failure')
 
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
-  2. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
+  2. 이 조건을 이번 작업에서만 건너뛴다:
+$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
         mark_gave_up
         exit 0
@@ -249,7 +254,9 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
 직전 실패:
 $(bouncer_state "$TASK" '.last_failure')"
     fi
-    bouncer_state_update "$TASK" '.returned_to = null | .returned_tree = null'
+    # returned_from 도 같이 지운다. 안 지우면 통과한 게이트의 스테이지가
+    # 계속 gave_up 으로 표시돼 영구히 skip 가능해진다.
+    bouncer_state_update "$TASK" '.returned_to = null | .returned_tree = null | .returned_from = null'
   fi
 
   # ── 전이 ──
@@ -306,12 +313,14 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
        | select((.optional | not)
                 or (if ($st[0].choices | has($sid)) then $st[0].choices[$sid] else true end)) | $sid')
   fi
-  bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
+  bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" --arg s "$STAGE" \
     '.current_stage = $n
      | .continue_streak = 0
      | .reentry_count = 0
      | .allowed_stop = false
      | .user_turns_at_wait = null
+     | .returned_from = null
+     | .gave_up = ((.gave_up // {}) | del(.[$s]))
      | .history += [{stage:$n, at:$t}]'
   guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
@@ -361,7 +370,8 @@ $FAILURES
 
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
-  2. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
+  2. 이 조건을 이번 작업에서만 건너뛴다:
+$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
       mark_gave_up
       exit 0
@@ -448,7 +458,8 @@ $FAILURES
 AskUserQuestion으로 사용자에게 물어라:
   1. 계속 시도한다
   2. 접근을 바꾼다 (필요하면 이전 단계로 되돌린다)
-  3. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
+  3. 이 조건을 이번 작업에서만 건너뛴다:
+$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
   4. 작업을 중단한다" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
   mark_gave_up
   exit 0

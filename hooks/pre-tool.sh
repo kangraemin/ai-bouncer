@@ -17,6 +17,18 @@ TOOL="$(jq -r '.tool_name // empty'     <<<"$INPUT")"
 [ -n "$CWD" ] || CWD="$PWD"
 [ -n "$SESSION" ] && [ -n "$TOOL" ] || exit 0
 
+# 아래 차단들은 전부 "bouncer cancel / check 로 정리하라"를 안내한다.
+# 그 명령까지 막으면 모델이 빠져나갈 길이 없다 — 엔진 명령은 먼저 통과시킨다.
+# 단 **연산자가 하나도 없는 순수 호출**만. 접두로 인정하면
+# `bouncer status && rm -rf x` 가 통째로 빠져나간다 (감사에서 실제로 뚫렸다).
+if [ "$TOOL" = "Bash" ]; then
+  _C="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
+  if printf '%s' "$_C" \
+     | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
+    exit 0
+  fi
+fi
+
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
 
 # 여기까지 왔다는 건 이 세션에 활성 작업이 있다는 뜻이다.
@@ -137,12 +149,12 @@ worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
 이 단계에는 제약이 걸려 있는데 무엇이 허용되는지 판정할 수 없다.
 설치가 손상됐을 수 있다 — 다시 설치하라."
     fi
-    REASON="$(printf '%s' "$CMD" | python3 "$GUARD" \
+    VERDICT="$(printf '%s' "$CMD" | python3 "$GUARD" \
       "$(jq -c '.edit_files // null' <<<"$FORBID")" \
       "$(jq -r '.push' <<<"$FORBID")" \
       "$(jq -c '.bash // []' <<<"$FORBID")" \
       "$ROOT" "$WT" "$CWD" 2>/dev/null)" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
-    [ -n "$REASON" ] && deny "$REASON"
+    [ -n "$VERDICT" ] && deny "$VERDICT"
     exit 0 ;;
 esac
 exit 0

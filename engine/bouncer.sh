@@ -28,8 +28,21 @@ command -v jq >/dev/null 2>&1 || die "jq가 필요하다. brew install jq"
 COMPILED="$(bouncer_compiled_file "$PROJECT")"
 
 need_task() {
-  TASK="$(bouncer_my_task "$PROJECT" "$SESSION")" \
-    || die "이 세션의 활성 작업이 없다. 'bouncer start <workflow> <slug>'로 시작하라."
+  TASK="$(bouncer_my_task "$PROJECT" "$SESSION")" || TASK=""
+  # 사람이 자기 터미널에서 칠 때는 세션 ID가 없다. 진행 중 작업이 하나뿐이면
+  # 그걸 본다 — 안 그러면 README가 권하는 status/cancel 이 사람에게 안 먹힌다.
+  if [ -z "$TASK" ] && [ -z "$SESSION" ]; then
+    local live; live="$(bouncer_live_locks "$PROJECT")"
+    if [ "$(printf '%s\n' "$live" | grep -c .)" = 1 ]; then
+      TASK="$live"
+      printf '(세션 ID가 없어 진행 중인 작업 하나를 대상으로 한다: %s)\n' \
+        "$(basename "$TASK")" >&2
+    fi
+  fi
+  [ -n "$TASK" ] \
+    || die "이 세션의 활성 작업이 없다.
+진행 중인 작업을 보려면: bouncer release   (누가 잡고 있는지 나온다)
+새로 시작하려면:        bouncer start <workflow> <slug>"
   WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"; [ -d "$WORK_ROOT" ] || WORK_ROOT="$PROJECT"
   STAGE="$(bouncer_state "$TASK" '.current_stage')"
 }
@@ -55,6 +68,21 @@ cmd_scan() {
     fi
     found=1
   done
+  # release로 회수됐거나 세션이 죽은 뒤 남은 미완 작업. 안 보여주면
+  # 모델은 "없다"고 판단해 새 작업을 시작하고, 하던 작업은 영영 묻힌다.
+  local tasks; tasks="$(bouncer_tasks_dir "$PROJECT")"
+  if [ -d "$tasks" ]; then
+    for d in "$tasks"/*/; do
+      [ -f "${d}state.json" ] || continue
+      [ -f "${d}.active" ] && continue
+      st="$(bouncer_state "${d%/}" '.current_stage')"
+      [ "$st" = cancelled ] && continue
+      [ -n "$(bouncer_state "${d%/}" '.finished_at')" ] && continue
+      printf 'ORPHAN\t%s\t%s\t%s\n' "$(basename "${d%/}")" \
+        "$(bouncer_state "${d%/}" '.workflow')" "$st"
+      found=2
+    done
+  fi
   [ "$found" = 0 ] && printf 'STATE\tNONE\n'
 
   [ -f "$COMPILED" ] || return 0
@@ -211,10 +239,11 @@ $(jq -r 'keys[] | "  " + .' <<<"$choices")"
       fi
     done
   fi
-  printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
   # 병렬이면 곧바로 격리한다. base 브랜치는 이 시점에 확정 기록된다.
   # 격리에 실패했는데 태스크를 남기면, 사용자가 요청한 격리 없이 메인 트리에서
   # 락을 쥔 채 작업하게 된다 — 그 상태로 두느니 시작을 무르는 게 맞다.
+  # STARTED 는 격리까지 성공한 뒤에 찍는다. 먼저 찍으면 롤백돼도
+  # "시작됐다"가 화면에 남아 무엇이 참인지 알 수 없다.
   if [ "$parallel" = 1 ]; then
     # cmd_wt_create 내부는 die(=exit)를 쓴다. 서브셸로 감싸야 여기로 돌아온다.
     # 그러지 않으면 아래 롤백은 영원히 실행되지 않는 죽은 코드다.
@@ -223,6 +252,7 @@ $(jq -r 'keys[] | "  " + .' <<<"$choices")"
       die "격리(worktree) 생성에 실패해 작업을 시작하지 않았다. 위 오류를 해결하고 다시 시도하라."
     fi
   fi
+  printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
 
   # 첫 스테이지 지시를 바로 돌려준다. Stop을 기다리면 첫 응답이 지시 없이 나간다.
   local txt
@@ -246,6 +276,15 @@ hook은 이 상태에서 작업을 진행시키지 않는다.
   · 작업을 포기한다: bouncer cancel
   · 잠금만 푼다:     bouncer release --force"
   local wf; wf="$(bouncer_state "$TASK" '.workflow')"
+  jq -e . "$COMPILED" >/dev/null 2>&1 \
+    || die "컴파일 결과가 손상됐다: $COMPILED
+'bouncer check' 로 workflow.yaml을 확인하라. 다음 세션 시작 때 다시 컴파일된다."
+  [ -n "$(bouncer_chain "$PROJECT" "$wf")" ] \
+    || die "워크플로우 '$wf' 가 workflow.yaml에 없다 (작업 도중 삭제·개명된 것으로 보인다).
+되돌리거나 'bouncer cancel' 로 정리하라."
+  [ -n "$(bouncer_stage "$PROJECT" "$STAGE")" ] \
+    || die "단계 '$STAGE' 가 workflow.yaml에 없다 (작업 도중 삭제·개명된 것으로 보인다).
+되돌리거나 'bouncer cancel' 로 정리하라."
   printf '작업:      %s\n워크플로우: %s\n체인:      %s\n현재 단계:  %s\n작업 위치:  %s\n' \
     "$(bouncer_state "$TASK" '.task_id')" "$wf" \
     "$(bouncer_chain "$PROJECT" "$wf" | tr '\n' ' ')" "$STAGE" "$WORK_ROOT"
@@ -322,6 +361,14 @@ cmd_cancel() {
   bouncer_state_update "$TASK" --arg n "$(date -u +%FT%TZ)" \
     '.current_stage = "cancelled" | .cancelled_at = $n' || noted=0
   rm -f "$TASK/.active"
+  local wt br
+  wt="$(bouncer_state "$TASK" '.worktree.path')"
+  br="$(bouncer_state "$TASK" '.worktree.branch')"
+  if [ -n "$wt" ] && [ "$(bouncer_state "$TASK" '.worktree.merged')" != true ]; then
+    printf '⚠️ 병렬 작업의 worktree와 브랜치는 남는다 (커밋이 있을 수 있다):\n' >&2
+    printf '   worktree: %s\n   브랜치:   %s\n' "$wt" "$br" >&2
+    printf '   버리려면: git worktree remove --force %s && git branch -D %s\n' "$wt" "$br" >&2
+  fi
   if [ "$noted" = 1 ]; then
     printf 'CANCELLED\t%s\n' "$TASK"
   else
@@ -372,19 +419,32 @@ usage: bouncer release [--force]" ;;
 # my_task가 못 찾고, status/scan에서도 사라진다). 다시 잡는 길을 열어둔다.
 cmd_resume() {
   [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
+  [ $# -gt 1 ] && die "인자가 너무 많다. usage: bouncer resume [task-id]"
   local want="${1:-}" tasks d found=""
   tasks="$(bouncer_tasks_dir "$PROJECT")"
   [ -d "$tasks" ] || die "이 프로젝트에 작업 기록이 없다."
   if [ -z "$want" ]; then
     printf '이어서 할 작업을 고르라: bouncer resume <task-id>\n\n'
+    local n=0 st
     for d in "$tasks"/*/; do
       [ -f "$d/state.json" ] || continue
       [ -f "$d/.active" ] && continue
+      st="$(bouncer_state "${d%/}" '.current_stage')"
+      # 끝났거나 취소된 것은 이어받을 게 없다
+      [ "$st" = cancelled ] && continue
+      [ -n "$(bouncer_state "${d%/}" '.finished_at')" ] && continue
+      n=$((n+1))
       printf '  %-42s %s / %s\n' "$(basename "$d")" \
-        "$(bouncer_state "${d%/}" '.workflow')" "$(bouncer_state "${d%/}" '.current_stage')"
+        "$(bouncer_state "${d%/}" '.workflow')" "$st"
     done
+    [ "$n" = 0 ] && printf '  (이어받을 작업이 없다)\n'
     return 0
   fi
+  # start 와 같은 불변식을 지켜야 한다. 두 개를 잡으면 hook은 하나만 진행시키고
+  # 나머지는 게이트 없이 락만 붙든 채 남는다.
+  local mine; mine="$(bouncer_my_task "$PROJECT" "$SESSION" 2>/dev/null || true)"
+  [ -n "$mine" ] && die "이미 진행 중인 작업이 있다: $(basename "$mine")
+먼저 끝내거나 'bouncer cancel' 로 정리한 뒤에 이어받아라."
   d="$tasks/$want"
   [ -d "$d" ] || die "그런 작업이 없다: $want"
   [ -f "$d/.active" ] && die "이미 누군가 잡고 있다. 먼저 'bouncer release' 로 확인하라."
@@ -457,6 +517,14 @@ cmd_wt_create() {
 
 cmd_wt_finalize() {
   need_task
+  local _wt; _wt="$(bouncer_state "$TASK" '.worktree.path')"
+  [ -n "$_wt" ] || die "이 작업은 병렬(worktree) 작업이 아니다."
+  # 없는 디렉토리에 git 을 돌리면 빈 출력이 나와 "깨끗함"으로 통과하고,
+  # 뒤이은 rebase 실패가 "충돌"로 오진된다.
+  [ -d "$_wt" ] || die "worktree 디렉토리가 없다: $_wt
+되살리거나 작업을 포기해야 한다:
+  git worktree prune && git worktree add $_wt $(bouncer_state "$TASK" '.worktree.branch')
+  bouncer cancel"
   local wt branch base root detached cur dirty
   wt="$(bouncer_state "$TASK" '.worktree.path')"; [ -n "$wt" ] || die "이 작업은 worktree를 쓰지 않는다."
   branch="$(bouncer_state "$TASK" '.worktree.branch')"
@@ -501,7 +569,9 @@ case "${1:-}" in
   resume)    shift; cmd_resume "$@" ;;
   worktree)  shift
              case "${1:-}" in
-               finalize) shift; cmd_wt_finalize "$@" ;;
+               finalize) shift
+                         [ $# -gt 0 ] && die "인자가 너무 많다. usage: bouncer worktree finalize"
+                         cmd_wt_finalize ;;
                create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
                *) die "usage: bouncer worktree finalize" ;;
              esac ;;

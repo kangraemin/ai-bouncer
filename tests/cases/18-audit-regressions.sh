@@ -47,63 +47,72 @@ PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null \
   || { no "e2e step 추가" "컴파일 실패"; echo
-echo "[skip이 실제로 통과시키는 경로]"
-# 거부만 검증하면 "영원히 거부"도 통과한다. 엔진이 포기한 뒤 실제로 넘어가야 한다.
-export CLAUDE_CODE_SESSION_ID=S1     # 앞 섹션이 S3로 바꿔둔다 — stop()은 S1을 쓴다
-bouncer cancel >/dev/null 2>&1
-rm -f "$T"/.ai-bouncer/tasks/*/.active
-bouncer start simple gate >/dev/null
-echo dirty >> app.js                       # finalize 클린 트리 게이트를 못 넘게
-stop >/dev/null                            # implement → verify
-[ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
-stop >/dev/null                            # 사람 대기 표시 (blocking: true)
-bouncer run "verify/e2e" >/dev/null 2>&1
-user_turn >/dev/null                       # 사람이 실제로 답한 상황
-bouncer done "verify/검증 보고" >/dev/null 2>&1
-stop >/dev/null                            # verify → finalize
-[ "$(stage)" = finalize ] || no "finalize 진입" "$(stage)"
-GAVE=0
-for i in $(seq 1 14); do
-  r=$(stop)
-  printf '%s' "$r" | grep -q 'bouncer skip' && { GAVE=1; break; }
-done
-[ "$GAVE" = 1 ] && ok "엔진이 포기하며 skip을 제안한다" || no "포기 제안 없음" "14회 안에 안 나옴"
-says 'SKIPPED' bouncer skip "finalize/워킹트리 정리 확인" \
-  && ok "제안 뒤에는 skip이 통한다" || no "skip 거부됨" "$(bouncer skip 'finalize/워킹트리 정리 확인' 2>&1|head -2)"
-says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
-stop >/dev/null
-[ "$(stage)" = done ] && ok "skip 후 실제로 전이한다" || no "전이 안 됨" "$(stage)"
-bouncer cancel >/dev/null 2>&1
-
-echo
-echo "[release 후 resume]"
+echo "[핵심 차단이 실제로 걸리는가]"
+# 감사에서 이 기능들을 전부 no-op으로 바꿔도 테스트가 전건 통과했다.
+# 무력화하면 반드시 여기서 빨간불이 나야 한다.
 export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+# (a) 엔진 디렉토리 삭제 — 제약 없는 done 단계에서도 막혀야 한다
+bouncer start simple guard1 >/dev/null
+for c in "rm -rf .ai-bouncer" "git clean -fdx" "rm -rf .ai*" "rm -rf .claude" \
+         "find . -name state.json -delete"; do
+  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
+  [ -n "$r" ] || { no "엔진 보호" "$c 통과됨"; G1=1; }
+done
+[ "${G1:-0}" = 0 ] && ok "엔진 디렉토리를 지우는 명령 차단 (5건)"
+
+# (b) 스테이지가 yaml에서 사라지면 Stop과 PreToolUse 둘 다 막아야 한다
+cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/compiled.bak"
+jq 'del(.stages.implement)' "$T/compiled.bak" > "$T/.claude/ai-bouncer/workflow.compiled.json"
+r=$(stop); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
+  && ok "스테이지 소실 — Stop이 차단" || no "Stop 무반응" "${r:0:80}"
+r=$(pre Bash '{"command":"echo hi"}'); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
+  && ok "스테이지 소실 — PreToolUse가 차단" || no "PreToolUse 무반응" "${r:0:80}"
+r=$(pre Bash '{"command":"bouncer cancel"}')
+[ -z "$r" ] && ok "그 상황에서도 bouncer cancel 은 통과" || no "탈출구까지 막힘" "${r:0:60}"
+cp "$T/compiled.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
 bouncer cancel >/dev/null 2>&1
-bouncer start simple res >/dev/null
-RT="$(basename "$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)")"
-CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
-ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "회수 실패" "잠금 남음" || ok "잠금 회수"
-says 'RESUMED' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" \
-  && ok "다른 세션이 이어받는다" || no "resume 실패" "$(CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" 2>&1|head -2)"
-says '체인:' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" status \
-  && ok "이어받은 세션이 작업을 본다" || no "status 안 보임"
-says '알 수 없는 인자' bouncer release --forcex && ok "release 오타 거부" || no "오타 통과"
-CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
+
+# (c) worktree 밖 쓰기 차단 + 그 안 상대경로 허용
+bouncer start simple guard2 --parallel >/dev/null 2>&1
+WT2="$(jq -r '.worktree.path' "$(task_dir)/state.json")"
+if [ -d "$WT2" ]; then
+  r=$(pre Bash "$(jq -nc --arg c "echo x > $T/app.js" '{command:$c}')")
+  [ -n "$r" ] && ok "worktree 작업 중 메인 레포 셸 쓰기 차단" || no "메인 쓰기 통과"
+  r=$(pre Bash "$(jq -nc --arg c "cd $WT2 && echo x > src/new.js" '{command:$c}')")
+  [ -z "$r" ] && ok "cd 뒤 worktree 안 상대경로는 허용" || no "worktree 안 차단됨" "${r:0:70}"
+  # (d) 미머지 worktree면 종단에서 잠금을 유지해야 finalize가 가능하다
+  git -C "$WT2" commit -q --allow-empty -m w
+  stop >/dev/null                        # implement → verify
+  stop >/dev/null                        # 사람 대기 표시
+  bouncer run "verify/e2e" >/dev/null 2>&1
+  user_turn >/dev/null
+  bouncer done "verify/검증 보고" >/dev/null 2>&1
+  stop >/dev/null                        # verify → finalize
+  stop >/dev/null                        # finalize (worktree는 커밋 완료라 통과)
+  r=$(stop)                              # done — 여기서 머지를 요구해야 한다
+  printf '%s' "$r" | grep -q 'worktree finalize' && ok "미머지 worktree면 종단에서 머지를 요구" \
+    || no "머지 요구 없음" "stage=$(stage) ${r:0:70}"
+  ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 \
+    && ok "그때 잠금을 유지한다 (finalize가 작업을 찾을 수 있다)" || no "잠금 해제됨"
+  says 'MERGED' bouncer worktree finalize && ok "finalize가 실제로 머지" \
+    || no "finalize 실패" "$(bouncer worktree finalize 2>&1 | head -2)"
+else
+  no "worktree 생성" "$WT2"
+fi
+bouncer cancel >/dev/null 2>&1
 
 echo
-echo "[두 게이트가 같은 답을 낸다]"
-# Edit 판정과 Bash 판정이 각각 구현돼 있어 `*`의 의미와 `!` 우선순위가 정반대였다
-GU="$R/engine/lib/guard.py"
-for pat in '["src/*"]' '["!src/**","src/a.js"]' '["**","!docs/**"]'; do
-  for f in src/deep/c.js src/a.js docs/d.md app.js; do
-    e=$(python3 "$GU" --check-path "$pat" "$T" "$T/$f")
-    b=$(printf '%s' "rm $T/$f" | python3 "$GU" "$pat" false '[]' "$T")
-    if { [ -n "$e" ] && [ -z "$b" ]; } || { [ -z "$e" ] && [ -n "$b" ]; }; then
-      no "게이트 불일치" "$pat / $f — Edit=${e:+차단}${e:-통과} Bash=${b:+차단}${b:-통과}"; MISMATCH=1
-    fi
-  done
-done
-[ "${MISMATCH:-0}" = 0 ] && ok "Edit 게이트와 Bash 게이트 판정 일치 (12조합)"
+echo "[resume 이 한 세션 한 작업을 지킨다]"
+bouncer start simple dup1 >/dev/null
+D2="$(basename "$(task_dir)")"
+CLAUDE_CODE_SESSION_ID=S8 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
+bouncer start simple dup2 >/dev/null
+says '이미 진행 중인 작업' bouncer resume "$D2" \
+  && ok "진행 중인데 다른 작업을 이어받지 못한다" || no "중복 점유 허용됨"
+says 'ORPHAN' bouncer scan && ok "잠금 없는 미완 작업을 scan이 보여준다" || no "ORPHAN 미표시"
+bouncer cancel >/dev/null 2>&1
 
 finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
@@ -254,14 +263,6 @@ says '알 수 없는 인자' bouncer release --forcex && ok "release 오타 거�
 CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
 
 echo
-echo "[하위 디렉토리에서도 스코프가 산다]"
-# cwd 기준으로 상대화하면 하위 디렉토리 세션은 글로브가 하나도 안 맞아 스코프가 꺼졌다
-mkdir -p "$T/sub"
-r=$(printf '{"session_id":"S1","cwd":"%s/sub","tool_name":"Edit","tool_input":{"file_path":"%s/docs/plan.md"}}' "$T" "$T" \
-    | bash "$R/hooks/pre-tool.sh")
-printf '(스코프 테스트는 09-forbid-scope.sh가 담당)\n' >/dev/null
-
-echo
 echo "[두 게이트가 같은 답을 낸다]"
 # Edit 판정과 Bash 판정이 각각 구현돼 있어 `*`의 의미와 `!` 우선순위가 정반대였다
 GU="$R/engine/lib/guard.py"
@@ -275,5 +276,73 @@ for pat in '["src/*"]' '["!src/**","src/a.js"]' '["**","!docs/**"]'; do
   done
 done
 [ "${MISMATCH:-0}" = 0 ] && ok "Edit 게이트와 Bash 게이트 판정 일치 (12조합)"
+
+echo
+echo "[핵심 차단이 실제로 걸리는가]"
+# 감사에서 이 기능들을 전부 no-op으로 바꿔도 테스트가 전건 통과했다.
+# 무력화하면 반드시 여기서 빨간불이 나야 한다.
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+# (a) 엔진 디렉토리 삭제 — 제약 없는 done 단계에서도 막혀야 한다
+bouncer start simple guard1 >/dev/null
+for c in "rm -rf .ai-bouncer" "git clean -fdx" "rm -rf .ai*" "rm -rf .claude" \
+         "find . -name state.json -delete"; do
+  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
+  [ -n "$r" ] || { no "엔진 보호" "$c 통과됨"; G1=1; }
+done
+[ "${G1:-0}" = 0 ] && ok "엔진 디렉토리를 지우는 명령 차단 (5건)"
+
+# (b) 스테이지가 yaml에서 사라지면 Stop과 PreToolUse 둘 다 막아야 한다
+cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/compiled.bak"
+jq 'del(.stages.implement)' "$T/compiled.bak" > "$T/.claude/ai-bouncer/workflow.compiled.json"
+r=$(stop); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
+  && ok "스테이지 소실 — Stop이 차단" || no "Stop 무반응" "${r:0:80}"
+r=$(pre Bash '{"command":"echo hi"}'); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
+  && ok "스테이지 소실 — PreToolUse가 차단" || no "PreToolUse 무반응" "${r:0:80}"
+r=$(pre Bash '{"command":"bouncer cancel"}')
+[ -z "$r" ] && ok "그 상황에서도 bouncer cancel 은 통과" || no "탈출구까지 막힘" "${r:0:60}"
+cp "$T/compiled.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
+bouncer cancel >/dev/null 2>&1
+
+# (c) worktree 밖 쓰기 차단 + 그 안 상대경로 허용
+bouncer start simple guard2 --parallel >/dev/null 2>&1
+WT2="$(jq -r '.worktree.path' "$(task_dir)/state.json")"
+if [ -d "$WT2" ]; then
+  r=$(pre Bash "$(jq -nc --arg c "echo x > $T/app.js" '{command:$c}')")
+  [ -n "$r" ] && ok "worktree 작업 중 메인 레포 셸 쓰기 차단" || no "메인 쓰기 통과"
+  r=$(pre Bash "$(jq -nc --arg c "cd $WT2 && echo x > src/new.js" '{command:$c}')")
+  [ -z "$r" ] && ok "cd 뒤 worktree 안 상대경로는 허용" || no "worktree 안 차단됨" "${r:0:70}"
+  # (d) 미머지 worktree면 종단에서 잠금을 유지해야 finalize가 가능하다
+  git -C "$WT2" commit -q --allow-empty -m w
+  stop >/dev/null                        # implement → verify
+  stop >/dev/null                        # 사람 대기 표시
+  bouncer run "verify/e2e" >/dev/null 2>&1
+  user_turn >/dev/null
+  bouncer done "verify/검증 보고" >/dev/null 2>&1
+  stop >/dev/null                        # verify → finalize
+  stop >/dev/null                        # finalize (worktree는 커밋 완료라 통과)
+  r=$(stop)                              # done — 여기서 머지를 요구해야 한다
+  printf '%s' "$r" | grep -q 'worktree finalize' && ok "미머지 worktree면 종단에서 머지를 요구" \
+    || no "머지 요구 없음" "stage=$(stage) ${r:0:70}"
+  ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 \
+    && ok "그때 잠금을 유지한다 (finalize가 작업을 찾을 수 있다)" || no "잠금 해제됨"
+  says 'MERGED' bouncer worktree finalize && ok "finalize가 실제로 머지" \
+    || no "finalize 실패" "$(bouncer worktree finalize 2>&1 | head -2)"
+else
+  no "worktree 생성" "$WT2"
+fi
+bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[resume 이 한 세션 한 작업을 지킨다]"
+bouncer start simple dup1 >/dev/null
+D2="$(basename "$(task_dir)")"
+CLAUDE_CODE_SESSION_ID=S8 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
+bouncer start simple dup2 >/dev/null
+says '이미 진행 중인 작업' bouncer resume "$D2" \
+  && ok "진행 중인데 다른 작업을 이어받지 못한다" || no "중복 점유 허용됨"
+says 'ORPHAN' bouncer scan && ok "잠금 없는 미완 작업을 scan이 보여준다" || no "ORPHAN 미표시"
+bouncer cancel >/dev/null 2>&1
 
 finish
