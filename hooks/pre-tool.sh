@@ -18,17 +18,52 @@ TOOL="$(jq -r '.tool_name // empty'     <<<"$INPUT")"
 [ -n "$SESSION" ] && [ -n "$TOOL" ] || exit 0
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
+
+# 여기까지 왔다는 건 이 세션에 활성 작업이 있다는 뜻이다.
+# 그런데 상태나 설정을 못 읽으면 "규칙 없음"이 아니라 "규칙을 알 수 없음"이다.
+# 그때 통과시키면 파일 하나 깨뜨리는 것으로 모든 가드가 사라진다 — 막는 쪽이 맞다.
+COMPILED="$(bouncer_compiled_file "$CWD")"
+if ! jq -e . "$COMPILED" >/dev/null 2>&1; then
+  bouncer_block "⛔ [ai-bouncer] 워크플로우 설정을 읽을 수 없다: $COMPILED
+규칙을 알 수 없는 상태에서는 진행할 수 없다.
+  \`bouncer check\` 로 workflow.yaml을 확인하거나, 되돌린 뒤 다시 시도하라."
+fi
+if ! jq -e . "$TASK/state.json" >/dev/null 2>&1; then
+  bouncer_block "⛔ [ai-bouncer] 작업 상태 파일이 손상됐다: $TASK/state.json
+진행할 수 없다. \`bouncer cancel\` 로 정리하고 다시 시작하라."
+fi
+
 STAGE="$(bouncer_state "$TASK" '.current_stage')"
-[ -n "$STAGE" ] && [ "$STAGE" != "cancelled" ] || exit 0
+[ "$STAGE" = "cancelled" ] && exit 0
+if [ -z "$STAGE" ]; then
+  bouncer_block "⛔ [ai-bouncer] 현재 단계를 알 수 없다. \`bouncer cancel\` 로 정리하고 다시 시작하라."
+fi
 
 # ── 엔진 전용 파일 보호 (스테이지와 무관하게 항상) ────────────
-# state.json을 모델이 고치면 단계 건너뛰기가 가능해진다.
+# 이 파일들을 고치면 단계 건너뛰기나 가드 무력화가 가능해진다.
+ENGINE_FILE_MSG="⛔ [ai-bouncer] 엔진 파일은 직접 수정할 수 없다.
+단계 전이와 규칙은 엔진이 관리한다. 조건을 충족시켜서 넘어가라."
+
 FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.path // empty' <<<"$INPUT")"
 case "$FILE_PATH" in
-  */.ai-bouncer/tasks/*/state.json|*/.ai-bouncer/tasks/*/.active|*/workflow.compiled.json)
-    bouncer_block "⛔ [ai-bouncer] 엔진 상태 파일은 직접 수정할 수 없다.
-단계 전이는 엔진만 한다. 조건을 충족시켜서 넘어가라." ;;
+  */.ai-bouncer/tasks/*/state.json|*/.ai-bouncer/tasks/*/.active|\
+  */workflow.compiled.json|*/.claude/ai-bouncer/*)
+    bouncer_block "$ENGINE_FILE_MSG" ;;
 esac
+
+# 셸을 통한 접근도 같은 기준으로 막는다. Edit/Write만 막으면
+# `echo '{' > .claude/ai-bouncer/workflow.compiled.json` 한 줄로 전부 무력화된다.
+if [ "$TOOL" = "Bash" ]; then
+  _CMD="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
+  case "$_CMD" in
+    bouncer\ *|*/bouncer.sh\ *) ;;   # 엔진 자신의 명령은 예외
+    *)
+      if printf '%s' "$_CMD" | grep -Eq '(\.ai-bouncer/tasks/[^[:space:]]*/(state\.json|\.active)|workflow\.compiled\.json|\.claude/ai-bouncer/)' \
+         && printf '%s' "$_CMD" | grep -Eq '(^|[;&|[:space:]])(rm|mv|cp|touch|truncate|tee|sed|perl|python3?|dd|install|ex|ed|chmod|ln)\b|[^|>]>' ; then
+        bouncer_block "$ENGINE_FILE_MSG"
+      fi ;;
+  esac
+fi
 
 FORBID="$(bouncer_stage "$CWD" "$STAGE" | jq -c '.forbid // {}')"
 REASON="$(jq -r '.reason // ""' <<<"$FORBID")"
@@ -68,45 +103,28 @@ case "$TOOL" in
   Bash)
     CMD="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
     [ -n "$CMD" ] || exit 0
-
-    # bouncer 자신의 명령은 항상 허용 (게이트를 통과할 유일한 수단이므로)
-    case "$CMD" in bouncer\ *|*/bouncer.sh\ *) exit 0 ;; esac
-
-    if [ "$PUSH" = "true" ] && printf '%s' "$CMD" | grep -Eq '(^|[;&|[:space:]])git([[:space:]]+-[^[:space:]]+)*[[:space:]]+push([[:space:]]|$)'; then
-      deny "push가 차단되었다."
+    # 정규식 블랙리스트로는 못 막는다는 게 감사로 확인됐다 —
+    # 따옴표(`"rm" -f`), 인터프리터(`python3 -c "open(...,'w')"`), 에디터(`ed`),
+    # git write 서브커맨드가 전부 빠져나갔고, `bouncer status; rm x` 처럼
+    # 허용 명령 뒤에 붙이면 통째로 통과했다.
+    # 그래서 명령을 세그먼트로 쪼개고 실행 파일 이름을 정규화해서 판정한다.
+    GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
+    # 이 스테이지에 아무 제약이 없으면 판정할 것도 없다.
+    if [ "$(jq -r '(.edit_files|tostring) + (.push|tostring) + ((.bash|length)|tostring)' <<<"$FORBID")" = "nullfalse0" ]; then
+      exit 0
     fi
-
-    # edit_files는 bash 우회도 함께 막는다. 스코프 배열이면 대상 경로까지 판정.
-    if [ "$EDIT" != "null" ] && printf '%s' "$CMD" | grep -Eq \
-      '(^|[;&|[:space:]])(rm|mv|cp|touch|truncate|mkdir)[[:space:]]|[^|>]>[[:space:]]*[^|[:space:]]|(^|[[:space:]])tee[[:space:]]|sed[[:space:]]+(-[^[:space:]]*[[:space:]]+)*-i'; then
-      if [ "$EDIT" = "true" ]; then
-        deny "셸을 통한 파일 수정이 차단되었다: ${CMD:0:80}"
-      else
-        # 스코프가 있으면 명령에 등장하는 "경로처럼 보이는" 토큰만 판정한다.
-        # `**` 패턴은 아무 단어에나 걸리므로 명령어 이름까지 검사하면 전부 차단된다.
-        prev=""
-        for tok in $CMD; do
-          case "$tok" in
-            -*|"|"|"&&"|";"|"||") prev="$tok"; continue ;;
-            ">"|">>") prev="$tok"; continue ;;
-          esac
-          # 리다이렉트 대상은 무조건 경로. 그 외엔 / 나 . 을 포함할 때만 경로로 본다.
-          if [ "$prev" = ">" ] || [ "$prev" = ">>" ] || case "$tok" in */*|*.*) true ;; *) false ;; esac; then
-            if path_forbidden "${tok#./}"; then
-              deny "셸을 통한 파일 수정이 차단되었다: $tok"
-            fi
-          fi
-          prev="$tok"
-        done
-      fi
+    # 제약이 있는데 판정기를 못 쓰면 "제약 없음"이 아니라 "판정 불가"다. 막는다.
+    if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
+      deny "명령 판정기를 사용할 수 없다 ($GUARD).
+이 단계에는 제약이 걸려 있는데 무엇이 허용되는지 판정할 수 없다.
+설치가 손상됐을 수 있다 — 다시 설치하라."
     fi
-
-    while IFS= read -r pat; do
-      [ -z "$pat" ] && continue
-      if printf '%s' "$CMD" | grep -Eq "$pat"; then
-        deny "차단된 명령이다: ${CMD:0:80}"
-      fi
-    done < <(jq -r '.bash[]?' <<<"$FORBID")
+    REASON="$(printf '%s' "$CMD" | python3 "$GUARD" \
+      "$(jq -c '.edit_files // null' <<<"$FORBID")" \
+      "$(jq -r '.push' <<<"$FORBID")" \
+      "$(jq -c '.bash // []' <<<"$FORBID")" \
+      "$CWD")" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
+    [ -n "$REASON" ] && deny "$REASON"
     exit 0 ;;
 esac
 exit 0

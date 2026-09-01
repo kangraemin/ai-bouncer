@@ -102,7 +102,7 @@ fi
 # ── 1. 파일 배치 ─────────────────────────────────────────────
 mkdir -p "$DIR"/{engine/lib,hooks,scripts,prompts,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
 MANIFEST="[]"
-for f in engine/compile.py engine/bouncer.sh engine/lib/common.sh \
+for f in engine/compile.py engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
          hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
          hooks/stop.sh hooks/session-end.sh scripts/update-check.sh; do
   mkdir -p "$DIR/$(dirname "$f")"
