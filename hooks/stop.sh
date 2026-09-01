@@ -39,6 +39,7 @@ STAGE_JSON="$(bouncer_stage "$CWD" "$STAGE")"
 
 MAX_CONTINUE="$(bouncer_config max_continue 10 "$CWD")"
 MAX_ATTEMPTS="$(bouncer_config max_attempts 3 "$CWD")"
+MAX_LOOPS="$(bouncer_config max_loops 3 "$CWD")"
 
 # 직전 Stop에서 멈춤을 허용했다면, 지금 Stop이 왔다는 건 그 사이에 사용자 턴이 있었다는 뜻.
 # (모델은 사용자 입력 없이 새 턴을 시작하지 못한다.) UserPromptSubmit hook이 필요 없는 이유다.
@@ -180,18 +181,39 @@ if [ -n "$ON_FAIL" ] && [ "$HUMAN_WAIT" != "1" ]; then
 $FAILURES" '{hookSpecificOutput:{additionalContext:$c}}'
       exit 0
     fi
+    # 왕복 횟수는 전이가 리셋하지 않는다. 리셋하면 A→B→A→B 로 영원히 돈다.
+    LOOPS="$(jq -r '.loops // 0' "$TASK/state.json" 2>/dev/null)"; [ -n "$LOOPS" ] || LOOPS=0
+    if [ "$(( LOOPS + 1 ))" -gt "$MAX_LOOPS" ] 2>/dev/null; then
+      # 이미 상한이면 카운터를 더 올리지 않는다 — 숫자가 실제 왕복 횟수와 어긋난다.
+      bouncer_state_update "$TASK" \
+        '.allowed_stop = true | .continue_streak = 0 | .reentry_count = 0'
+      jq -n --arg c "⛔ [$STAGE] ↔ [$ON_FAIL] 사이를 ${LOOPS}번 왕복했다.
+같은 자리를 돌고 있으므로 더 밀지 않고 사용자에게 넘긴다.
+
+미충족 조건:
+$FAILURES
+
+AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
+  1. 접근을 바꿔서 다시 시도한다
+  2. 이 조건을 이번 작업에서만 건너뛴다
+  3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+      exit 0
+    fi
+    LOOPS=$(( LOOPS + 1 ))
+
     # 되돌아갈 때 이 스테이지의 진행 기록을 지운다 — 돌아오면 처음부터 다시 검증한다.
     IDS="$(jq -c '[.steps[]?.id]' <<<"$STAGE_JSON")"
     bouncer_state_update "$TASK" --arg back "$ON_FAIL" --argjson ids "$IDS" \
-      --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" '
+      --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" --argjson n "$LOOPS" '
         .current_stage = $back
+        | .loops = $n
         | .evidence       |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .shown          |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .stage_attempts[$s] = 0
         | .continue_streak = 0
         | .allowed_stop = false
         | .history += [{stage:$back, at:$t, returned_from:$s}]'
-    bouncer_block "↩️ [$STAGE] 조건을 충족하지 못해 [$ON_FAIL] 단계로 되돌아간다.
+    bouncer_block "↩️ [$STAGE] 조건을 충족하지 못해 [$ON_FAIL] 단계로 되돌아간다. (${LOOPS}/${MAX_LOOPS}회)
 
 미충족 조건:
 $FAILURES${INJECT:+$'\n\n'}$INJECT"

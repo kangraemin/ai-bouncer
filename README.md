@@ -204,8 +204,8 @@ bash tests/run-all.sh
 
 케이스별로 나뉘어 있다 — plan/simple 전 구간, `on_fail` 반송, optional 건너뛰기,
 `skill:` 게이트, 무한루프 상한, 다중 세션 격리, worktree 병렬·FF 머지, `forbid` 경로
-스코프, 컴파일 거부 14종, 파서 동등성, 방치 잠금 정리, `bouncer run`, abort·재시도,
-재컴파일, Stop 재진입 가드, 설치·제거.
+스코프, 컴파일 거부 15종, 파서 동등성, 방치 잠금 정리, `bouncer run`, abort·재시도,
+재컴파일, Stop 재진입 가드, `on_fail` 무한 왕복 가드, 설치·제거.
 
 <br>
 

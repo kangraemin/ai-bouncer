@@ -41,7 +41,48 @@ printf '%s' "$out" | jq -e '.decision == "block"' >/dev/null 2>&1 \
 python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null
 
+echo "[on_fail 무한 왕복 가드]"
+cleanup; cat > /tmp/_loop.yaml <<'Y'
+version: 1
+workflows:
+  plan: {label: 테스트용, stages: [impl, verify, done]}
+stages:
+  impl:
+    steps: [{label: 구현, inject: "구현해라."}]
+  verify:
+    on_fail: impl
+    steps:
+      - label: 게이트
+        run: 'exit 1'
+        by: engine
+        blocking: true
+    forbid:
+      edit_files: true
+      reason: 검증 단계에선 수정 금지.
+  done:
+    steps: [{label: 완료, inject: "끝."}]
+Y
+setup /tmp/_loop.yaml >/dev/null || exit 1
+python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2 max_loops=3
+python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start plan pingpong >/dev/null
+rel=0; esc=""
+for i in $(seq 1 40); do
+  o=$(hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"stop_hook_active\":true}")
+  printf '%s' "$o" | jq -e '.decision == "block"' >/dev/null 2>&1 || { rel=$((rel+1)); [ -z "$esc" ] && esc="$o"; }
+done
+[ "$rel" -gt 0 ] && ok "왕복이 무한히 돌지 않는다 (40회 중 ${rel}회 사용자에게 넘김)" \
+  || no "무한 왕복" "40회 내내 밀어붙임"
+RT=$(state '[.history[]|select(.returned_from)]|length')
+[ "$RT" -le 3 ] && ok "왕복 횟수가 상한(3) 이내 (${RT}회)" || no "왕복 상한" "${RT}회"
+printf '%s' "$esc" | grep -q '왕복했다' && ok "왕복 사유를 사용자에게 설명" || no "왕복 사유"
+printf '%s' "$esc" | grep -qE '사이를 [0-9]번' && ok "보고된 횟수가 실제와 맞음" || no "횟수 정확성"
+
 echo "[cancel]"
+cleanup; setup /tmp/_g.yaml >/dev/null || exit 1
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start plan guards >/dev/null
 bouncer cancel >/dev/null && ok "cancel 실행" || no "cancel"
 [ "$(stage)" = cancelled ] && ok "상태가 cancelled" || no "cancelled" "$(stage)"
 ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "cancel 시 lock 해제" "남음" || ok "cancel 시 lock 해제"
