@@ -162,6 +162,9 @@ INTERPRETERS = {'sh', 'bash', 'zsh', 'ksh', 'dash', 'fish', 'csh', 'tcsh'}
 OPAQUE_EXE = {'eval', 'source', '.'}
 SHELL_KEYWORDS = {'for', 'if', 'while', 'until', 'case', 'select', 'function',
                   'then', 'do', 'elif', 'else'}
+# 뒤에 곧바로 명령이 오는 키워드. 건너뛰고 진짜 명령을 본다.
+SKIP_KEYWORDS = {'if', 'then', 'elif', 'else', 'do', 'while', 'until', 'select',
+                 'fi', 'done', 'esac', '!', 'time'}
 INLINE_FLAGS = ('-c', '-e', '--eval', '--command', '-E', '--exec')
 
 # ── git ──────────────────────────────────────────────────────
@@ -659,24 +662,34 @@ def lex(cmd):
             e = _match_close(cmd, i + 1, '(', ')')
             if e < 0:
                 return None
-            flush(); toks.append(('$(', 'st'))
+            # 자리표시를 남겨야 한다. 큰따옴표 분기에만 있고 여기 없어서
+            # `rm -rf $(echo docs)` 는 인자가 통째로 사라져 통과했다.
+            pending_st.append('$(')
+            buf.append(SUB_TOKEN)
             SUBS.append(cmd[i + 2:e]); i = e + 1
             continue
         if cmd[i] == '`':
             e = cmd.find('`', i + 1)
             if e < 0:
                 return None
-            flush(); toks.append(('`', 'st'))
+            pending_st.append('`')
+            buf.append(SUB_TOKEN)
             SUBS.append(cmd[i + 1:e]); i = e + 1
             continue
         if cmd.startswith('<(', i) or cmd.startswith('>(', i):
             e = _match_close(cmd, i + 1, '(', ')')
             if e < 0:
                 return None
-            flush(); toks.append((cmd[i:i + 2], 'st'))
+            pending_st.append(cmd[i:i + 2])
+            buf.append(SUB_TOKEN)
             SUBS.append(cmd[i + 2:e]); i = e + 1
             continue
         hit = next((o for o in STRUCT if cmd.startswith(o, i)), None)
+        # `{`/`}` 는 **홀로 선 경우**에만 셸 구조다. `-I{}` 처럼 단어에 붙으면
+        # 그냥 글자다 — 쪼개면 xargs 의 -I 값이 다음 명령을 삼킨다.
+        if hit in ('{', '}') and (buf or (i + 1 < n and cmd[i + 1] not in ' \t\n;&|')):
+            buf.append(cmd[i]); i += 1
+            continue
         if hit:
             flush(); toks.append((hit, 'st')); i += len(hit)
             continue
@@ -711,6 +724,9 @@ def cwd_unknown():
 UNKNOWN_CWD = '\x00?'
 
 
+SUBSHELL_SEEN = [False]
+
+
 def track_cd(exe, args, struct=()):
     """`cd <dir>` 세그먼트면 이후 상대경로의 기준을 옮긴다.
 
@@ -720,7 +736,7 @@ def track_cd(exe, args, struct=()):
     """
     if exe not in ('cd', 'pushd', 'popd'):
         return
-    if struct:
+    if struct or SUBSHELL_SEEN[0]:
         # 서브셸 `( cd x )` 의 이동은 밖에 영향이 없고,
         # `cd $(...)` 는 어디로 가는지 알 수 없다. 둘 다 "모름"이 안전하다.
         EFFECTIVE_CWD[0] = UNKNOWN_CWD
@@ -944,7 +960,9 @@ def split_segments(items):
     """연산자로 세그먼트를 나눈다. 각 세그먼트는 (텍스트, 종류) 목록이다."""
     cur, res = [], []
     for text, kind in items:
-        if kind == 'op' and text in SEPARATOR_BASE:
+        # `)` 는 case 패턴의 끝이자 서브셸의 끝이다. 구분하지 않으면
+        # `case x in x) git push;; esac` 의 push 가 앞 토큰들에 묻힌다.
+        if (kind == 'op' and text in SEPARATOR_BASE) or (kind == 'st' and text in ('(', ')')):
             if cur:
                 res.append(cur)
             cur = []
@@ -1023,6 +1041,11 @@ def resolve_exe(seg):
             i += 1
             continue
         base = os.path.basename(raw)
+        # `if`/`then`/`do` 뒤에 오는 것이 진짜 명령이다. 키워드를 실행 파일로
+        # 읽으면 `if true; then git push; fi` 가 무검사로 통과한다.
+        if base in SKIP_KEYWORDS:
+            i += 1
+            continue
         last = base
         head_flags = []
         for a in seg[i + 1:]:
@@ -1195,6 +1218,8 @@ def check_engine_files(segments):
     `bouncer status && echo x > state.json` 이 통째로 빠져나간다.
     """
     reset_cwd()
+    SUBSHELL_SEEN[0] = any(k == 'st' and t in ('(', ')')
+                           for seg in segments for t, k in seg)
     for seg in segments:
         clean, redirs, struct = parse_redirects(seg)
         # 리다이렉트 대상은 bouncer 자신의 명령이라도 검사한다.
@@ -1205,6 +1230,8 @@ def check_engine_files(segments):
         exe, cmd, _ = resolve_exe(clean)
         if cmd and is_bouncer(cmd[0]):
             continue
+        if SUB_TOKEN in exe:
+            out(SUB_EXE_MSG)
         if exe in OPAQUE_EXE:
             out(OPAQUE_MSG % exe)
         # `git clean -fdx` 는 gitignore된 것을 지운다 — 상태 디렉토리가 정확히 그것이다.
@@ -1361,6 +1388,8 @@ def git_read_error(cmd):
     return None
 
 
+SUB_EXE_MSG = ("명령 이름 자리에 치환이 있어 무엇을 실행하는지 판정할 수 없다.\n"
+               "값을 먼저 구해서 명령을 그대로 적어라.")
 OPAQUE_MSG = ("`%s` 는 인자가 곧 실행할 코드라 무엇을 하는지 판정할 수 없다.\n"
               "명령을 그대로 적어라.")
 
@@ -1376,6 +1405,8 @@ def check_readonly_cmd(exe, cmd):
     if exe in SHELL_KEYWORDS:
         out("이 단계는 읽기 전용이다. `%s` 같은 복합 구문은 안을 확인할 수 없어\n"
             "허용되지 않는다. 조회는 한 줄 명령으로 해라." % exe)
+    if SUB_TOKEN in exe:
+        out(SUB_EXE_MSG)
     if exe not in READ_ONLY:
         out("이 단계는 읽기 전용이다. `%s` 는 파일을 쓸 수 있어 허용되지 않는다.\n"
             "읽기·검색은 가능하고, 검증 명령은 `bouncer run <step-id>` 로 실행한다." % exe)
@@ -1446,6 +1477,8 @@ def check_readonly_cmd(exe, cmd):
 
 
 def check_push_cmd(exe, cmd, struct=()):
+    if SUB_TOKEN in exe:
+        out(SUB_EXE_MSG)
     if exe in OPAQUE_EXE:
         out(OPAQUE_MSG % exe)
     if exe == 'env -S':
@@ -1534,6 +1567,9 @@ for _segs in SUB_SEGMENTS:
 def run_passes(SEGMENTS, TOKENS):
     """한 명령(또는 치환 하나)에 대해 모든 검사를 돌린다."""
     reset_cwd()
+    # 세그먼트를 `(`/`)` 로도 나누므로 서브셸 표식이 세그먼트 안에 안 남는다.
+    # 명령 전체 기준으로 기억해둔다.
+    SUBSHELL_SEEN[0] = any(k == 'st' and t in ('(', ')') for t, k in TOKENS)
     if EDIT is True:
         # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
         bad = sorted({t for t, k in TOKENS if k == 'st'})
