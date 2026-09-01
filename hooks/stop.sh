@@ -30,6 +30,11 @@ WORKFLOW="$(bouncer_state "$TASK" '.workflow')"
 STAGE="$(bouncer_state "$TASK" '.current_stage')"
 WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
 [ -n "$WORK_ROOT" ] || WORK_ROOT="$CWD"
+if ! jq -e . "$TASK/state.json" >/dev/null 2>&1; then
+  # pre-tool 과 CLI 는 막는데 Stop 만 조용히 나가면, 게이트 없이 계속 진행된다.
+  printf '%s' '{"decision":"block","reason":"⛔ [ai-bouncer] 작업 상태 파일이 손상됐다.\n진행 상황을 알 수 없어 단계를 넘길 수 없다.\n  · 작업을 포기한다: bouncer cancel"}'
+  exit 0
+fi
 [ -n "$WORKFLOW" ] && [ -n "$STAGE" ] || exit 0
 [ "$STAGE" = "cancelled" ] && exit 0
 
@@ -121,8 +126,21 @@ fi
 add_failure() { FAILURES="${FAILURES}${FAILURES:+$'\n'}- $1"; }
 # 막고 있는 step 의 id 를 모아둔다. "건너뛴다"를 제안하면서 id 를 안 주면
 # 모델이 compiled.json 을 직접 읽지 않는 한 그 제안을 실행할 수 없다.
+# step id 는 `<stage>/<label>` 이고 라벨에 공백이 있다. 공백으로 이어붙였다가
+# 인용 없이 뿌려서 제안이 전부 쪼개졌다 — 다섯 줄 모두 실행 불가였다.
 BLOCKING_IDS=""
-add_blocking_id() { BLOCKING_IDS="${BLOCKING_IDS}${BLOCKING_IDS:+ }$1"; }
+add_blocking_id() {
+  case $'\n'"$BLOCKING_IDS"$'\n' in *$'\n'"$1"$'\n'*) return 0 ;; esac
+  BLOCKING_IDS="${BLOCKING_IDS}${BLOCKING_IDS:+$'\n'}$1"
+}
+# 제안은 그대로 복사해서 실행할 수 있어야 한다.
+# (`printf '%s' | while read` 는 끝에 개행이 없어 마지막 줄을 통째로 버린다)
+skip_hint() {
+  [ -n "$BLOCKING_IDS" ] || { printf '       (막고 있는 step을 특정하지 못했다 — bouncer status 참고)'; return; }
+  while IFS= read -r _i; do
+    [ -n "$_i" ] && printf "       bouncer skip '%s'\n" "$_i"
+  done <<< "$BLOCKING_IDS"
+}
 
 while IFS= read -r step; do
   [ -z "$step" ] && continue
@@ -212,7 +230,10 @@ while IFS= read -r step; do
       add_inject "$LABEL — 아래를 실행해라 (명령은 엔진이 갖고 있다):"$'\n'"    bouncer run '$ID'"
       bouncer_state_update "$TASK" --arg k "$ID" '.shown[$k] = true'
     fi
-    [ -n "$BLOCKING" ] && add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"; add_blocking_id "$ID"
+    if [ -n "$BLOCKING" ]; then
+      add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"
+      add_blocking_id "$ID"
+    fi
   fi
 done < <(jq -c '.steps[]?' <<<"$STAGE_JSON")
 
@@ -243,7 +264,7 @@ $(bouncer_state "$TASK" '.last_failure')
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
   2. 이 조건을 이번 작업에서만 건너뛴다:
-$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
+$(skip_hint)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
         mark_gave_up
         exit 0
@@ -279,7 +300,8 @@ $(bouncer_state "$TASK" '.last_failure')"
     WT_PATH="$(bouncer_state "$TASK" '.worktree.path')"
     if [ -n "$WT_PATH" ] \
        && [ "$(bouncer_state "$TASK" '.worktree.merged')" != "true" ]; then
-      bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" '.finished_at = $t'
+      # finished_at 을 여기서 찍으면 scan/resume 의 미완 목록에서 빠져,
+      # 이 시점에 세션이 죽으면 커밋이 브랜치에 갇힌 채 아무도 못 찾는다.
       guarded_block "✅ 작업은 끝났지만 아직 base 브랜치에 합쳐지지 않았다.
 
     bouncer worktree finalize
@@ -320,7 +342,7 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
      | .allowed_stop = false
      | .user_turns_at_wait = null
      | .returned_from = null
-     | .gave_up = ((.gave_up // {}) | del(.[$s]))
+     | .gave_up = {}
      | .history += [{stage:$n, at:$t}]'
   guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
@@ -371,7 +393,7 @@ $FAILURES
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
   2. 이 조건을 이번 작업에서만 건너뛴다:
-$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
+$(skip_hint)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
       mark_gave_up
       exit 0
@@ -459,7 +481,7 @@ AskUserQuestion으로 사용자에게 물어라:
   1. 계속 시도한다
   2. 접근을 바꾼다 (필요하면 이전 단계로 되돌린다)
   3. 이 조건을 이번 작업에서만 건너뛴다:
-$(printf '%s\n' $BLOCKING_IDS | sed "s|^|       bouncer skip '|;s|$|'|")
+$(skip_hint)
   4. 작업을 중단한다" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
   mark_gave_up
   exit 0

@@ -27,13 +27,24 @@ die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || die "jq가 필요하다. brew install jq"
 COMPILED="$(bouncer_compiled_file "$PROJECT")"
 
+# need_task [--mutating]
+# 사람이 자기 터미널에서 칠 때는 세션 ID가 없다. 진행 중 작업이 하나뿐이면
+# 그걸 **보여주는** 것까지는 해준다 — 안 그러면 README가 권하는 status가 안 먹힌다.
+# 다만 바꾸는 명령(cancel/done/skip/run/worktree)은 열어주지 않는다:
+# 그 작업은 지금 다른 세션이 쥐고 있는 것이고, 말없이 취소하면 그 세션은
+# 알림 한 줄 없이 게이트를 잃는다 (감사에서 실제로 재현됐다).
 need_task() {
+  local mutating=0
+  [ "${1:-}" = "--mutating" ] && mutating=1
   TASK="$(bouncer_my_task "$PROJECT" "$SESSION")" || TASK=""
-  # 사람이 자기 터미널에서 칠 때는 세션 ID가 없다. 진행 중 작업이 하나뿐이면
-  # 그걸 본다 — 안 그러면 README가 권하는 status/cancel 이 사람에게 안 먹힌다.
   if [ -z "$TASK" ] && [ -z "$SESSION" ]; then
     local live; live="$(bouncer_live_locks "$PROJECT")"
     if [ "$(printf '%s\n' "$live" | grep -c .)" = 1 ]; then
+      if [ "$mutating" = 1 ]; then
+        die "진행 중인 작업이 있지만 이 세션 것이 아니다: $(basename "$live")
+그 작업을 쥐고 있는 세션에서 끝내야 한다.
+그 세션이 죽은 게 확실하면: bouncer release --force"
+      fi
       TASK="$live"
       printf '(세션 ID가 없어 진행 중인 작업 하나를 대상으로 한다: %s)\n' \
         "$(basename "$TASK")" >&2
@@ -75,6 +86,10 @@ cmd_scan() {
     for d in "$tasks"/*/; do
       [ -f "${d}state.json" ] || continue
       [ -f "${d}.active" ] && continue
+      if ! jq -e . "${d}state.json" >/dev/null 2>&1; then
+        printf 'ORPHAN\t%s\t(상태 파일 손상 — 이어받을 수 없다)\n' "$(basename "${d%/}")"
+        found=2; continue
+      fi
       st="$(bouncer_state "${d%/}" '.current_stage')"
       [ "$st" = cancelled ] && continue
       [ -n "$(bouncer_state "${d%/}" '.finished_at')" ] && continue
@@ -86,6 +101,11 @@ cmd_scan() {
   [ "$found" = 0 ] && printf 'STATE\tNONE\n'
 
   [ -f "$COMPILED" ] || return 0
+  if ! jq -e . "$COMPILED" >/dev/null 2>&1; then
+    printf 'ERROR\t컴파일 결과가 손상됐다: %s\n' "$COMPILED"
+    printf 'ERROR\t`bouncer check` 로 workflow.yaml을 확인하라. 다음 세션 시작 때 다시 컴파일된다.\n'
+    return 0
+  fi
   jq -r '.workflows | to_entries[] | "WORKFLOW\t\(.key)\t\(.value.label)"' "$COMPILED"
   while IFS= read -r wf; do
     [ -z "$wf" ] && continue
@@ -131,6 +151,9 @@ cmd_start() {
   [ -n "$wf" ] && [ -n "$slug" ] || die "usage: bouncer start <workflow> <slug> [--parallel] [--off <id>]"
   [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
   [ -f "$COMPILED" ] || die "워크플로우가 컴파일되지 않았다: $COMPILED"
+  jq -e . "$COMPILED" >/dev/null 2>&1 \
+    || die "컴파일 결과가 손상됐다: $COMPILED
+'bouncer check' 로 workflow.yaml을 확인하라. 다음 세션 시작 때 다시 컴파일된다."
 
   local first; first="$(bouncer_chain "$PROJECT" "$wf" | head -1)"
   [ -n "$first" ] || die "정의되지 않은 워크플로우: $wf"
@@ -299,12 +322,12 @@ hook은 이 상태에서 작업을 진행시키지 않는다.
       elif ($st[0].choices | has($sid)) then $st[0].choices[$sid]
       else true end) as $on |
      ($st[0].skipped[$sid] // false) as $skip |
-     "  \(if $skip then "⃠" elif ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if $skip then "  (건너뜀)" elif ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)")'
+     "  \(if $skip then "⃠" elif ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if $skip then "  (건너뜀)" elif ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)\n      id: \($sid)")'
 }
 
 # ── 실행 / 완료 ──────────────────────────────────────────────
 cmd_run() {
-  need_task
+  need_task --mutating
   local id="${1:-}"; [ -n "$id" ] || die "usage: bouncer run <step-id>"
   local step; step="$(step_json "$id" "$STAGE")"
   [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다. 'bouncer status'로 확인하라."
@@ -339,7 +362,7 @@ cmd_run() {
 }
 
 cmd_done() {
-  need_task
+  need_task --mutating
   local id="${1:-}"; [ -n "$id" ] || die "usage: bouncer done <step-id>"
   local step; step="$(step_json "$id" "$STAGE")"
   [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다."
@@ -356,7 +379,7 @@ cmd_done() {
 }
 
 cmd_cancel() {
-  need_task
+  need_task --mutating
   local noted=1
   bouncer_state_update "$TASK" --arg n "$(date -u +%FT%TZ)" \
     '.current_stage = "cancelled" | .cancelled_at = $n' || noted=0
@@ -429,6 +452,7 @@ cmd_resume() {
     for d in "$tasks"/*/; do
       [ -f "$d/state.json" ] || continue
       [ -f "$d/.active" ] && continue
+      jq -e . "${d}state.json" >/dev/null 2>&1 || continue   # 손상된 것은 못 이어받는다
       st="$(bouncer_state "${d%/}" '.current_stage')"
       # 끝났거나 취소된 것은 이어받을 게 없다
       [ "$st" = cancelled ] && continue
@@ -459,7 +483,7 @@ cmd_resume() {
 # 정작 그런 명령이 없었다. 엔진이 이미 포기한(max_attempts 소진) step만 열어준다 —
 # 그래야 게이트를 처음부터 우회하는 수단이 되지 않는다.
 cmd_skip() {
-  need_task
+  need_task --mutating
   local id="${1:-}"; [ -n "$id" ] || die "usage: bouncer skip <step-id>"
   # 막고 있는 게이트가 현재 스테이지 소속이 아닐 수 있다 (반송된 뒤가 그렇다).
   # 그래서 현재 스테이지가 아니라 이 워크플로우의 체인 전체에서 찾는다.
@@ -516,7 +540,7 @@ cmd_wt_create() {
 }
 
 cmd_wt_finalize() {
-  need_task
+  need_task --mutating
   local _wt; _wt="$(bouncer_state "$TASK" '.worktree.path')"
   [ -n "$_wt" ] || die "이 작업은 병렬(worktree) 작업이 아니다."
   # 없는 디렉토리에 git 을 돌리면 빈 출력이 나와 "깨끗함"으로 통과하고,

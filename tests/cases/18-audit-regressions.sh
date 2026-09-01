@@ -47,72 +47,42 @@ PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null \
   || { no "e2e step 추가" "컴파일 실패"; echo
-echo "[핵심 차단이 실제로 걸리는가]"
-# 감사에서 이 기능들을 전부 no-op으로 바꿔도 테스트가 전건 통과했다.
-# 무력화하면 반드시 여기서 빨간불이 나야 한다.
+echo "[감사가 지적한 나머지 회귀]"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
-# (a) 엔진 디렉토리 삭제 — 제약 없는 done 단계에서도 막혀야 한다
-bouncer start simple guard1 >/dev/null
-for c in "rm -rf .ai-bouncer" "git clean -fdx" "rm -rf .ai*" "rm -rf .claude" \
-         "find . -name state.json -delete"; do
-  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
-  [ -n "$r" ] || { no "엔진 보호" "$c 통과됨"; G1=1; }
+# 이름이 bouncer.sh 로 끝나는 아무 스크립트나 면제받던 것
+bouncer start plan f2 >/dev/null
+mkdir -p "$T/tools"; printf '#!/bin/sh\ngit push\n' > "$T/tools/bouncer.sh"; chmod +x "$T/tools/bouncer.sh"
+F2=0
+for c in "./tools/bouncer.sh" "/tmp/evil/bouncer.sh --do-it" "tools/bouncer.sh status"; do
+  [ -n "$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")" ] || F2=1
 done
-[ "${G1:-0}" = 0 ] && ok "엔진 디렉토리를 지우는 명령 차단 (5건)"
+[ "$F2" = 0 ] && ok "bouncer.sh 이름만 흉내낸 스크립트는 면제 안 됨 (3건)" || no "이름 흉내 통과"
+[ -z "$(pre Bash '{"command":"bouncer status"}')" ] && ok "진짜 bouncer 는 여전히 통과" || no "정상 호출 차단됨"
 
-# (b) 스테이지가 yaml에서 사라지면 Stop과 PreToolUse 둘 다 막아야 한다
-cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/compiled.bak"
-jq 'del(.stages.implement)' "$T/compiled.bak" > "$T/.claude/ai-bouncer/workflow.compiled.json"
-r=$(stop); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
-  && ok "스테이지 소실 — Stop이 차단" || no "Stop 무반응" "${r:0:80}"
-r=$(pre Bash '{"command":"echo hi"}'); printf '%s' "$r" | grep -q "workflow.yaml에 없다" \
-  && ok "스테이지 소실 — PreToolUse가 차단" || no "PreToolUse 무반응" "${r:0:80}"
-r=$(pre Bash '{"command":"bouncer cancel"}')
-[ -z "$r" ] && ok "그 상황에서도 bouncer cancel 은 통과" || no "탈출구까지 막힘" "${r:0:60}"
-cp "$T/compiled.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
-bouncer cancel >/dev/null 2>&1
+# 세션 ID 없이 남의 작업을 바꾸지 못한다
+says '이 세션 것이 아니다' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" cancel \
+  && ok "세션 ID 없으면 남의 작업을 취소하지 못한다" || no "남의 작업 취소됨"
+ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && ok "잠금이 그대로다" || no "잠금 사라짐"
+says '현재 단계' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" status \
+  && ok "조회는 세션 ID 없이도 된다" || no "status 안 됨"
 
-# (c) worktree 밖 쓰기 차단 + 그 안 상대경로 허용
-bouncer start simple guard2 --parallel >/dev/null 2>&1
-WT2="$(jq -r '.worktree.path' "$(task_dir)/state.json")"
-if [ -d "$WT2" ]; then
-  r=$(pre Bash "$(jq -nc --arg c "echo x > $T/app.js" '{command:$c}')")
-  [ -n "$r" ] && ok "worktree 작업 중 메인 레포 셸 쓰기 차단" || no "메인 쓰기 통과"
-  r=$(pre Bash "$(jq -nc --arg c "cd $WT2 && echo x > src/new.js" '{command:$c}')")
-  [ -z "$r" ] && ok "cd 뒤 worktree 안 상대경로는 허용" || no "worktree 안 차단됨" "${r:0:70}"
-  # (d) 미머지 worktree면 종단에서 잠금을 유지해야 finalize가 가능하다
-  git -C "$WT2" commit -q --allow-empty -m w
-  stop >/dev/null                        # implement → verify
-  stop >/dev/null                        # 사람 대기 표시
-  bouncer run "verify/e2e" >/dev/null 2>&1
-  user_turn >/dev/null
-  bouncer done "verify/검증 보고" >/dev/null 2>&1
-  stop >/dev/null                        # verify → finalize
-  stop >/dev/null                        # finalize (worktree는 커밋 완료라 통과)
-  r=$(stop)                              # done — 여기서 머지를 요구해야 한다
-  printf '%s' "$r" | grep -q 'worktree finalize' && ok "미머지 worktree면 종단에서 머지를 요구" \
-    || no "머지 요구 없음" "stage=$(stage) ${r:0:70}"
-  ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 \
-    && ok "그때 잠금을 유지한다 (finalize가 작업을 찾을 수 있다)" || no "잠금 해제됨"
-  says 'MERGED' bouncer worktree finalize && ok "finalize가 실제로 머지" \
-    || no "finalize 실패" "$(bouncer worktree finalize 2>&1 | head -2)"
-else
-  no "worktree 생성" "$WT2"
-fi
-bouncer cancel >/dev/null 2>&1
+# state.json 손상 시 Stop 도 알린다 (예전엔 조용히 무관여)
+cp "$(task_dir)/state.json" "$T/st.bak"
+printf '{ nope' > "$(task_dir)/state.json"
+r=$(stop); printf '%s' "$r" | grep -q '손상' && ok "손상 state를 Stop이 알린다" || no "Stop 침묵" "${r:0:60}"
+BROKEN_ID="$(basename "$(task_dir)")"
+bouncer resume 2>&1 | grep -q "$BROKEN_ID" \
+  && no "손상 작업 노출" "$BROKEN_ID 가 목록에 있다" || ok "손상된 작업은 이어받기 목록에서 제외"
+cp "$T/st.bak" "$(task_dir)/state.json"; bouncer cancel >/dev/null 2>&1
 
-echo
-echo "[resume 이 한 세션 한 작업을 지킨다]"
-bouncer start simple dup1 >/dev/null
-D2="$(basename "$(task_dir)")"
-CLAUDE_CODE_SESSION_ID=S8 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
-bouncer start simple dup2 >/dev/null
-says '이미 진행 중인 작업' bouncer resume "$D2" \
-  && ok "진행 중인데 다른 작업을 이어받지 못한다" || no "중복 점유 허용됨"
-says 'ORPHAN' bouncer scan && ok "잠금 없는 미완 작업을 scan이 보여준다" || no "ORPHAN 미표시"
-bouncer cancel >/dev/null 2>&1
+# compiled.json 손상 시 scan / start 가 오진하지 않는다
+cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/cc.bak"
+printf 'nope' > "$T/.claude/ai-bouncer/workflow.compiled.json"
+says '컴파일 결과가 손상' bouncer scan && ok "scan이 손상을 알린다" || no "scan 오진" "$(bouncer scan 2>&1|head -2)"
+says '컴파일 결과가 손상' bouncer start simple x && ok "start가 손상을 알린다" || no "start 오진" "$(bouncer start simple x 2>&1|head -1)"
+cp "$T/cc.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
 
 finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
@@ -240,6 +210,14 @@ for i in $(seq 1 14); do
   printf '%s' "$r" | grep -q 'bouncer skip' && { GAVE=1; break; }
 done
 [ "$GAVE" = 1 ] && ok "엔진이 포기하며 skip을 제안한다" || no "포기 제안 없음" "14회 안에 안 나옴"
+# 제안은 그대로 복사해서 실행할 수 있어야 한다. id 에 공백이 있어 쪼개지던 버그.
+SUG="$(printf '%s' "$r" | jq -r '.reason // .hookSpecificOutput.additionalContext // ""' \
+       | grep -o "bouncer skip '[^']*'" | head -1)"
+[ -n "$SUG" ] && ok "제안에 실행 가능한 step id 가 실린다" || no "제안 형식" "id 없음"
+if [ -n "$SUG" ]; then
+  eval "bouncer ${SUG#bouncer }" >/dev/null 2>&1 \
+    && ok "제안한 명령이 그대로 실행된다" || no "제안 실행 실패" "$SUG"
+fi
 says 'SKIPPED' bouncer skip "finalize/워킹트리 정리 확인" \
   && ok "제안 뒤에는 skip이 통한다" || no "skip 거부됨" "$(bouncer skip 'finalize/워킹트리 정리 확인' 2>&1|head -2)"
 says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
@@ -344,5 +322,43 @@ says '이미 진행 중인 작업' bouncer resume "$D2" \
   && ok "진행 중인데 다른 작업을 이어받지 못한다" || no "중복 점유 허용됨"
 says 'ORPHAN' bouncer scan && ok "잠금 없는 미완 작업을 scan이 보여준다" || no "ORPHAN 미표시"
 bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[감사가 지적한 나머지 회귀]"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+# 이름이 bouncer.sh 로 끝나는 아무 스크립트나 면제받던 것
+bouncer start plan f2 >/dev/null
+mkdir -p "$T/tools"; printf '#!/bin/sh\ngit push\n' > "$T/tools/bouncer.sh"; chmod +x "$T/tools/bouncer.sh"
+F2=0
+for c in "./tools/bouncer.sh" "/tmp/evil/bouncer.sh --do-it" "tools/bouncer.sh status"; do
+  [ -n "$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")" ] || F2=1
+done
+[ "$F2" = 0 ] && ok "bouncer.sh 이름만 흉내낸 스크립트는 면제 안 됨 (3건)" || no "이름 흉내 통과"
+[ -z "$(pre Bash '{"command":"bouncer status"}')" ] && ok "진짜 bouncer 는 여전히 통과" || no "정상 호출 차단됨"
+
+# 세션 ID 없이 남의 작업을 바꾸지 못한다
+says '이 세션 것이 아니다' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" cancel \
+  && ok "세션 ID 없으면 남의 작업을 취소하지 못한다" || no "남의 작업 취소됨"
+ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && ok "잠금이 그대로다" || no "잠금 사라짐"
+says '현재 단계' env -u CLAUDE_CODE_SESSION_ID bash "$R/engine/bouncer.sh" status \
+  && ok "조회는 세션 ID 없이도 된다" || no "status 안 됨"
+
+# state.json 손상 시 Stop 도 알린다 (예전엔 조용히 무관여)
+cp "$(task_dir)/state.json" "$T/st.bak"
+printf '{ nope' > "$(task_dir)/state.json"
+r=$(stop); printf '%s' "$r" | grep -q '손상' && ok "손상 state를 Stop이 알린다" || no "Stop 침묵" "${r:0:60}"
+BROKEN_ID="$(basename "$(task_dir)")"
+bouncer resume 2>&1 | grep -q "$BROKEN_ID" \
+  && no "손상 작업 노출" "$BROKEN_ID 가 목록에 있다" || ok "손상된 작업은 이어받기 목록에서 제외"
+cp "$T/st.bak" "$(task_dir)/state.json"; bouncer cancel >/dev/null 2>&1
+
+# compiled.json 손상 시 scan / start 가 오진하지 않는다
+cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/cc.bak"
+printf 'nope' > "$T/.claude/ai-bouncer/workflow.compiled.json"
+says '컴파일 결과가 손상' bouncer scan && ok "scan이 손상을 알린다" || no "scan 오진" "$(bouncer scan 2>&1|head -2)"
+says '컴파일 결과가 손상' bouncer start simple x && ok "start가 손상을 알린다" || no "start 오진" "$(bouncer start simple x 2>&1|head -1)"
+cp "$T/cc.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
 
 finish

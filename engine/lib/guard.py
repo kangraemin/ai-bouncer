@@ -525,10 +525,18 @@ def track_cd(exe, args, struct=()):
     """
     if exe not in ('cd', 'pushd', 'popd'):
         return
-    if any(t in ('(', ')') for t in struct):
-        return                          # 서브셸 안의 이동은 밖에 영향이 없다
+    if struct:
+        # 서브셸 `( cd x )` 의 이동은 밖에 영향이 없고,
+        # `cd $(...)` 는 어디로 가는지 알 수 없다. 둘 다 "모름"이 안전하다.
+        EFFECTIVE_CWD[0] = UNKNOWN_CWD
+        return
     tgt = next((a for a in args if not a.startswith('-')), None)
     if exe == 'popd' or tgt is None or tgt == '-' or '-' in args:
+        EFFECTIVE_CWD[0] = UNKNOWN_CWD
+        return
+    # 변수·치환이 섞이면 실제 경로를 알 수 없다. 계산해봐야 없는 경로가 나오고,
+    # 그러면 이후 상대경로가 전부 "프로젝트 밖"이 되어 스코프가 통째로 꺼진다.
+    if '$' in tgt or '`' in tgt or '*' in tgt or '?' in tgt:
         EFFECTIVE_CWD[0] = UNKNOWN_CWD
         return
     EFFECTIVE_CWD[0] = abspath(tgt)
@@ -545,6 +553,7 @@ def abspath(p):
     p = p.strip('"\'')
     if not p:
         return ''
+    p = os.path.expanduser(p)           # `~/proj` 를 그대로 두면 프로젝트 밖으로 샌다
     base = p if os.path.isabs(p) else os.path.join(cwd_now(), p)
     # 대상 자체는 없을 수 있으므로(새로 만드는 파일) 상위만 링크를 푼다.
     head, tail = os.path.split(os.path.normpath(base))
@@ -946,6 +955,16 @@ def check_outside(seg_tokens, redirs, exe, args):
     """worktree 작업 중 메인 레포를 고치면 검증이 다른 트리를 본다."""
     if not WORKTREE:
         return
+    if cwd_unknown():
+        for op, t in redirs:
+            if redirect_writes(op, t) and not os.path.isabs(t.strip('"\'')):
+                out("`cd` 대상이 리터럴이 아니라 기준 디렉토리를 알 수 없다.\n"
+                    "worktree 안인지 확인할 수 없으므로 절대경로로 적어라: %s" % t)
+        if exe in WRITERS:
+            for a in write_targets(exe, args):
+                if not os.path.isabs(a.strip('"\'')):
+                    out("`cd` 대상이 리터럴이 아니라 기준 디렉토리를 알 수 없다.\n"
+                        "worktree 안인지 확인할 수 없으므로 절대경로로 적어라: %s" % a)
     bad = [t for op, t in redirs if redirect_writes(op, t) and outside_worktree(t)]
     if exe in WRITERS:
         bad += [a for a in write_targets(exe, args) if outside_worktree(a)]
