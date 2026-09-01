@@ -254,12 +254,16 @@ sed -i "" s/a/b/ .claude/ai-bouncer/workflow.yaml
 cat .claude/ai-bouncer/workflow.yaml > /tmp/x
 CASES
 
+# 루프 안에서 실패를 알린 뒤 무조건 ok 를 찍으면, 실패가 그대로 "통과 1건"으로
+# 집계된다 (run-all은 ✅ 개수를 센다). 실제로 pre-tool을 no-op으로 바꿔 확인했다.
+BAD=0
 for t in Edit Write MultiEdit; do
   r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"%s","tool_input":{"file_path":"%s"}}' \
       "$T" "$t" "$T/.ai-bouncer/tasks/x/state.json" | bash .claude/ai-bouncer/hooks/pre-tool.sh)
-  [ -n "$r" ] || { no "$t 로 state.json 수정" "허용됨"; break; }
+  [ -n "$r" ] || { BAD=1; printf '     ↳ %s 로 state.json 수정이 허용됨\n' "$t"; }
 done
-ok "Edit/Write/MultiEdit 로 엔진 파일 수정 차단 (3건)"
+[ "$BAD" = 0 ] && ok "Edit/Write/MultiEdit 로 엔진 파일 수정 차단 (3건)" \
+               || no "Edit/Write/MultiEdit 로 엔진 파일 수정 차단" "위 항목 허용됨"
 
 printf '\n[읽기 전용 단계 — 막혀선 안 되는 것]\n'
 # 과차단은 사용자가 도구를 꺼버리게 만든다. 우회만큼 중요하다.

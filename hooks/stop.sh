@@ -35,7 +35,13 @@ WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
 
 bouncer_touch_lock "$TASK"   # 하트비트 — 방치 판정의 근거
 STAGE_JSON="$(bouncer_stage "$CWD" "$STAGE")"
-[ -n "$STAGE_JSON" ] || exit 0
+# 빈 값이면 조용히 나가면 안 된다 — 작업이 영원히 멈추고 잠금이 남는다.
+# (워크플로우 이름 변경은 아래 전이 단계에서 잡히지만, 스테이지 삭제는 여기서 잡아야 한다)
+if [ -z "$STAGE_JSON" ]; then
+  STAGE_MISSING=1
+else
+  STAGE_MISSING=0
+fi
 
 MAX_CONTINUE="$(bouncer_config max_continue 10 "$CWD")"
 MAX_ATTEMPTS="$(bouncer_config max_attempts 3 "$CWD")"
@@ -80,6 +86,27 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   bouncer_block "$1"
 }
 
+# 엔진이 이 스테이지를 포기했다고 기록한다. `bouncer skip` 은 이 표시가 있어야 열린다.
+# 지금 막고 있는 조건이 다른 스테이지 소속일 수도 있어서(반송 뒤가 그렇다)
+# 미충족 step 이 속한 스테이지도 같이 표시한다.
+mark_gave_up() {
+  bouncer_state_update "$TASK" --arg s "$STAGE" '.gave_up[$s] = true'
+  # 반송된 상태라면 막고 있는 게이트는 되돌려보낸 그 스테이지 소속이다.
+  local bs
+  bs="$(bouncer_state "$TASK" '.returned_from')"
+  [ -n "$bs" ] && [ "$bs" != "$STAGE" ] \
+    && bouncer_state_update "$TASK" --arg s "$bs" '.gave_up[$s] = true'
+  return 0
+}
+
+if [ "$STAGE_MISSING" = 1 ]; then
+  guarded_block "⛔ [ai-bouncer] 진행 중인 단계 '$STAGE' 가 workflow.yaml에 없다.
+작업 도중 삭제되었거나 이름이 바뀐 것으로 보인다.
+
+  · workflow.yaml에서 '$STAGE' 를 되돌린다
+  · 이 작업을 포기한다: bouncer cancel"
+fi
+
 # 작업 트리가 사라졌는데 조용히 프로젝트로 폴백하면 검증 대상이 예고 없이 바뀐다.
 # (빈 worktree는 항상 클린 트리라 finalize 게이트가 무조건 열린다)
 if [ ! -d "$WORK_ROOT" ]; then
@@ -88,7 +115,8 @@ if [ ! -d "$WORK_ROOT" ]; then
 검증과 커밋을 어느 트리에서 해야 할지 알 수 없어 진행할 수 없다.
 
   · 작업을 포기한다:        bouncer cancel
-  · worktree를 되살린다:    git worktree add $WORK_ROOT $(bouncer_state "$TASK" '.worktree.branch')"
+  · worktree를 되살린다:    git worktree prune && git worktree add $WORK_ROOT $(bouncer_state "$TASK" '.worktree.branch')
+    (prune 없이 add만 하면 '이미 등록된 worktree' 라며 실패한다)"
 fi
 add_failure() { FAILURES="${FAILURES}${FAILURES:+$'\n'}- $1"; }
 
@@ -210,8 +238,9 @@ $(bouncer_state "$TASK" '.last_failure')
 
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
-  2. 이 조건을 이번 작업에서만 건너뛴다
+  2. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+        mark_gave_up
         exit 0
       fi
       guarded_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
@@ -238,6 +267,19 @@ $(bouncer_state "$TASK" '.last_failure')"
   · 이 작업을 포기한다: bouncer cancel"
   fi
   if [ -z "$NEXT" ]; then
+    # 병렬 작업이면 머지가 남아 있다. 여기서 잠금을 풀면 `worktree finalize` 가
+    # 작업을 못 찾아(need_task는 .active로 찾는다) 커밋이 브랜치에 갇힌다.
+    WT_PATH="$(bouncer_state "$TASK" '.worktree.path')"
+    if [ -n "$WT_PATH" ] \
+       && [ "$(bouncer_state "$TASK" '.worktree.merged')" != "true" ]; then
+      bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" '.finished_at = $t'
+      guarded_block "✅ 작업은 끝났지만 아직 base 브랜치에 합쳐지지 않았다.
+
+    bouncer worktree finalize
+
+이걸 실행해야 $(bouncer_state "$TASK" '.worktree.branch') 가 base로 FF 머지되고
+worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다."
+    fi
     # 종단 도달 — lock 해제. 작업 문서는 남긴다.
     bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" \
       '.finished_at = $t | .allowed_stop = false'
@@ -278,12 +320,13 @@ fi
 STREAK="$(bouncer_state "$TASK" '.continue_streak')"; [ -n "$STREAK" ] || STREAK=0
 
 # ── on_fail 되돌아가기 ───────────────────────────────────────
-# 이 스테이지가 파일 수정을 금지한다면 제자리 재시도는 무의미하다 → 1회 실패로 즉시 반송.
-# 수정이 가능하면 max_attempts만큼 제자리에서 고쳐보고 그래도 안 되면 반송.
+# 이 스테이지가 **모든** 파일 수정을 금지한다면 제자리 재시도는 무의미하다 → 1회로 반송.
+# 글로브 배열은 스코프 밖만 막는 것이라 제자리에서 고칠 수 있다 —
+# 여기서 배열까지 "수정 불가"로 보면 max_attempts가 무시되고 max_loops만 빨리 탄다.
 ON_FAIL="$(jq -r '.on_fail // empty' <<<"$STAGE_JSON")"
 if [ -n "$ON_FAIL" ] && [ "$HUMAN_WAIT" != "1" ]; then
   CAN_FIX_HERE=1
-  [ "$(jq -r '.forbid.edit_files // "null"' <<<"$STAGE_JSON")" != "null" ] && CAN_FIX_HERE=0
+  [ "$(jq -r '.forbid.edit_files' <<<"$STAGE_JSON")" = "true" ] && CAN_FIX_HERE=0
   ATTEMPTS="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
   [ -n "$ATTEMPTS" ] || ATTEMPTS=0
   ATTEMPTS=$(( ATTEMPTS + 1 ))
@@ -318,8 +361,9 @@ $FAILURES
 
 AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
   1. 접근을 바꿔서 다시 시도한다
-  2. 이 조건을 이번 작업에서만 건너뛴다
+  2. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+      mark_gave_up
       exit 0
     fi
     LOOPS=$(( LOOPS + 1 ))
@@ -345,6 +389,7 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
         .current_stage = $back
         | .returned_tree = $tree
         | .returned_to = $back
+        | .returned_from = $s
         | .loops[$pair] = $n
         | .evidence       |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .shown          |= with_entries(select(.key as $k | ($ids | index($k)) | not))
@@ -403,8 +448,9 @@ $FAILURES
 AskUserQuestion으로 사용자에게 물어라:
   1. 계속 시도한다
   2. 접근을 바꾼다 (필요하면 이전 단계로 되돌린다)
-  3. 이 조건을 이번 작업에서만 건너뛴다
+  3. 이 조건을 이번 작업에서만 건너뛴다 (bouncer skip <step-id>)
   4. 작업을 중단한다" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+  mark_gave_up
   exit 0
 fi
 

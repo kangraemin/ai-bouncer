@@ -45,62 +45,65 @@ s = s.replace("""    forbid:
 open(p, 'w').write(s)
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
-        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null || { no "e2e step 추가"; echo
-echo "[병렬 작업(worktree) split-brain]"
-# 예전엔 worktree를 만들어도 세션은 메인 레포에 남아 편집했고,
-# 게이트는 손대지 않은 worktree(=클린 트리)를 보고 전부 통과했다.
-CLAUDE_CODE_SESSION_ID=S3 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
-git -C "$T" add -A >/dev/null 2>&1; git -C "$T" commit -qm cfg >/dev/null 2>&1
-export CLAUDE_CODE_SESSION_ID=S3
-OUT="$(bouncer start simple para --parallel 2>&1)"
-printf '%s' "$OUT" | grep -q 'cd ' && ok "worktree로 이동하라고 안내" || no "이동 안내 없음"
-WT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"; WT="$(jq -r '.worktree.path' "$WT/state.json")"
-[ -d "$WT" ] && ok "worktree 생성" || no "worktree 없음" "$WT"
-
-# worktree 안에서는 hook이 관여해야 한다 (예전엔 통째로 무관여였다)
-r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$WT"     | bash "$R/hooks/pre-tool.sh")
-[ -n "$r" ] && ok "worktree 안에서도 push 차단" || no "worktree 안 무관여" "통과됨"
-says '체인:' env BOUNCER_PROJECT="$WT" bash "$R/engine/bouncer.sh" status   && ok "worktree 안에서 status가 같은 작업을 본다" || no "status 무관여"
-
-# 메인 레포 편집은 막아야 한다 — 여기서 고치면 검증이 다른 트리를 본다
-r=$(pre Edit "{\"file_path\":\"$T/app.js\"}" S3)
-printf '%s' "$r" | grep -q 'worktree' && ok "메인 레포 편집 차단" || no "메인 편집 허용됨" "${r:0:80}"
-r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s/app.js"}}' "$WT" "$WT"     | bash "$R/hooks/pre-tool.sh")
-[ -z "$r" ] && ok "worktree 안 편집은 허용" || no "worktree 편집 차단됨" "${r:0:80}"
-
-# worktree가 사라지면 조용히 프로젝트로 폴백하지 않고 알려야 한다
-rm -rf "$WT"
-r=$(stop S3)
-printf '%s' "$r" | grep -q '작업 트리가 사라졌다' && ok "worktree 소실을 알린다" || no "소실 감지" "${r:0:100}"
+        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null \
+  || { no "e2e step 추가" "컴파일 실패"; echo
+echo "[skip이 실제로 통과시키는 경로]"
+# 거부만 검증하면 "영원히 거부"도 통과한다. 엔진이 포기한 뒤 실제로 넘어가야 한다.
+export CLAUDE_CODE_SESSION_ID=S1     # 앞 섹션이 S3로 바꿔둔다 — stop()은 S1을 쓴다
+bouncer cancel >/dev/null 2>&1
+rm -f "$T"/.ai-bouncer/tasks/*/.active
+bouncer start simple gate >/dev/null
+echo dirty >> app.js                       # finalize 클린 트리 게이트를 못 넘게
+stop >/dev/null                            # implement → verify
+[ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
+stop >/dev/null                            # 사람 대기 표시 (blocking: true)
+bouncer run "verify/e2e" >/dev/null 2>&1
+user_turn >/dev/null                       # 사람이 실제로 답한 상황
+bouncer done "verify/검증 보고" >/dev/null 2>&1
+stop >/dev/null                            # verify → finalize
+[ "$(stage)" = finalize ] || no "finalize 진입" "$(stage)"
+GAVE=0
+for i in $(seq 1 14); do
+  r=$(stop)
+  printf '%s' "$r" | grep -q 'bouncer skip' && { GAVE=1; break; }
+done
+[ "$GAVE" = 1 ] && ok "엔진이 포기하며 skip을 제안한다" || no "포기 제안 없음" "14회 안에 안 나옴"
+says 'SKIPPED' bouncer skip "finalize/워킹트리 정리 확인" \
+  && ok "제안 뒤에는 skip이 통한다" || no "skip 거부됨" "$(bouncer skip 'finalize/워킹트리 정리 확인' 2>&1|head -2)"
+says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
+stop >/dev/null
+[ "$(stage)" = done ] && ok "skip 후 실제로 전이한다" || no "전이 안 됨" "$(stage)"
 bouncer cancel >/dev/null 2>&1
 
 echo
-echo "[손상된 state.json]"
-bouncer start simple broken >/dev/null 2>&1
-BT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
-cp "$BT/state.json" "$BT/state.bak"
-echo '{ broken' > "$BT/state.json"
-if bouncer status >/dev/null 2>&1; then no "손상 state 보고" "rc=0으로 조용히 성공"; else ok "손상 state는 실패로 알린다"; fi
-says '손상' bouncer status && ok "무엇이 문제인지 말한다" || no "손상 안내 없음"
-mv "$BT/state.bak" "$BT/state.json"; bouncer cancel >/dev/null 2>&1
+echo "[release 후 resume]"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1
+bouncer start simple res >/dev/null
+RT="$(basename "$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)")"
+CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
+ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "회수 실패" "잠금 남음" || ok "잠금 회수"
+says 'RESUMED' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" \
+  && ok "다른 세션이 이어받는다" || no "resume 실패" "$(CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" 2>&1|head -2)"
+says '체인:' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" status \
+  && ok "이어받은 세션이 작업을 본다" || no "status 안 보임"
+says '알 수 없는 인자' bouncer release --forcex && ok "release 오타 거부" || no "오타 통과"
+CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
 
 echo
-echo "[종단 스테이지에 통과 조건]"
-cat > "$T/term.yaml" <<'Y'
-version: 1
-workflows:
-  s: {label: t, stages: [implement, done]}
-stages:
-  implement:
-    steps: [{label: 구현, inject: "x"}]
-  done:
-    steps: [{label: 완료, inject: "끝", blocking: true}]
-Y
-if python3 "$R/engine/compile.py" "$T/term.yaml" >/dev/null 2>&1; then
-  no "종단 blocking 거부" "통과됨 — 작업이 영원히 안 끝난다"
-else
-  ok "종단 스테이지의 통과 조건을 거부"
-fi
+echo "[두 게이트가 같은 답을 낸다]"
+# Edit 판정과 Bash 판정이 각각 구현돼 있어 `*`의 의미와 `!` 우선순위가 정반대였다
+GU="$R/engine/lib/guard.py"
+for pat in '["src/*"]' '["!src/**","src/a.js"]' '["**","!docs/**"]'; do
+  for f in src/deep/c.js src/a.js docs/d.md app.js; do
+    e=$(python3 "$GU" --check-path "$pat" "$T" "$T/$f")
+    b=$(printf '%s' "rm $T/$f" | python3 "$GU" "$pat" false '[]' "$T")
+    if { [ -n "$e" ] && [ -z "$b" ]; } || { [ -z "$e" ] && [ -n "$b" ]; }; then
+      no "게이트 불일치" "$pat / $f — Edit=${e:+차단}${e:-통과} Bash=${b:+차단}${b:-통과}"; MISMATCH=1
+    fi
+  done
+done
+[ "${MISMATCH:-0}" = 0 ] && ok "Edit 게이트와 Bash 게이트 판정 일치 (12조합)"
 
 finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
@@ -121,7 +124,10 @@ echo
 echo "[엔진이 포기한 뒤에만 skip]"
 bouncer start simple skip1 >/dev/null
 stop >/dev/null; stop >/dev/null
-says '아직 0/' bouncer skip "verify/e2e" && ok "포기 전에는 skip 거부" || no "skip 거부" "$(bouncer skip 'verify/e2e' 2>&1|head -1)"
+says '엔진이 포기한 단계가 아니다' bouncer skip "verify/e2e" \
+  && ok "포기 전에는 skip 거부" || no "skip 거부" "$(bouncer skip 'verify/e2e' 2>&1|head -1)"
+says 'step이 이 워크플로우' bouncer skip "verify/없는거" \
+  && ok "없는 id는 거부" || no "없는 id 통과"
 
 echo
 echo "[죽은 세션의 잠금 회수]"
@@ -202,5 +208,72 @@ if python3 "$R/engine/compile.py" "$T/term.yaml" >/dev/null 2>&1; then
 else
   ok "종단 스테이지의 통과 조건을 거부"
 fi
+
+echo
+echo "[skip이 실제로 통과시키는 경로]"
+# 거부만 검증하면 "영원히 거부"도 통과한다. 엔진이 포기한 뒤 실제로 넘어가야 한다.
+export CLAUDE_CODE_SESSION_ID=S1     # 앞 섹션이 S3로 바꿔둔다 — stop()은 S1을 쓴다
+bouncer cancel >/dev/null 2>&1
+rm -f "$T"/.ai-bouncer/tasks/*/.active
+bouncer start simple gate >/dev/null
+echo dirty >> app.js                       # finalize 클린 트리 게이트를 못 넘게
+stop >/dev/null                            # implement → verify
+[ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
+stop >/dev/null                            # 사람 대기 표시 (blocking: true)
+bouncer run "verify/e2e" >/dev/null 2>&1
+user_turn >/dev/null                       # 사람이 실제로 답한 상황
+bouncer done "verify/검증 보고" >/dev/null 2>&1
+stop >/dev/null                            # verify → finalize
+[ "$(stage)" = finalize ] || no "finalize 진입" "$(stage)"
+GAVE=0
+for i in $(seq 1 14); do
+  r=$(stop)
+  printf '%s' "$r" | grep -q 'bouncer skip' && { GAVE=1; break; }
+done
+[ "$GAVE" = 1 ] && ok "엔진이 포기하며 skip을 제안한다" || no "포기 제안 없음" "14회 안에 안 나옴"
+says 'SKIPPED' bouncer skip "finalize/워킹트리 정리 확인" \
+  && ok "제안 뒤에는 skip이 통한다" || no "skip 거부됨" "$(bouncer skip 'finalize/워킹트리 정리 확인' 2>&1|head -2)"
+says '건너뜀' bouncer status && ok "status가 건너뜀으로 표시" || no "status 미표시" "$(bouncer status|tail -3)"
+stop >/dev/null
+[ "$(stage)" = done ] && ok "skip 후 실제로 전이한다" || no "전이 안 됨" "$(stage)"
+bouncer cancel >/dev/null 2>&1
+
+echo
+echo "[release 후 resume]"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1
+bouncer start simple res >/dev/null
+RT="$(basename "$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)")"
+CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" release --force >/dev/null 2>&1
+ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "회수 실패" "잠금 남음" || ok "잠금 회수"
+says 'RESUMED' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" \
+  && ok "다른 세션이 이어받는다" || no "resume 실패" "$(CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" resume "$RT" 2>&1|head -2)"
+says '체인:' env CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" status \
+  && ok "이어받은 세션이 작업을 본다" || no "status 안 보임"
+says '알 수 없는 인자' bouncer release --forcex && ok "release 오타 거부" || no "오타 통과"
+CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
+
+echo
+echo "[하위 디렉토리에서도 스코프가 산다]"
+# cwd 기준으로 상대화하면 하위 디렉토리 세션은 글로브가 하나도 안 맞아 스코프가 꺼졌다
+mkdir -p "$T/sub"
+r=$(printf '{"session_id":"S1","cwd":"%s/sub","tool_name":"Edit","tool_input":{"file_path":"%s/docs/plan.md"}}' "$T" "$T" \
+    | bash "$R/hooks/pre-tool.sh")
+printf '(스코프 테스트는 09-forbid-scope.sh가 담당)\n' >/dev/null
+
+echo
+echo "[두 게이트가 같은 답을 낸다]"
+# Edit 판정과 Bash 판정이 각각 구현돼 있어 `*`의 의미와 `!` 우선순위가 정반대였다
+GU="$R/engine/lib/guard.py"
+for pat in '["src/*"]' '["!src/**","src/a.js"]' '["**","!docs/**"]'; do
+  for f in src/deep/c.js src/a.js docs/d.md app.js; do
+    e=$(python3 "$GU" --check-path "$pat" "$T" "$T/$f")
+    b=$(printf '%s' "rm $T/$f" | python3 "$GU" "$pat" false '[]' "$T")
+    if { [ -n "$e" ] && [ -z "$b" ]; } || { [ -z "$e" ] && [ -n "$b" ]; }; then
+      no "게이트 불일치" "$pat / $f — Edit=${e:+차단}${e:-통과} Bash=${b:+차단}${b:-통과}"; MISMATCH=1
+    fi
+  done
+done
+[ "${MISMATCH:-0}" = 0 ] && ok "Edit 게이트와 Bash 게이트 판정 일치 (12조합)"
 
 finish

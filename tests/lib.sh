@@ -55,5 +55,8 @@ stop(){ hook stop "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 # 사용자가 실제로 입력한 상황을 흉내낸다. inject+blocking 게이트는 이게 있어야 통과한다.
 user_turn(){ hook user-prompt "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 pre(){ hook pre-tool "{\"session_id\":\"${3:-S1}\",\"cwd\":\"$T\",\"tool_name\":\"$1\",\"tool_input\":$2}"; }
-state(){ jq -r "$1" "$T"/.ai-bouncer/tasks/*/state.json 2>/dev/null; }
+# 가장 최근 작업 하나만 본다. 글롭으로 전부 읽으면 케이스가 쌓일수록
+# 값이 여러 줄로 섞여 나와 비교가 조용히 무너진다.
+task_dir(){ ls -dt "$T"/.ai-bouncer/tasks/*/ 2>/dev/null | head -1; }
+state(){ local d; d="$(task_dir)"; [ -n "$d" ] || return 1; jq -r "$1" "$d/state.json" 2>/dev/null; }
 stage(){ state .current_stage; }

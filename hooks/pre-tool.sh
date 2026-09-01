@@ -57,25 +57,16 @@ esac
 # 여기서 정규식으로 한 번 더 보던 코드는 지웠다 — 두 벌로 관리하니
 # 셸 쪽만 `.ai-bouncer` 부모 디렉토리를 놓쳐 `rm -rf .ai-bouncer` 가 통과했다.
 
-# ── 병렬 작업: 작업 트리 밖을 고치면 게이트가 다른 트리를 보게 된다 ────
-# worktree를 만들어놓고 세션은 메인 레포에서 계속 편집하면, 검증·finalize는
-# 손대지 않은 worktree를 보고 전부 통과해버린다(빈 트리 = 클린 트리).
-WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
-_WT="$(bouncer_state "$TASK" '.worktree.path')"
-if [ -n "$_WT" ] && [ -n "$FILE_PATH" ] && [ "$WORK_ROOT" = "$_WT" ]; then
-  case "$FILE_PATH" in
-    "$_WT"/*) ;;
-    /*) bouncer_block "⛔ [ai-bouncer] 이 작업은 별도 worktree에서 진행 중이다.
-    $_WT
-그런데 그 밖의 파일을 고치려 한다: $FILE_PATH
+STAGE_JSON="$(bouncer_stage "$CWD" "$STAGE")"
+if [ -z "$STAGE_JSON" ]; then
+  bouncer_block "⛔ [ai-bouncer] 진행 중인 단계 '$STAGE' 가 workflow.yaml에 없다.
+작업 도중 삭제되었거나 이름이 바뀐 것으로 보인다.
+무슨 규칙을 적용해야 할지 알 수 없어 진행할 수 없다.
 
-여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.
-worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
-    cd $_WT" ;;
-  esac
+  · workflow.yaml에서 '$STAGE' 를 되돌린다
+  · 이 작업을 포기한다: bouncer cancel"
 fi
-
-FORBID="$(bouncer_stage "$CWD" "$STAGE" | jq -c '.forbid // {}')"
+FORBID="$(jq -c '.forbid // {}' <<<"$STAGE_JSON")"
 REASON="$(jq -r '.reason // ""' <<<"$FORBID")"
 [ -n "$REASON" ] || REASON="현재 단계에서 허용되지 않는 동작이다."
 deny() {
@@ -92,28 +83,36 @@ $REASON"
 EDIT="$(jq -c '.edit_files // null' <<<"$FORBID")"
 PUSH="$(jq -r '.push'               <<<"$FORBID")"
 
-# 경로가 edit_files 스코프에 걸리는가. true면 전체, 배열이면 glob(선두 !는 예외).
-path_forbidden() {
-  local p="$1"
-  [ "$EDIT" = "null" ] && return 1
-  [ "$EDIT" = "true" ] && return 0
-  local pat neg matched=1
-  while IFS= read -r pat; do
-    [ -z "$pat" ] && continue
-    neg=0; case "$pat" in "!"*) neg=1; pat="${pat#!}" ;; esac
-    # shellcheck disable=SC2254
-    case "$p" in $pat) [ "$neg" = 1 ] && return 1 || matched=0 ;; esac
-  done < <(jq -r '.[]?' <<<"$EDIT")
-  return $matched
-}
+# 판정기는 하나만 쓴다. 예전에는 Edit 판정을 셸 `case` 로 따로 구현해서,
+# 같은 파일에 대해 `*` 가 `/` 를 넘는지와 `!` 우선순위가 두 게이트에서 정반대였다.
+GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
+# 상대화 기준은 세션 cwd가 아니라 프로젝트 루트다.
+# cwd 기준으로 잡으면 하위 디렉토리에서 연 세션은 글로브가 하나도 안 맞아
+# 스코프가 통째로 꺼진다 (모노레포에서 흔한 패턴이다).
+ROOT="$(bouncer_project_root "$CWD")"
+WT="$(bouncer_state "$TASK" '.worktree.path')"
+[ "$(bouncer_state "$TASK" '.work_root')" = "$WT" ] || WT=""
 
 case "$TOOL" in
   Edit|Write|MultiEdit|NotebookEdit)
-    # 프로젝트 기준 상대경로로만 판정한다. 절대경로로 한 번 더 보면
-    # "!docs/**" 같은 예외가 앞의 "**"에 다시 걸려 무효화된다.
-    REL="${FILE_PATH#"$CWD"/}"
-    if path_forbidden "$REL"; then
-      deny "파일 수정이 차단되었다: ${REL:-$FILE_PATH}"
+    if [ -n "$WT" ] && [ -n "$FILE_PATH" ]; then
+      case "$FILE_PATH" in
+        "$WT"/*) ;;
+        "$ROOT"/*) bouncer_block "⛔ [ai-bouncer] 이 작업은 별도 worktree에서 진행 중이다.
+    $WT
+그런데 그 밖의 파일을 고치려 한다: $FILE_PATH
+
+여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.
+worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
+    cd $WT" ;;
+      esac
+    fi
+    if [ -f "$GUARD" ] && command -v python3 >/dev/null 2>&1; then
+      R="$(python3 "$GUARD" --check-path "$(jq -c '.edit_files // null' <<<"$FORBID")" \
+            "$ROOT" "$FILE_PATH" 2>/dev/null)" || R=""
+      [ -n "$R" ] && deny "$R"
+    elif [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
+      deny "경로 판정기를 사용할 수 없다 ($GUARD). 이 단계에는 수정 제한이 걸려 있다."
     fi
     exit 0 ;;
 
@@ -125,7 +124,6 @@ case "$TOOL" in
     # git write 서브커맨드가 전부 빠져나갔고, `bouncer status; rm x` 처럼
     # 허용 명령 뒤에 붙이면 통째로 통과했다.
     # 그래서 명령을 세그먼트로 쪼개고 실행 파일 이름을 정규화해서 판정한다.
-    GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
     # 제약이 하나도 없는 스테이지에서도 엔진 파일 보호는 살아 있어야 한다.
     # 예전에는 여기서 곧장 exit 0 해서, done 단계에서 상태 파일이 무방비였다.
     # 제약이 있는데 판정기를 못 쓰면 "제약 없음"이 아니라 "판정 불가"다. 막는다.
@@ -138,7 +136,7 @@ case "$TOOL" in
       "$(jq -c '.edit_files // null' <<<"$FORBID")" \
       "$(jq -r '.push' <<<"$FORBID")" \
       "$(jq -c '.bash // []' <<<"$FORBID")" \
-      "$CWD")" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
+      "$ROOT" "$WT" 2>/dev/null)" || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
     [ -n "$REASON" ] && deny "$REASON"
     exit 0 ;;
 esac

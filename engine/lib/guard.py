@@ -20,11 +20,28 @@ import re
 import shlex
 import sys
 
-CMD = sys.stdin.read()
-EDIT = json.loads(sys.argv[1])          # true / 글로브 배열 / null
-PUSH = sys.argv[2] == "true"
-PATTERNS = json.loads(sys.argv[3])
-PROJECT = sys.argv[4]
+# 두 가지로 쓰인다:
+#   guard.py --check-path <edit_json> <project> <파일경로>   Edit/Write 판정
+#   guard.py <edit_json> <push> <patterns_json> <project> [worktree]  Bash 판정 (stdin=명령)
+# 예전에는 Edit 판정을 셸 `case` 로 따로 구현해서, 같은 파일에 대해
+# `*` 의 의미(`/` 를 넘는지)와 `!` 우선순위가 두 게이트에서 정반대였다.
+if len(sys.argv) > 1 and sys.argv[1] == '--check-path':
+    CHECK_PATH = True
+    EDIT = json.loads(sys.argv[2])
+    PROJECT = sys.argv[3]
+    TARGET = sys.argv[4]
+    CMD, PUSH, PATTERNS, WORKTREE = '', False, [], ''
+else:
+    CHECK_PATH = False
+    CMD = sys.stdin.read()
+    EDIT = json.loads(sys.argv[1])      # true / 글로브 배열 / null
+    PUSH = sys.argv[2] == "true"
+    PATTERNS = json.loads(sys.argv[3])
+    PROJECT = sys.argv[4]
+    WORKTREE = sys.argv[5] if len(sys.argv) > 5 else ''
+    TARGET = ''
+PROJECT = os.path.normpath(PROJECT) if PROJECT else ''
+WORKTREE = os.path.normpath(WORKTREE) if WORKTREE else ''
 
 # 파일을 쓰지 않는 것으로 확인된 명령만.
 # python/node/ruby/perl 은 임의 코드를 실행하므로 없다. awk 는 프로그램을 따로 본다.
@@ -469,6 +486,29 @@ def is_engine_path(tok):
     return False
 
 
+GLOB_CHARS = set('*?[')
+
+
+def glob_could_hit_engine(tok):
+    """`rm -rf .ai*` 처럼 글로브가 엔진 디렉토리를 삼킬 수 있는가.
+
+    글로브는 셸이 풀기 때문에 우리는 확장 결과를 못 본다. 리터럴 접두가
+    엔진 디렉토리 이름의 접두이기만 해도 삼킬 수 있으므로 거부한다.
+    """
+    t = norm(tok).replace('\\', '/')
+    if not (set(t) & GLOB_CHARS):
+        return False
+    head = t.split('*')[0].split('?')[0].split('[')[0]
+    name = head.rsplit('/', 1)[-1]
+    if not name:
+        return False
+    for want in ENGINE_DIRS:
+        for comp in want:
+            if comp.startswith(name):
+                return True
+    return False
+
+
 def check_engine_files(segments):
     """엔진 파일은 어느 스테이지에서도 직접 **수정**할 수 없다.
 
@@ -483,10 +523,21 @@ def check_engine_files(segments):
         for op, tgt in redirs:
             if op != '<' and is_engine_path(tgt):
                 out(ENGINE_MSG)
+        # `git clean -fdx` 는 gitignore된 것을 지운다 — 상태 디렉토리가 정확히 그것이다.
+        if exe == 'git' and git_sub(cmd) == 'clean':
+            out("`git clean` 은 무시 대상(.ai-bouncer/ 상태 포함)을 지운다.\n"
+                "진행 중인 작업이 통째로 사라지므로 허용되지 않는다.\n"
+                "정말 필요하면 `bouncer cancel` 로 작업을 끝낸 뒤에 해라.")
+        for t in clean:
+            if glob_could_hit_engine(t):
+                out("`%s` 는 글로브라 엔진 디렉토리(.ai-bouncer/ 등)를 삼킬 수 있다.\n"
+                    "지울 대상을 정확히 적어라." % t)
         if exe == 'find' and any(a in ('-delete', '-exec', '-execdir', '-ok', '-okdir')
                                  for a in cmd[1:]):
             # `find . -name state.json -delete` 로 상태 파일이 사라졌다
             out("`find -exec/-delete` 로는 무엇을 지울지 확인할 수 없어 허용되지 않는다.")
+        if exe == 'git' and not git_read_error(cmd):
+            continue                    # `git log -- .ai-bouncer` 같은 이력 조회
         if exe in ENGINE_READ_OK:
             continue                    # 읽기는 자유
         if any(is_engine_path(t) for t in clean):
@@ -503,6 +554,32 @@ def redirect_writes(op, tgt):
     if op == '>&' and tgt.isdigit():
         return False                    # 2>&1 같은 fd 복제
     return tgt not in SINK_OK
+
+
+def outside_worktree(p):
+    """작업 트리가 worktree인데 메인 레포 쪽 경로를 건드리는가."""
+    if not WORKTREE or not PROJECT:
+        return False
+    t = norm(p)
+    full = t if t.startswith('/') else os.path.normpath(os.path.join(PROJECT, t))
+    return (full == PROJECT or full.startswith(PROJECT + '/')) \
+        and not full.startswith(WORKTREE + '/')
+
+
+def check_outside(seg_tokens, redirs, exe, args):
+    """worktree 작업 중 메인 레포를 고치면 검증이 다른 트리를 본다."""
+    if not WORKTREE:
+        return
+    bad = [t for op, t in redirs if redirect_writes(op, t) and outside_worktree(t)]
+    if exe in WRITERS:
+        bad += [a for a in write_targets(exe, args) if outside_worktree(a)]
+    if exe in ('cd', 'pushd'):
+        bad += [a for a in args if not a.startswith('-') and outside_worktree(a)]
+    if bad:
+        out("이 작업은 별도 worktree에서 진행 중이다:\n    %s\n"
+            "그 밖을 건드리려 한다: %s\n\n"
+            "여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.\n"
+            "worktree 안의 같은 파일을 고쳐라." % (WORKTREE, bad[0]))
 
 
 def check_redirects(redirs):
@@ -630,6 +707,11 @@ def check_push_cmd(exe, cmd):
         out("이 단계에서 git 별칭을 등록할 수 없다 (push를 숨길 수 있다).")
 
 
+if CHECK_PATH:
+    if EDIT is not None and (EDIT is True or path_forbidden(TARGET)):
+        sys.stdout.write("파일 수정이 차단되었다: %s" % norm(TARGET))
+    sys.exit(0)
+
 TOKENS = tokenize(CMD)
 if TOKENS is None:
     out("따옴표가 닫히지 않아 명령을 판정할 수 없다.")
@@ -650,6 +732,7 @@ if EDIT is True:
             continue
         exe, cmd, env = resolve_exe(clean)
         check_env(env, True)
+        check_outside(clean, redirs, exe, cmd[1:])
         if exe:
             check_readonly_cmd(exe, cmd)
 
@@ -667,6 +750,7 @@ elif EDIT is not None:
             continue
         exe, cmd, env = resolve_exe(clean)
         check_env(env, False)
+        check_outside(clean, redirs, exe, cmd[1:])
         if not is_bouncer(cmd[0] if cmd else ''):
             for t in clean:
                 if is_engine_path(t):
@@ -699,12 +783,21 @@ elif EDIT is not None:
 if PUSH:
     # ── push 금지 (스코프 모드와 함께 걸릴 수 있으므로 독립적으로 본다) ──
     for seg in SEGMENTS:
-        clean, _ = parse_redirects(seg)
+        clean, redirs = parse_redirects(seg)
         if not clean:
             continue
         exe, cmd, env = resolve_exe(clean)
         check_env(env, False)
+        check_outside(clean, redirs, exe, cmd[1:])
         check_push_cmd(exe, cmd)
+
+if EDIT is None and not PUSH and WORKTREE:
+    for seg in SEGMENTS:
+        clean, redirs = parse_redirects(seg)
+        if not clean:
+            continue
+        exe, cmd, _ = resolve_exe(clean)
+        check_outside(clean, redirs, exe, cmd[1:])
 
 for pat in PATTERNS:
     try:

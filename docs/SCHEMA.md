@@ -79,6 +79,16 @@
 | `reason` | 문자열 | **필수** — 차단당한 모델에게 표시 |
 
 glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]` — 뒤에 오는 패턴이 이긴다.
+Edit/Write 게이트와 셸 게이트가 **같은 판정기**를 쓰므로 두 경로의 답은 항상 일치한다.
+
+| 패턴 | 뜻 |
+|---|---|
+| `*` | `/` 를 넘지 않는다. `src/*` 는 `src/a.js` 에 맞고 `src/deep/c.js` 에는 안 맞는다 |
+| `**` | `/` 를 넘는다. `src/**` 는 `src` 자신과 그 아래 전부 |
+| `!패턴` | 예외. 나중에 나온 패턴이 앞엣것을 덮는다 |
+
+경로는 **프로젝트 루트 기준**으로 맞춘다 (세션 cwd가 아니다 — 하위 디렉토리에서
+연 세션도 같은 규칙이 적용된다). 프로젝트 밖 경로(`/tmp/…`)는 스코프의 관심사가 아니다.
 
 `true` 와 글로브 배열은 셸에 대한 강도가 다르다:
 
@@ -106,10 +116,28 @@ glob 배열은 `!` 접두로 예외를 만든다: `["**", "!docs/**"]` — 뒤�
 > PreToolUse는 타임아웃되면 차단이 **아예 안 된다**(공식 문서: *"don't count on a
 > stalled hook to act as a gate"*). 그래서 이 검사는 `jq` 한 번만 하고 명령을 실행하지 않는다.
 
+## state.json 필드
+
+| 필드 | 누가 쓰나 | 뜻 |
+|---|---|---|
+| `current_stage` | Stop hook | 지금 단계. CLI로 바꿀 수 없다 |
+| `evidence` | Stop / PostToolUse | step별 통과 증거 |
+| `shown` | Stop | 이미 전달한 inject |
+| `choices` | `start --off` | optional step의 on/off |
+| `skipped` | `bouncer skip` | 엔진이 포기한 뒤 이번 작업만 면제한 step |
+| `gave_up` | Stop | 엔진이 포기한 스테이지. `skip` 은 이 표시가 있어야 열린다 |
+| `stage_attempts` | Stop | on_fail 반송 판단용 시도 횟수 |
+| `loops` | Stop | 스테이지 쌍별 왕복 횟수 (`max_loops`) |
+| `continue_streak` / `blocks_total` | Stop | 무한 차단 방지 카운터 |
+| `user_turns` / `user_turns_at_wait` | UserPromptSubmit / Stop | 사람이 실제로 답했는지 |
+| `work_root` / `worktree` | `start --parallel` | 병렬 작업 트리 |
+| `returned_to` / `returned_from` / `returned_tree` | Stop | on_fail 반송 기록 |
+
 ## 컴파일이 거부하는 것
 
 | 상황 | 이유 |
 |---|---|
+| 마지막 스테이지에 `blocking` | 넘어갈 곳이 없어 작업이 끝나지 않고 잠금이 남는다. 여러 워크플로우가 스테이지를 공유하면 **어느 하나에서라도 마지막이면** 거부된다 |
 | 체인에 정의 없는 스테이지 | 오타로 단계가 조용히 사라진다 |
 | `on_fail`이 뒤쪽/체인 밖 | 되돌아가기만 허용 (무한 전진 방지) |
 | `blocking`·`optional`인데 `label` 없음 | 진행 상태를 위치가 아닌 이름으로 추적 |

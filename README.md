@@ -60,7 +60,19 @@ plan ──▶ implement ──▶ verify ──▶ finalize ──▶ done
  └── 파일 수정 차단 · plan mode 승인 필요
 ```
 
-`bouncer` 명령은 **모델이 부르는 것**이다. 사람은 칠 일이 없다.
+`bouncer` 명령은 **모델이 부르는 것**이다. 사람은 대개 칠 일이 없다.
+
+막혔을 때 사람이 쓰는 것은 이 셋뿐이다:
+
+| 명령 | 언제 |
+|---|---|
+| `bouncer status` | 지금 무슨 조건에 막혀 있는지 |
+| `bouncer release [--force]` | 세션이 죽어 잠금이 남았을 때. `--force` 가 회수하고, `bouncer resume <task-id>` 로 이어받는다 |
+| `bouncer cancel` | 이 작업을 그만둔다 (기록은 남는다) |
+
+엔진이 조건을 포기하고 "이번 작업에서만 건너뛴다"를 제안하면 `bouncer skip <step-id>` 가
+열린다. 제안 전에는 거부된다 — 게이트를 처음부터 우회하는 수단이 되지 않도록.
+`bouncer workflows` 는 정의된 모드를, `bouncer check` 는 고친 yaml의 유효성을 본다.
 
 <br>
 

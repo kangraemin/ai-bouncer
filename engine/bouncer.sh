@@ -9,6 +9,7 @@
 #   bouncer cancel                    작업 취소
 #   bouncer skip <step-id>            엔진이 포기한 조건을 이번 작업에서만 건너뛴다
 #   bouncer release [--force]         죽은 세션이 남긴 잠금 확인 / 회수
+#   bouncer resume [task-id]          회수된 작업을 이 세션이 다시 잡는다
 #   bouncer workflows                 정의된 모드 목록
 #   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
 #   bouncer worktree finalize         병렬 작업을 base로 FF 머지하고 정리
@@ -73,6 +74,9 @@ cmd_scan() {
 # 모드 선택지만 뽑는다. scan은 상태까지 같이 주므로 사람이 읽기엔 이쪽이 낫다.
 cmd_workflows() {
   [ -f "$COMPILED" ] || die "워크플로우가 컴파일되지 않았다: $COMPILED"
+  jq -e . "$COMPILED" >/dev/null 2>&1 \
+    || die "컴파일 결과가 손상됐다: $COMPILED
+'bouncer check' 로 workflow.yaml을 확인하라. 다음 세션 시작 때 다시 컴파일된다."
   jq -r '.workflows | to_entries[] |
     "\(.key)\t\(.value.label)\n    " + (.value.stages | join(" → "))' "$COMPILED"
 }
@@ -255,7 +259,8 @@ hook은 이 상태에서 작업을 진행시키지 않는다.
      (if ($st[0].skipped[$sid] // false) then false
       elif ($st[0].choices | has($sid)) then $st[0].choices[$sid]
       else true end) as $on |
-     "  \(if .optional and ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if .optional and ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)")'
+     ($st[0].skipped[$sid] // false) as $skip |
+     "  \(if $skip then "⃠" elif ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if $skip then "  (건너뜀)" elif ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)")'
 }
 
 # ── 실행 / 완료 ──────────────────────────────────────────────
@@ -331,13 +336,20 @@ cmd_cancel() {
 # 남의 작업을 건드리는 일이라 --force를 반드시 요구한다.
 cmd_release() {
   local force=0 d owner age found=0
-  [ "${1:-}" = "--force" ] && force=1
+  case "${1:-}" in
+    --force) force=1 ;;
+    "") ;;
+    *) die "알 수 없는 인자: $1
+usage: bouncer release [--force]" ;;
+  esac
+  [ $# -gt 1 ] && die "인자가 너무 많다. usage: bouncer release [--force]"
   for d in $(bouncer_live_locks "$PROJECT"); do
     found=1
     owner="$(jq -r '.session_id // "?"' "$d/.active" 2>/dev/null)"
     age=$(( $(bouncer_lock_age "$d/.active") / 60 ))
-    if [ "$owner" = "$SESSION" ]; then
+    if [ "$owner" = "$SESSION" ] && [ "$force" = 0 ]; then
       printf '  (내 작업) %s — %s\n' "$(bouncer_state "$d" '.current_stage')" "$d"
+      printf '     이 세션 것이다. 끝내려면: bouncer cancel\n'
       continue
     fi
     if [ "$force" = 0 ]; then
@@ -351,8 +363,35 @@ cmd_release() {
   if [ "$force" = 0 ]; then
     printf '\n다른 세션이 살아 있다면 그 세션에서 계속하는 게 맞다.\n'
     printf '그 세션이 죽은 게 확실하면: bouncer release --force\n'
-    printf '(작업 기록은 남고 잠금만 푼다. 이어서 하려면 그 뒤 bouncer status)\n'
+    printf '작업 기록은 남는다. 회수한 뒤 이어서 하려면: bouncer resume <task-id>\n'
   fi
+}
+
+# ── resume ───────────────────────────────────────────────────
+# release로 잠금을 푼 작업은 아무도 못 잡는 상태가 된다 (.active가 없으면
+# my_task가 못 찾고, status/scan에서도 사라진다). 다시 잡는 길을 열어둔다.
+cmd_resume() {
+  [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
+  local want="${1:-}" tasks d found=""
+  tasks="$(bouncer_tasks_dir "$PROJECT")"
+  [ -d "$tasks" ] || die "이 프로젝트에 작업 기록이 없다."
+  if [ -z "$want" ]; then
+    printf '이어서 할 작업을 고르라: bouncer resume <task-id>\n\n'
+    for d in "$tasks"/*/; do
+      [ -f "$d/state.json" ] || continue
+      [ -f "$d/.active" ] && continue
+      printf '  %-42s %s / %s\n' "$(basename "$d")" \
+        "$(bouncer_state "${d%/}" '.workflow')" "$(bouncer_state "${d%/}" '.current_stage')"
+    done
+    return 0
+  fi
+  d="$tasks/$want"
+  [ -d "$d" ] || die "그런 작업이 없다: $want"
+  [ -f "$d/.active" ] && die "이미 누군가 잡고 있다. 먼저 'bouncer release' 로 확인하라."
+  [ "$(bouncer_state "$d" '.current_stage')" = cancelled ] && die "취소된 작업이다."
+  jq -n --arg s "$SESSION" --arg t "$(date -u +%FT%TZ)" \
+    '{session_id:$s, claimed_at:$t}' > "$d/.active" || die "잠금을 만들지 못했다."
+  printf 'RESUMED\t%s\tstage=%s\n' "$want" "$(bouncer_state "$d" '.current_stage')"
 }
 
 # ── skip ─────────────────────────────────────────────────────
@@ -362,17 +401,25 @@ cmd_release() {
 cmd_skip() {
   need_task
   local id="${1:-}"; [ -n "$id" ] || die "usage: bouncer skip <step-id>"
-  local step; step="$(step_json "$id" "$STAGE")"
-  [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다. 'bouncer status'로 확인하라."
-  # 시도 횟수는 스테이지 단위로 센다 (엔진이 반송을 결정하는 기준과 같아야 한다).
-  local max tries
-  max="$(bouncer_config max_attempts 3 "$PROJECT")"
-  tries="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
-  [ "$tries" -ge "$max" ] 2>/dev/null || die "[$STAGE]는 아직 $tries/$max 번 시도했다.
-건너뛰기는 엔진이 포기한 뒤에만 쓸 수 있다. 조건을 충족시켜라."
+  # 막고 있는 게이트가 현재 스테이지 소속이 아닐 수 있다 (반송된 뒤가 그렇다).
+  # 그래서 현재 스테이지가 아니라 이 워크플로우의 체인 전체에서 찾는다.
+  local wf owner="" st
+  wf="$(bouncer_state "$TASK" '.workflow')"
+  while IFS= read -r st; do
+    [ -z "$st" ] && continue
+    if [ -n "$(step_json "$id" "$st")" ]; then owner="$st"; break; fi
+  done < <(bouncer_chain "$PROJECT" "$wf")
+  [ -n "$owner" ] || die "'$id' 라는 step이 이 워크플로우($wf)에 없다.
+'bouncer status'로 현재 단계의 step id를 확인하라."
+  # 엔진이 포기했다고 표시한 스테이지만 열어준다. 그래야 처음부터 게이트를
+  # 우회하는 수단이 되지 않는다. 표시는 Stop이 "건너뛴다"를 제안할 때 남긴다.
+  [ "$(jq -r --arg s "$owner" '.gave_up[$s] // false' "$TASK/state.json" 2>/dev/null)" = true ] \
+    || die "[$owner] 는 아직 엔진이 포기한 단계가 아니다.
+건너뛰기는 엔진이 '이 조건을 이번 작업에서만 건너뛴다'를 제안한 뒤에만 쓸 수 있다.
+지금은 조건을 충족시켜라 — 'bouncer status'로 남은 것을 확인하라."
   bouncer_state_update "$TASK" --arg k "$id" '.skipped[$k] = true' \
     || die "state.json을 갱신하지 못했다."
-  printf 'SKIPPED\t%s\n' "$id"
+  printf 'SKIPPED\t%s\t(%s)\n' "$id" "$owner"
   printf '이번 작업에서만 건너뛴다. workflow.yaml은 그대로다.\n'
 }
 
@@ -451,12 +498,13 @@ case "${1:-}" in
   workflows) shift; cmd_workflows "$@" ;;
   release)   shift; cmd_release "$@" ;;
   skip)      shift; cmd_skip "$@" ;;
+  resume)    shift; cmd_resume "$@" ;;
   worktree)  shift
              case "${1:-}" in
                finalize) shift; cmd_wt_finalize "$@" ;;
                create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
                *) die "usage: bouncer worktree finalize" ;;
              esac ;;
-  ""|-h|--help) sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac
