@@ -33,17 +33,19 @@ J
 echo "── 설치 ──"
 bash "$R/install.sh" --ci --branch dev >/dev/null 2>&1 || { no "설치 실행"; exit 1; }
 ok "설치 실행"
+BAD=0
 for f in engine/bouncer.sh hooks/stop.sh hooks/pre-tool.sh workflow.yaml workflow.compiled.json manifest.json installed.json; do
-  [ -f ".claude/ai-bouncer/$f" ] || no "파일 배치" "$f 없음"
+  [ -f ".claude/ai-bouncer/$f" ] || { BAD=1; printf '     ↳ %s 없음\n' "$f"; }
 done
-ok "파일 배치"
+[ "$BAD" = 0 ] && ok "파일 배치" || no "파일 배치" "위 파일이 없다"
 [ -f .claude/skills/dev-bounce/SKILL.md ] && ok "스킬 설치" || no "스킬 설치"
 grep -qxF '.ai-bouncer/' .gitignore && ok ".gitignore에 런타임 상태 추가" || no ".gitignore"
 # 설정 디렉토리 안 런타임 파일이 커밋되면 세션마다 가짜 diff가 뜬다
+BAD=0
 for f in workflow.compiled.json .update-check; do
-  grep -qxF "$f" .claude/ai-bouncer/.gitignore || { no "설정 디렉토리 gitignore" "$f 누락"; break; }
+  grep -qxF "$f" .claude/ai-bouncer/.gitignore || { BAD=1; printf '     ↳ %s 누락\n' "$f"; }
 done
-grep -qxF '.update-check' .claude/ai-bouncer/.gitignore && ok "설정 디렉토리 런타임 파일도 제외" || no "설정 디렉토리 gitignore" ".update-check 누락"
+[ "$BAD" = 0 ] && ok "설정 디렉토리 런타임 파일 제외" || no "설정 디렉토리 gitignore" "위 항목 누락"
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)

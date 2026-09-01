@@ -17,10 +17,18 @@ from datetime import datetime, timezone
 
 
 def _strip_comment(line):
-    out, quote = [], None
+    out, quote, esc = [], None, False
     for i, ch in enumerate(line):
         if quote:
             out.append(ch)
+            if esc:
+                esc = False
+                continue
+            # 겹따옴표 안의 `\"` 는 닫는 따옴표가 아니다. 이걸 모르면
+            # `"a \" # b"` 에서 문자열이 일찍 끝난 줄 알고 ` # ` 부터 잘라낸다.
+            if quote == '"' and ch == '\\':
+                esc = True
+                continue
             if ch == quote:
                 quote = None
         elif ch in "\"'":
