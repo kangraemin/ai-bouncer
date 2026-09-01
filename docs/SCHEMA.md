@@ -27,6 +27,10 @@
 | `forbid` | 매핑 | 이 단계에 머무는 동안 금지되는 것 |
 | `on_fail` | 앞선 스테이지 \| `abort` | blocking 실패가 누적되면 되돌아갈 곳 |
 
+> `edit_files: true` 인 스테이지는 제자리 수정이 불가능하므로 `max_attempts` 를
+> 무시하고 1회 실패로 반송한다. 단 사람 확인 게이트가 함께 미충족이면
+> 답할 기회를 줘야 하므로 그 즉시 반송은 하지 않는다.
+
 > `on_fail` 은 **사람과 무관한 조건이 실패했을 때** 발동한다. 사람 확인
 > (`inject` + `blocking: true`)만 미충족이면 답할 기회를 줘야 하므로 반송하지
 > 않는다. 같은 스테이지에 `run` 게이트가 있고 그것이 실패했다면 반송한다.
@@ -78,7 +82,7 @@
 | 키 | 값 | 막는 것 |
 |---|---|---|
 | `edit_files` | `true` \| glob 배열 | Edit/Write/MultiEdit/NotebookEdit **+ bash 우회**(`>`, `tee`, `sed -i`, `rm`, `mv`, `cp`, `touch`) |
-| `push` | `true` | `git push` |
+| `push` | `true` | `git push` 계열(`send-pack`·`svn dcommit` 포함). `gh pr create` 같은 다른 도구는 보지 않는다 |
 | `bash` | 정규식 배열 | 임의 명령 (탈출구) |
 | `reason` | 문자열 | **필수** — 차단당한 모델에게 표시 |
 
@@ -131,7 +135,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | `shown` | Stop | 이미 전달한 inject |
 | `choices` | `start --off` | optional step의 on/off |
 | `skipped` | `bouncer skip` | 엔진이 포기한 뒤 이번 작업만 면제한 step |
-| `gave_up` | Stop | 엔진이 포기한 스테이지. `skip` 은 이 표시가 있어야 열린다 |
+| `skip_allowed` | Stop | 엔진이 포기하며 **제안한 step id 목록**. `bouncer skip` 은 여기 있는 것만 열어주고, 쓰면 그 id 를 소모한다 |
 | `stage_attempts` | Stop | on_fail 반송 판단용 시도 횟수 |
 | `loops` | Stop | 스테이지 쌍별 왕복 횟수 (`max_loops`) |
 | `continue_streak` / `blocks_total` | Stop | 무한 차단 방지 카운터 |

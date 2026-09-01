@@ -53,7 +53,7 @@ for event, arr in list(hooks.items()):
     for entry in list(arr):
         before = len(entry.get("hooks", []))
         entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "/ai-bouncer/" not in str(h.get("command", ""))]
+                          if "/.claude/ai-bouncer/" not in str(h.get("command", ""))]
         removed += before - len(entry["hooks"])
         if not entry["hooks"]:
             arr.remove(entry)

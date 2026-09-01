@@ -504,4 +504,74 @@ done
                  || no "반송 안 됨" "$(stage) 에 머묾"
 bouncer cancel >/dev/null 2>&1
 
+
+echo "[감사가 회귀 감지 0이라고 지적한 나머지]"
+# 앞 섹션이 workflow.yaml 을 바꿔놨다 — 기본 설정으로 되돌린다
+cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
+  || abort_setup "기본 설정 복구" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+
+# 전이하는 턴의 지시가 버려지면 반송 후 구현 지시가 영영 안 온다
+bouncer start simple inj >/dev/null
+stop >/dev/null                                   # implement → verify
+r=$(stop); r=$(stop)
+bouncer cancel >/dev/null 2>&1
+bouncer start simple inj2 >/dev/null
+r=$(stop)                                         # implement → verify 전이
+printf '%s' "$r" | jq -r '.reason // ""' | grep -q '검증 단계다' \
+  && ok "전이 턴에 다음 단계 지시가 실린다" || no "전이 지시 소실" "${r:0:80}"
+bouncer cancel >/dev/null 2>&1
+
+# 안전밸브가 성공 전이를 실패처럼 감싸지 않는다
+python3 - "$T/.claude/ai-bouncer/workflow.yaml" <<'PYX'
+import sys, re
+p = sys.argv[1]; s = open(p).read()
+s = re.sub(r'update_branch: main', 'update_branch: main\n  max_continue: 1', s)
+open(p, 'w').write(s)
+PYX
+python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
+        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
+bouncer start simple cap >/dev/null
+CAP=""
+for i in $(seq 1 10); do
+  r=$(stop); c=$(printf '%s' "$r" | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
+  case "$c" in *"연속으로 진행했다"*) CAP="$c"; break ;; esac
+done
+if [ -n "$CAP" ]; then
+  case "$CAP" in
+    "⛔"*"✅"*) no "안전밸브가 성공 전이를 실패로 감쌈" "${CAP:0:60}" ;;
+    *) ok "안전밸브 문구가 상황에 맞는다" ;;
+  esac
+else
+  ok "안전밸브 문구가 상황에 맞는다"
+fi
+bouncer cancel >/dev/null 2>&1
+git -C "$T" checkout -q -- .claude/ai-bouncer/workflow.yaml 2>/dev/null
+python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
+        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
+
+# uninstall 이 남의 hook 과 env 를 지우지 않는다
+U="$(mktemp -d)"; UH="$(mktemp -d)"
+( cd "$U" && git init -q . && git config user.email t@t && git config user.name t \
+  && echo x > a.js && git add a.js && git commit -qm i && mkdir -p .claude \
+  && printf '%s' '{"env":{"MY":"1"},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"$HOME/s/ai-bouncer/n.sh"}]}]}}' > .claude/settings.json \
+  && HOME="$UH" bash "$R/install.sh" --ci >/dev/null 2>&1 \
+  && HOME="$UH" bash "$R/uninstall.sh" >/dev/null 2>&1 </dev/null )
+if [ -f "$U/.claude/settings.json" ] \
+   && grep -q 's/ai-bouncer/n.sh' "$U/.claude/settings.json" \
+   && grep -q '"MY"' "$U/.claude/settings.json"; then
+  ok "uninstall 이 남의 hook·env 를 보존"
+else
+  no "남의 설정 삭제" "$(cat "$U/.claude/settings.json" 2>&1 | head -c 80)"
+fi
+
+# uninstall 이 git 루트를 찾는다
+mkdir -p "$U/sub"
+( cd "$U" && git init -q . >/dev/null 2>&1; HOME="$UH" bash "$R/install.sh" --ci >/dev/null 2>&1 )
+( cd "$U/sub" && HOME="$UH" bash "$R/uninstall.sh" >/dev/null 2>&1 </dev/null )
+[ -f "$U/.claude/ai-bouncer/engine/bouncer.sh" ] \
+  && no "하위에서 uninstall 실패" "엔진이 남았다" || ok "하위 디렉토리에서도 제거된다"
+rm -rf "$U" "$UH"
+
 finish
