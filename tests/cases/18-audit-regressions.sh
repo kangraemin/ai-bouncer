@@ -520,8 +520,9 @@ pass_implement                                    # implement → verify
 r=$(stop); r=$(stop)
 bouncer cancel >/dev/null 2>&1
 bouncer start simple inj2 >/dev/null
-stop >/dev/null; user_turn >/dev/null
-bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+stop >/dev/null
+bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
+user_turn >/dev/null
 r=$(stop)                                         # implement → verify 전이
 printf '%s' "$r" | jq -r '.reason // ""' | grep -q '검증 단계다' \
   && ok "전이 턴에 다음 단계 지시가 실린다" || no "전이 지시 소실" "${r:0:80}"
@@ -532,8 +533,8 @@ bouncer cancel >/dev/null 2>&1
 # (루프를 돌리는 방식은 max_continue 분기가 먼저 잡아서 이 경로를 못 탄다).
 bouncer start simple cap >/dev/null
 stop >/dev/null                                   # 사람 대기 표시
+bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
 user_turn >/dev/null
-bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
 python3 - "$(task_dir)/state.json" <<'PYX'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
@@ -608,7 +609,7 @@ cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start simple lk >/dev/null
 stop >/dev/null; user_turn >/dev/null
-bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
 mkdir "$(task_dir)/.lock"                         # 잠금 경합 재현
 r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
 if printf '%s' "$r" | grep -q '기록하지 못했다'; then

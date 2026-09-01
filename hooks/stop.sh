@@ -209,7 +209,7 @@ while IFS= read -r step; do
     # 반면 순수 inject blocking은 모델의 자기신고이므로 실제 사용자 턴이 있어야 인정한다.
     if [ "$DONE" = "true" ]; then
       case "$BLOCKING" in
-        plan_approved|skill:*) continue ;;
+        plan_approved|skill:*|checklist) continue ;;
         *) [ "$USER_TURN_HAPPENED" = "true" ] && continue ;;
       esac
     fi
@@ -220,6 +220,27 @@ while IFS= read -r step; do
         HUMAN_WAIT=1 ;;
       skill:*)
         add_failure "'${BLOCKING#skill:}' 스킬을 아직 실행하지 않았다 ($LABEL)"; add_blocking_id "$ID" ;;
+      checklist)
+        # 자기보고가 아니다 — 엔진이 항목 수를 센다.
+        CL_N="$(jq -r '(.checklist // []) | length' "$TASK/state.json" 2>/dev/null)"
+        CL_LEFT="$(jq -r '[(.checklist // [])[] | select(.done | not)] | length' \
+                    "$TASK/state.json" 2>/dev/null)"
+        CL_TURN="$(jq -r '.checklist_turn // -1' "$TASK/state.json" 2>/dev/null)"
+        if [ "${CL_N:-0}" = 0 ]; then
+          add_failure "할 일 목록이 비어 있다 ($LABEL) — \`bouncer todo add\` 로 채워라"
+          add_blocking_id "$ID"
+        elif [ "${CL_LEFT:-1}" != 0 ]; then
+          add_failure "남은 항목 ${CL_LEFT}/${CL_N}개 ($LABEL) — \`bouncer todo\` 로 확인"
+          add_blocking_id "$ID"
+        elif [ "$UT_NOW" -le "${CL_TURN:--1}" ] 2>/dev/null; then
+          # 목록을 세우고 같은 턴에 전부 체크하면 사람이 본 적이 없다.
+          add_failure "목록을 사용자에게 보여주고 확인받아야 한다 ($LABEL)"
+          add_blocking_id "$ID"
+          HUMAN_WAIT=1
+        else
+          bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = true'
+          continue
+        fi ;;
       *)
         if [ "$DONE" != "true" ]; then
           add_inject "→ 위를 마쳤으면 실행: bouncer done '$ID'   ($LABEL)"

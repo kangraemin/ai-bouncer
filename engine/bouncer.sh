@@ -7,6 +7,7 @@
 #   bouncer run <step-id>             그 step의 명령을 실행하고 결과를 기록
 #   bouncer done <step-id>            사람 확인이 필요한 step을 완료 처리
 #   bouncer cancel                    작업 취소
+#   bouncer todo [add|done <n>|drop <n>]  할 일 목록 (checklist 게이트가 이걸 센다)
 #   bouncer skip <step-id>            엔진이 포기한 조건을 이번 작업에서만 건너뛴다
 #   bouncer release [--force]         죽은 세션이 남긴 잠금 확인 / 회수
 #   bouncer resume [task-id]          회수된 작업을 이 세션이 다시 잡는다
@@ -314,6 +315,13 @@ hook은 이 상태에서 작업을 진행시키지 않는다.
   local wt; wt="$(bouncer_state "$TASK" '.worktree.path')"
   [ -n "$wt" ] && printf 'worktree:  %s (base %s)\n' "$wt" "$(bouncer_state "$TASK" '.worktree.base_branch')"
 
+  # 할 일 목록이 있으면 함께 보여준다 — checklist 게이트가 이걸 센다
+  if [ "$(jq -r '(.checklist // []) | length' "$TASK/state.json" 2>/dev/null)" != 0 ]; then
+    printf '\n할 일\n'
+    jq -r '(.checklist // []) | to_entries[] |
+      "  \(.key + 1). \(if .value.done then "✅" else "⬜" end) \(.value.text)"' "$TASK/state.json"
+  fi
+
   printf '\n[%s] steps\n' "$STAGE"
   bouncer_stage "$PROJECT" "$STAGE" | jq -r --slurpfile st "$TASK/state.json" '
     .steps[]? | .id as $sid |
@@ -519,6 +527,73 @@ cmd_skip() {
   printf '이번 작업에서만 건너뛴다. workflow.yaml은 그대로다.\n'
 }
 
+# ── todo ─────────────────────────────────────────────────────
+# 할 일 목록. `blocking: checklist` 는 이 목록을 **엔진이 세서** 판정한다.
+# 목록을 모델이 쓰지만, 한 번 적은 항목은 조용히 사라지지 않는다 —
+# 지우면 기록에 남고, 세우자마자 같은 턴에 전부 체크할 수도 없다.
+cmd_todo() {
+  need_task
+  local sub="${1:-list}"; shift 2>/dev/null || true
+  # 필드가 없으면 bouncer_state 가 빈 값을 준다 — --argjson 이 깨진다.
+  local UT; UT="$(jq -r '.user_turns // 0' "$TASK/state.json" 2>/dev/null)"
+  [ "$UT" -eq "$UT" ] 2>/dev/null || UT=0
+  case "$sub" in
+    list|"")
+      local n
+      n="$(jq -r '(.checklist // []) | length' "$TASK/state.json")"
+      if [ "$n" = 0 ]; then
+        printf '할 일 목록이 비어 있다. 요청받은 항목을 적어라:\n'
+        printf "  bouncer todo add '항목'\n"
+        return 0
+      fi
+      jq -r '(.checklist // []) | to_entries[] |
+        "  \(.key + 1). \(if .value.done then "✅" else "⬜" end) \(.value.text)"' \
+        "$TASK/state.json"
+      printf '\n남은 항목: %s / %s\n' \
+        "$(jq -r '[(.checklist // [])[] | select(.done | not)] | length' "$TASK/state.json")" "$n"
+      local dropped
+      dropped="$(jq -r '(.dropped // []) | length' "$TASK/state.json")"
+      [ "$dropped" != 0 ] && printf '뺀 항목 %s개 (bouncer todo dropped 로 확인)\n' "$dropped"
+      return 0 ;;
+    add)
+      [ $# -gt 0 ] || die "usage: bouncer todo add '<항목>' ['<항목>' …]"
+      local t
+      for t in "$@"; do
+        [ -n "$t" ] || continue
+        bouncer_state_update "$TASK" --arg t "$t" --argjson u "$UT" \
+          '.checklist = ((.checklist // []) + [{text:$t, done:false}]) | .checklist_turn = $u' \
+          || die "목록을 갱신하지 못했다."
+      done
+      cmd_todo list ;;
+    done)
+      local i="${1:-}"
+      [ -n "$i" ] || die "usage: bouncer todo done <번호>"
+      [ "$i" -eq "$i" ] 2>/dev/null || die "번호를 숫자로 줘라: $i"
+      jq -e --argjson i "$((i-1))" '(.checklist // []) | length > $i' "$TASK/state.json" >/dev/null 2>&1 \
+        || die "그런 항목이 없다: $i  ('bouncer todo' 로 번호 확인)"
+      bouncer_state_update "$TASK" --argjson i "$((i-1))" --arg t "$(date -u +%FT%TZ)" \
+        '.checklist[$i].done = true | .checklist[$i].at = $t' || die "갱신 실패."
+      cmd_todo list ;;
+    drop)
+      local i="${1:-}"
+      [ -n "$i" ] || die "usage: bouncer todo drop <번호>"
+      [ "$i" -eq "$i" ] 2>/dev/null || die "번호를 숫자로 줘라: $i"
+      jq -e --argjson i "$((i-1))" '(.checklist // []) | length > $i' "$TASK/state.json" >/dev/null 2>&1 \
+        || die "그런 항목이 없다: $i"
+      # 지운 항목은 기록에 남긴다. 조용히 사라지면 목록이 게이트 역할을 못 한다.
+      bouncer_state_update "$TASK" --argjson i "$((i-1))" --arg t "$(date -u +%FT%TZ)" \
+        --argjson u "$UT" \
+        '.dropped = ((.dropped // []) + [(.checklist[$i] + {dropped_at:$t})])
+         | .checklist = (.checklist | del(.[$i]))
+         | .checklist_turn = $u' || die "갱신 실패."
+      printf '뺐다. 사용자에게 왜 뺐는지 알려라.\n'
+      cmd_todo list ;;
+    dropped)
+      jq -r '(.dropped // [])[] | "  ⃠ \(.text)"' "$TASK/state.json" ;;
+    *) die "usage: bouncer todo [list|add|done <n>|drop <n>|dropped]" ;;
+  esac
+}
+
 # ── worktree ─────────────────────────────────────────────────
 cmd_wt_create() {
   need_task
@@ -602,6 +677,7 @@ case "${1:-}" in
   workflows) shift; cmd_workflows "$@" ;;
   release)   shift; cmd_release "$@" ;;
   skip)      shift; cmd_skip "$@" ;;
+  todo)      shift; cmd_todo "$@" ;;
   resume)    shift; cmd_resume "$@" ;;
   worktree)  shift
              case "${1:-}" in
@@ -611,6 +687,6 @@ case "${1:-}" in
                create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
                *) die "usage: bouncer worktree finalize" ;;
              esac ;;
-  ""|-h|--help) sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '3,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

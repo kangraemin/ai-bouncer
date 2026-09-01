@@ -189,6 +189,10 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
 |---|---|
 | `bouncer scan` | 상태·모드·선택항목 (시작 전 1회) |
 | `bouncer start <모드> "<슬러그>"` | 작업 시작 |
+| `bouncer todo` | 할 일 목록 보기 |
+| `bouncer todo add '<항목>' …` | 요청 범위를 목록으로 세운다 (checklist 게이트가 이걸 센다) |
+| `bouncer todo done <n>` | 그 항목을 **실제로 구현한 뒤** 체크 |
+| `bouncer todo drop <n>` | 범위에서 뺀다 (기록에 남으니 사유를 사용자에게 알린다) |
 | `bouncer status` | 현재 단계와 남은 조건 (각 step의 `id:` 도 함께 나온다) |
 | `bouncer run <step-id>` | 검증 명령 실행 후 결과 기록. 명령 문자열은 엔진이 소유한다 |
 | `bouncer done <step-id>` | 사람 확인이 필요한 step 완료 처리 |
