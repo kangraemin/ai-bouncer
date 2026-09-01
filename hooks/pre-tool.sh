@@ -47,6 +47,8 @@ ENGINE_FILE_MSG="⛔ [ai-bouncer] 엔진 파일은 직접 수정할 수 없다.
 # 디렉토리 통째로도 막아야 한다 — `.ai-bouncer` 를 지우면 게이트가 전부 사라진다.
 FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.path // empty' <<<"$INPUT")"
 case "$FILE_PATH" in
+  # 병렬 작업 worktree(~/.ai-bouncer/worktrees/)는 작업 대상이지 엔진 상태가 아니다
+  */.ai-bouncer/worktrees/*) ;;
   */.ai-bouncer|*/.ai-bouncer/*|*/workflow.compiled.json|\
   */.claude/ai-bouncer|*/.claude/ai-bouncer/*)
     bouncer_block "$ENGINE_FILE_MSG" ;;
@@ -54,6 +56,24 @@ esac
 # 셸을 통한 접근은 guard.py가 같은 기준으로 막는다 (아래 Bash 분기).
 # 여기서 정규식으로 한 번 더 보던 코드는 지웠다 — 두 벌로 관리하니
 # 셸 쪽만 `.ai-bouncer` 부모 디렉토리를 놓쳐 `rm -rf .ai-bouncer` 가 통과했다.
+
+# ── 병렬 작업: 작업 트리 밖을 고치면 게이트가 다른 트리를 보게 된다 ────
+# worktree를 만들어놓고 세션은 메인 레포에서 계속 편집하면, 검증·finalize는
+# 손대지 않은 worktree를 보고 전부 통과해버린다(빈 트리 = 클린 트리).
+WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
+_WT="$(bouncer_state "$TASK" '.worktree.path')"
+if [ -n "$_WT" ] && [ -n "$FILE_PATH" ] && [ "$WORK_ROOT" = "$_WT" ]; then
+  case "$FILE_PATH" in
+    "$_WT"/*) ;;
+    /*) bouncer_block "⛔ [ai-bouncer] 이 작업은 별도 worktree에서 진행 중이다.
+    $_WT
+그런데 그 밖의 파일을 고치려 한다: $FILE_PATH
+
+여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.
+worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
+    cd $_WT" ;;
+  esac
+fi
 
 FORBID="$(bouncer_stage "$CWD" "$STAGE" | jq -c '.forbid // {}')"
 REASON="$(jq -r '.reason // ""' <<<"$FORBID")"

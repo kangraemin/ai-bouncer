@@ -121,6 +121,9 @@ REDIR = re.compile(r'^(>{1,2}\|?|<|<>|&>{1,2}|>&)$')
 # 엔진 소유 경로. 부분문자열이 아니라 **경로 성분**으로 본다 —
 # `.ai-bouncer/tasks` 만 보면 부모인 `rm -rf .ai-bouncer` 를 놓쳐 게이트가 통째로 사라진다.
 ENGINE_DIRS = (('.ai-bouncer',), ('.claude', 'ai-bouncer'))
+# 병렬 작업용 worktree는 ~/.ai-bouncer/worktrees/ 에 산다. 거기 있는 소스 파일은
+# 엔진 상태가 아니라 **작업 대상**이라 막으면 안 된다.
+ENGINE_EXEMPT = (('.ai-bouncer', 'worktrees'),)
 ENGINE_FILES = ('workflow.compiled.json',)
 BOUNCER_EXE = ('bouncer', 'bouncer.sh')
 # 엔진 파일을 **읽기만** 하는 것은 막을 이유가 없다.
@@ -277,6 +280,11 @@ def is_engine_path(tok):
     parts = norm(tok).replace('\\', '/').split('/')
     if parts[-1] in ENGINE_FILES:
         return True
+    for want in ENGINE_EXEMPT:
+        n = len(want)
+        for i in range(len(parts) - n + 1):
+            if tuple(parts[i:i + n]) == want:
+                return False
     for want in ENGINE_DIRS:
         n = len(want)
         for i in range(len(parts) - n + 1):

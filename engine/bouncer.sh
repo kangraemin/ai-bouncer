@@ -396,6 +396,10 @@ cmd_wt_create() {
      | .work_root = $p | .base_sha = $bs'
   printf 'WORKTREE\t%s\tbranch=%s\tbase=%s%s\n' "$wt" "$branch" "$base_branch" \
     "$([ "$detached" = true ] && printf ' (detached — FF 머지 대상 없음)')"
+  # 이 안내가 없으면 세션은 메인 레포에 그대로 남아 편집하고, 게이트는
+  # 손대지 않은 worktree를 보고 전부 통과한다. 실제로 그렇게 깨졌었다.
+  printf '\n⚠️ 지금부터 모든 작업은 이 worktree 안에서 한다. 먼저 이동해라:\n    cd %s\n' "$wt"
+  printf '메인 레포에서 파일을 고치면 hook이 막는다 (검증이 다른 트리를 보게 되므로).\n'
 }
 
 cmd_wt_finalize() {

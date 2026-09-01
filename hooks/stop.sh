@@ -29,7 +29,7 @@ COMPILED="$(bouncer_compiled_file "$CWD")"
 WORKFLOW="$(bouncer_state "$TASK" '.workflow')"
 STAGE="$(bouncer_state "$TASK" '.current_stage')"
 WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
-[ -d "$WORK_ROOT" ] || WORK_ROOT="$CWD"
+[ -n "$WORK_ROOT" ] || WORK_ROOT="$CWD"
 [ -n "$WORKFLOW" ] && [ -n "$STAGE" ] || exit 0
 [ "$STAGE" = "cancelled" ] && exit 0
 
@@ -79,6 +79,17 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   bouncer_state_update "$TASK" --argjson n "$n" '.blocks_total = $n'
   bouncer_block "$1"
 }
+
+# 작업 트리가 사라졌는데 조용히 프로젝트로 폴백하면 검증 대상이 예고 없이 바뀐다.
+# (빈 worktree는 항상 클린 트리라 finalize 게이트가 무조건 열린다)
+if [ ! -d "$WORK_ROOT" ]; then
+  guarded_block "⛔ [ai-bouncer] 이 작업의 작업 트리가 사라졌다: $WORK_ROOT
+병렬 작업용 worktree가 삭제된 것으로 보인다.
+검증과 커밋을 어느 트리에서 해야 할지 알 수 없어 진행할 수 없다.
+
+  · 작업을 포기한다:        bouncer cancel
+  · worktree를 되살린다:    git worktree add $WORK_ROOT $(bouncer_state "$TASK" '.worktree.branch')"
+fi
 add_failure() { FAILURES="${FAILURES}${FAILURES:+$'\n'}- $1"; }
 
 while IFS= read -r step; do
