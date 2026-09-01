@@ -16,9 +16,27 @@ BOUNCER_ROOT="$(cd "$BOUNCER_LIB_DIR/../.." && pwd)"
 #   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
 # 설치 지점을 현재 위치에서 위로 올라가며 찾는다.
 # 하위 디렉토리나 worktree에서 실행하면 작업이 사라진 것처럼 보이던 원인이다.
+# 병렬 작업용 worktree 안에서도 **메인 레포**를 프로젝트로 본다.
+# worktree에는 .claude/ai-bouncer/ 가 git으로 딸려오므로, 위로 올라가는 탐색만 하면
+# worktree 자신을 프로젝트로 판정하고 거기 .ai-bouncer/tasks 가 비어 있어
+# 모든 hook이 조용히 무관여가 된다 (push 통과, Stop 무출력).
+# git-common-dir 은 worktree에서도 메인 레포의 .git 을 가리킨다.
+bouncer_main_root() {
+  local d="${1:-$PWD}" gcd
+  gcd="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1
+  [ -n "$gcd" ] || return 1
+  case "$gcd" in /*) ;; *) gcd="$(cd "$d" && cd "$gcd" 2>/dev/null && pwd)" || return 1 ;; esac
+  [ -d "$gcd" ] || return 1
+  printf '%s' "$(dirname "$gcd")"
+}
 bouncer_project_root() {
-  local d="${1:-$PWD}"
+  local d="${1:-$PWD}" main
   d="$(cd "$d" 2>/dev/null && pwd)" || { printf '%s' "${1:-$PWD}"; return; }
+  # worktree라면 메인 레포로 건너뛴다. 설치가 거기 있어야 상태를 공유한다.
+  if main="$(bouncer_main_root "$d")" && [ "$main" != "$d" ] \
+     && [ -f "$main/.claude/ai-bouncer/workflow.yaml" ]; then
+    printf '%s' "$main"; return
+  fi
   while [ "$d" != "/" ]; do
     [ -f "$d/.claude/ai-bouncer/workflow.yaml" ] && { printf '%s' "$d"; return; }
     d="$(dirname "$d")"

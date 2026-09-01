@@ -45,7 +45,36 @@ s = s.replace("""    forbid:
 open(p, 'w').write(s)
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
-        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null || { no "e2e step 추가"; finish; exit; }
+        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null || { no "e2e step 추가"; echo
+echo "[병렬 작업(worktree) split-brain]"
+# 예전엔 worktree를 만들어도 세션은 메인 레포에 남아 편집했고,
+# 게이트는 손대지 않은 worktree(=클린 트리)를 보고 전부 통과했다.
+CLAUDE_CODE_SESSION_ID=S3 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
+git -C "$T" add -A >/dev/null 2>&1; git -C "$T" commit -qm cfg >/dev/null 2>&1
+export CLAUDE_CODE_SESSION_ID=S3
+OUT="$(bouncer start simple para --parallel 2>&1)"
+printf '%s' "$OUT" | grep -q 'cd ' && ok "worktree로 이동하라고 안내" || no "이동 안내 없음"
+WT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"; WT="$(jq -r '.worktree.path' "$WT/state.json")"
+[ -d "$WT" ] && ok "worktree 생성" || no "worktree 없음" "$WT"
+
+# worktree 안에서는 hook이 관여해야 한다 (예전엔 통째로 무관여였다)
+r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$WT"     | bash "$R/hooks/pre-tool.sh")
+[ -n "$r" ] && ok "worktree 안에서도 push 차단" || no "worktree 안 무관여" "통과됨"
+says '체인:' env BOUNCER_PROJECT="$WT" bash "$R/engine/bouncer.sh" status   && ok "worktree 안에서 status가 같은 작업을 본다" || no "status 무관여"
+
+# 메인 레포 편집은 막아야 한다 — 여기서 고치면 검증이 다른 트리를 본다
+r=$(pre Edit "{\"file_path\":\"$T/app.js\"}" S3)
+printf '%s' "$r" | grep -q 'worktree' && ok "메인 레포 편집 차단" || no "메인 편집 허용됨" "${r:0:80}"
+r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s/app.js"}}' "$WT" "$WT"     | bash "$R/hooks/pre-tool.sh")
+[ -z "$r" ] && ok "worktree 안 편집은 허용" || no "worktree 편집 차단됨" "${r:0:80}"
+
+# worktree가 사라지면 조용히 프로젝트로 폴백하지 않고 알려야 한다
+rm -rf "$WT"
+r=$(stop S3)
+printf '%s' "$r" | grep -q '작업 트리가 사라졌다' && ok "worktree 소실을 알린다" || no "소실 감지" "${r:0:100}"
+bouncer cancel >/dev/null 2>&1
+
+finish; exit; }
 bouncer start simple off1 --off "verify/e2e" >/dev/null
 LATEST="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
 [ "$(jq -r '.choices["verify/e2e"]' "$LATEST/state.json")" = false ] \
@@ -88,5 +117,34 @@ echo "[하위 디렉토리 SessionEnd]"
 mkdir -p "$T/packages/web"
 hook session-end "{\"session_id\":\"S2\",\"cwd\":\"$T/packages/web\"}"
 ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "하위에서 잠금 해제" "남아있음" || ok "하위 디렉토리에서도 해제"
+
+echo
+echo "[병렬 작업(worktree) split-brain]"
+# 예전엔 worktree를 만들어도 세션은 메인 레포에 남아 편집했고,
+# 게이트는 손대지 않은 worktree(=클린 트리)를 보고 전부 통과했다.
+CLAUDE_CODE_SESSION_ID=S3 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
+git -C "$T" add -A >/dev/null 2>&1; git -C "$T" commit -qm cfg >/dev/null 2>&1
+export CLAUDE_CODE_SESSION_ID=S3
+OUT="$(bouncer start simple para --parallel 2>&1)"
+printf '%s' "$OUT" | grep -q 'cd ' && ok "worktree로 이동하라고 안내" || no "이동 안내 없음"
+WT="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"; WT="$(jq -r '.worktree.path' "$WT/state.json")"
+[ -d "$WT" ] && ok "worktree 생성" || no "worktree 없음" "$WT"
+
+# worktree 안에서는 hook이 관여해야 한다 (예전엔 통째로 무관여였다)
+r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$WT"     | bash "$R/hooks/pre-tool.sh")
+[ -n "$r" ] && ok "worktree 안에서도 push 차단" || no "worktree 안 무관여" "통과됨"
+says '체인:' env BOUNCER_PROJECT="$WT" bash "$R/engine/bouncer.sh" status   && ok "worktree 안에서 status가 같은 작업을 본다" || no "status 무관여"
+
+# 메인 레포 편집은 막아야 한다 — 여기서 고치면 검증이 다른 트리를 본다
+r=$(pre Edit "{\"file_path\":\"$T/app.js\"}" S3)
+printf '%s' "$r" | grep -q 'worktree' && ok "메인 레포 편집 차단" || no "메인 편집 허용됨" "${r:0:80}"
+r=$(printf '{"session_id":"S3","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s/app.js"}}' "$WT" "$WT"     | bash "$R/hooks/pre-tool.sh")
+[ -z "$r" ] && ok "worktree 안 편집은 허용" || no "worktree 편집 차단됨" "${r:0:80}"
+
+# worktree가 사라지면 조용히 프로젝트로 폴백하지 않고 알려야 한다
+rm -rf "$WT"
+r=$(stop S3)
+printf '%s' "$r" | grep -q '작업 트리가 사라졌다' && ok "worktree 소실을 알린다" || no "소실 감지" "${r:0:100}"
+bouncer cancel >/dev/null 2>&1
 
 finish
