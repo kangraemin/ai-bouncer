@@ -127,11 +127,16 @@ cmd_start() {
     esac
   done
 
-  local slug_safe task_id dir root head_sha base_branch
+  local slug_safe task_id dir root head_sha base_branch sid_tag
   slug_safe="$(printf '%s' "$slug" | tr -cs '[:alnum:]-' '-' | sed 's/^-*//;s/-*$//')"
-  task_id="$(date +%Y%m%d-%H%M%S)-$slug_safe"
+  # 같은 초에 같은 slug로 두 세션이 시작하면 디렉토리가 겹쳐 한쪽이 태스크를 잃는다.
+  # 세션 성분을 넣어 충돌 자체를 없앤다.
+  sid_tag="$(printf '%s' "$SESSION" | shasum -a 256 | cut -c1-6)"
+  task_id="$(date +%Y%m%d-%H%M%S)-$sid_tag-$slug_safe"
   dir="$(bouncer_tasks_dir "$PROJECT")/$task_id"
-  mkdir -p "$dir" || die "태스크 디렉토리 생성 실패: $dir"
+  mkdir -p "$(dirname "$dir")" || die "태스크 디렉토리 생성 실패: $dir"
+  # -p 를 쓰면 이미 있어도 성공한다. 겹치면 실패해야 남의 것을 덮어쓰지 않는다.
+  mkdir "$dir" 2>/dev/null || die "태스크 디렉토리가 이미 있다: $dir"
 
   root="$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null)"; [ -n "$root" ] || root="$PROJECT"
   head_sha="$(git -C "$root" rev-parse HEAD 2>/dev/null)"
@@ -152,9 +157,35 @@ cmd_start() {
 
   jq -n --arg s "$SESSION" --arg now "$(date -u +%FT%TZ)" \
      '{session_id:$s, claimed_at:$now, seen_at:$now}' > "$dir/.active"
+
+  # 검사와 생성 사이에 다른 세션이 끼어들 수 있다(TOCTOU).
+  # 내 락을 만든 뒤 다시 확인해서, 나보다 먼저 잡은 쪽이 있으면 내 것을 물린다.
+  if [ "$parallel" = 0 ]; then
+    local mine_at other_at
+    mine_at="$(jq -r '.claimed_at' "$dir/.active")"
+    for other in $(bouncer_live_locks "$PROJECT"); do
+      [ "$other" = "$dir" ] && continue
+      [ "$(jq -r '.session_id // empty' "$other/.active" 2>/dev/null)" = "$SESSION" ] && continue
+      other_at="$(jq -r '.claimed_at // empty' "$other/.active" 2>/dev/null)"
+      if [ -n "$other_at" ] && [ "$other_at" \< "$mine_at" ] || [ "$other_at" = "$mine_at" ]; then
+        rm -rf "$dir"
+        die "다른 세션이 먼저 작업을 시작했다: $other
+같은 트리에서 동시에 진행하면 충돌한다.
+  - 병렬로 진행 → 'bouncer start $wf \"$slug\" --parallel'
+  - 그 작업을 이어서 → 해당 세션에서 계속하라"
+      fi
+    done
+  fi
   printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
   # 병렬이면 곧바로 격리한다. base 브랜치는 이 시점에 확정 기록된다.
-  [ "$parallel" = 1 ] && cmd_wt_create "$slug"
+  # 격리에 실패했는데 태스크를 남기면, 사용자가 요청한 격리 없이 메인 트리에서
+  # 락을 쥔 채 작업하게 된다 — 그 상태로 두느니 시작을 무르는 게 맞다.
+  if [ "$parallel" = 1 ]; then
+    if ! cmd_wt_create "$slug"; then
+      rm -rf "$dir"
+      die "격리(worktree) 생성에 실패해 작업을 시작하지 않았다. 위 오류를 해결하고 다시 시도하라."
+    fi
+  fi
 
   # 첫 스테이지 지시를 바로 돌려준다. Stop을 기다리면 첫 응답이 지시 없이 나간다.
   local txt
@@ -235,9 +266,16 @@ cmd_done() {
 
 cmd_cancel() {
   need_task
-  bouncer_state_update "$TASK" --arg n "$(date -u +%FT%TZ)" '.current_stage = "cancelled" | .cancelled_at = $n'
+  local noted=1
+  bouncer_state_update "$TASK" --arg n "$(date -u +%FT%TZ)" \
+    '.current_stage = "cancelled" | .cancelled_at = $n' || noted=0
   rm -f "$TASK/.active"
-  printf 'CANCELLED\t%s\n' "$TASK"
+  if [ "$noted" = 1 ]; then
+    printf 'CANCELLED\t%s\n' "$TASK"
+  else
+    printf 'CANCELLED\t%s\n' "$TASK"
+    printf '⚠️ state.json 이 손상돼 취소 표시를 남기지 못했다. 잠금은 해제했다.\n' >&2
+  fi
 }
 
 # ── worktree ─────────────────────────────────────────────────

@@ -46,21 +46,40 @@ bouncer_my_task() {
 
 # lock의 나이(초). 하트비트는 Stop hook이 갱신한다.
 # CLI는 곧바로 종료되므로 pid로 생존을 판정할 수 없다 — 그래서 시간 기반이다.
+# 시각을 읽을 수 없는 락은 "방금 갱신됨"이 아니라 "손상됨"이다.
+# 0을 돌려주면 12시간 정리에 영원히 안 걸려 좀비 락이 된다.
+# 파일 수정 시각으로 대체하고, 그것도 안 되면 아주 오래된 것으로 취급한다.
 bouncer_lock_age() {
-  local seen now
-  seen="$(jq -r '.seen_at // .claimed_at // empty' "$1" 2>/dev/null)"
-  [ -n "$seen" ] || { printf '0'; return; }
+  local seen now t
   now=$(date -u +%s)
-  local t
-  t=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$seen" +%s 2>/dev/null) \
-    || t=$(date -u -d "$seen" +%s 2>/dev/null) || { printf '0'; return; }
-  printf '%s' "$(( now - t ))"
+  seen="$(jq -r '.seen_at // .claimed_at // empty' "$1" 2>/dev/null)"
+  if [ -n "$seen" ]; then
+    t=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$seen" +%s 2>/dev/null) \
+      || t=$(date -u -d "$seen" +%s 2>/dev/null) || t=""
+  fi
+  if [ -z "${t:-}" ]; then
+    t=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null) || t=0
+  fi
+  # 미래 시각이면 시계가 어긋난 것 — 음수 대신 0으로 눕힌다
+  local age=$(( now - t )); [ "$age" -lt 0 ] && age=0
+  printf '%s' "$age"
+}
+
+# 읽을 수 없는(손상된) 락인지 — 소유자 판별이 안 되면 아무도 해제할 수 없다
+bouncer_lock_broken() {
+  jq -e '.session_id|strings' "$1" >/dev/null 2>&1 && return 1 || return 0
 }
 
 bouncer_touch_lock() {
-  local f="$1/.active" tmp="$1/.active.tmp"
+  # tmp 이름을 공유하면 동시에 도는 프로세스끼리 서로의 임시 파일을 mv 해
+  # 원본이 빈 파일로 바뀐다. 프로세스별로 다른 이름을 쓴다.
+  local f="$1/.active" tmp="$1/.active.$$.tmp"
   [ -f "$f" ] || return 0
-  jq --arg t "$(date -u +%FT%TZ)" '.seen_at = $t' "$f" > "$tmp" 2>/dev/null && mv "$tmp" "$f" || rm -f "$tmp"
+  if jq --arg t "$(date -u +%FT%TZ)" '.seen_at = $t' "$f" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
+    mv "$tmp" "$f"
+  else
+    rm -f "$tmp"
+  fi
 }
 
 # 세션 무관하게 존재하는 모든 lock (충돌 안내용).
@@ -76,11 +95,16 @@ bouncer_live_locks() {
 # ── state.json ───────────────────────────────────────────────
 bouncer_state() { jq -r "${2} // empty" "$1/state.json" 2>/dev/null; }
 
+# 실패하면 원본을 건드리지 않고 1을 반환한다. 호출부는 반환값을 확인해야 한다.
 bouncer_state_update() {
   local dir="$1"; shift
-  local f="$dir/state.json" tmp="$dir/.state.tmp"
+  local f="$dir/state.json" tmp="$dir/.state.$$.tmp"
   [ -f "$f" ] || return 1
-  if jq "$@" "$f" > "$tmp" 2>/dev/null; then mv "$tmp" "$f"; else rm -f "$tmp"; return 1; fi
+  if jq "$@" "$f" > "$tmp" 2>/dev/null && [ -s "$tmp" ] && jq -e . "$tmp" >/dev/null 2>&1; then
+    mv "$tmp" "$f"
+  else
+    rm -f "$tmp"; return 1
+  fi
 }
 
 # ── 워크플로우 정의 ──────────────────────────────────────────

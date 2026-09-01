@@ -89,8 +89,16 @@ fi
 
 # ── 2. manifest 기반 파일 제거 ───────────────────────────────
 # 목록에 있는 것만 지운다. 사용자가 나중에 넣은 파일은 건드리지 않는다.
+if [ ! -f "$DIR/manifest.json" ]; then
+  die "매니페스트가 없다: $DIR/manifest.json
+무엇을 설치했는지 알 수 없어 안전하게 제거할 수 없다.
+전부 지우려면 --purge 를, 아니면 재설치 후 다시 제거하라."
+elif ! jq -e '.files' "$DIR/manifest.json" >/dev/null 2>&1; then
+  die "매니페스트가 손상됐다: $DIR/manifest.json
+무엇을 설치했는지 알 수 없어 안전하게 제거할 수 없다."
+fi
 if [ -f "$DIR/manifest.json" ]; then
-  n=0
+  n=0; failed=0
   miss=0
   while IFS= read -r f; do
     [ -n "$f" ] || continue
@@ -98,10 +106,18 @@ if [ -f "$DIR/manifest.json" ]; then
     [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/prompts/*) continue ;; esac
     # manifest는 프로젝트 기준 상대경로다 (구버전 매니페스트는 절대경로일 수 있다)
     case "$f" in /*) t="$f" ;; *) t="$PWD/$f" ;; esac
-    if [ -e "$t" ]; then rm -f "$t" && n=$((n+1)); else miss=$((miss+1)); fi
+    if [ -e "$t" ]; then
+      if rm -f "$t" 2>/dev/null && [ ! -e "$t" ]; then n=$((n+1)); else failed=$((failed+1)); fi
+    else miss=$((miss+1)); fi
   done < <(jq -r '.files[]?' "$DIR/manifest.json")
   printf '  파일 %d개 제거\n' "$n"
   [ "$miss" -gt 0 ] && printf '  ⚠️ 매니페스트에 있으나 찾지 못한 파일 %d개 — 다른 경로에 설치됐을 수 있다\n' "$miss"
+  if [ "$failed" -gt 0 ]; then
+    printf '\n' >&2
+    die "파일 ${failed}개를 지우지 못했다 (권한 문제로 보인다).
+반쯤 제거된 상태다 — 권한을 고친 뒤 다시 실행하라.
+남은 것: $DIR"
+  fi
 fi
 rm -f "$DIR/workflow.compiled.json" "$DIR/installed.json" "$DIR/manifest.json" \
       "$DIR/.update-check" "$DIR/.gitignore" "$DIR/bin/bouncer"

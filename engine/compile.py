@@ -70,7 +70,13 @@ def _scalar(v):
         for item in _split_flow(v[1:-1]):
             k, sep, val = item.partition(':')
             if sep:
-                out[_scalar(k.strip())] = _scalar(val)
+                key = _scalar(k.strip())
+                if key in out:
+                    # 블록 스타일과 같은 이유로 거부한다 — forbid 를 두 번 쓰면
+                    # 뒤엣것이 이겨서 가드가 에러 없이 사라진다.
+                    raise ConfigError('중복된 키: `%s` — 같은 매핑에 두 번 있다. '
+                                      '뒤엣것이 앞엣것을 조용히 덮어쓰므로 거부한다.' % key)
+                out[key] = _scalar(val)
         return out
     low = v.lower()
     if low in ('true', 'yes'):

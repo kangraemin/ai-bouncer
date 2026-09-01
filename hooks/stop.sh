@@ -135,6 +135,41 @@ done < <(jq -c '.steps[]?' <<<"$STAGE_JSON")
 # 판정
 # ─────────────────────────────────────────────────────────────
 if [ -z "$FAILURES" ]; then
+  # 반송돼 온 스테이지라면, 뭔가 달라졌을 때만 다시 내보낸다.
+  # 그러지 않으면 조건 없는 스테이지를 사이에 두고 같은 검사를 무한히 반복한다.
+  RET_TO="$(bouncer_state "$TASK" '.returned_to')"
+  if [ -n "$RET_TO" ] && [ "$RET_TO" = "$STAGE" ]; then
+    RET_TREE="$(bouncer_state "$TASK" '.returned_tree')"
+    NOW_TREE="$( { git -C "$WORK_ROOT" rev-parse HEAD 2>/dev/null; \
+                   git -C "$WORK_ROOT" status --porcelain 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)"
+    if [ -n "$RET_TREE" ] && [ "$RET_TREE" = "$NOW_TREE" ]; then
+      bouncer_state_update "$TASK" '.continue_streak = (.continue_streak // 0) + 1'
+      NS="$(bouncer_state "$TASK" '.continue_streak')"; [ -n "$NS" ] || NS=1
+      # 여기서 그냥 막으면 아래 상한 검사에 영영 도달하지 못한다.
+      # 고칠 의사가 없거나 고칠 수 없는 상황이면 세션을 사용자에게 돌려줘야 한다.
+      if [ "$NS" -ge "$MAX_CONTINUE" ] 2>/dev/null; then
+        bouncer_state_update "$TASK" '.allowed_stop = true | .continue_streak = 0'
+        jq -n --arg c "⛔ [$STAGE] 되돌아온 뒤 ${NS}번 동안 작업 트리가 그대로다.
+고칠 수 없거나 고칠 것이 없는 상태로 보인다. 사용자에게 넘긴다.
+
+직전 실패:
+$(bouncer_state "$TASK" '.last_failure')
+
+AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
+  1. 접근을 바꿔서 다시 시도한다
+  2. 이 조건을 이번 작업에서만 건너뛴다
+  3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+        exit 0
+      fi
+      bouncer_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
+
+이대로 다시 검증에 보내면 같은 결과가 나온다. 무엇이 틀렸는지 다시 보고 실제로 고쳐라.
+직전 실패:
+$(bouncer_state "$TASK" '.last_failure')"
+    fi
+    bouncer_state_update "$TASK" '.returned_to = null | .returned_tree = null'
+  fi
+
   # ── 전이 ──
   NEXT="$(bouncer_next_stage "$CWD" "$WORKFLOW" "$STAGE")"
   if [ -z "$NEXT" ]; then
@@ -146,13 +181,22 @@ if [ -z "$FAILURES" ]; then
       '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
     exit 0
   fi
+  # 다음 스테이지의 지시를 지금 함께 전달한다. 그러지 않으면 blocking 없는
+  # 스테이지는 "진입 → 다음 Stop에서 즉시 통과"라 지시를 받는 턴이 없다.
+  NEXT_TXT="$(bouncer_stage "$CWD" "$NEXT" \
+    | jq -r '[.steps[]? | select(.kind=="inject") | .text] | join("\n\n")')"
+  if [ -n "$NEXT_TXT" ]; then
+    while IFS= read -r nid; do
+      [ -n "$nid" ] && bouncer_state_update "$TASK" --arg k "$nid" '.shown[$k] = true'
+    done < <(bouncer_stage "$CWD" "$NEXT" | jq -r '.steps[]? | select(.kind=="inject") | .id')
+  fi
   bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
     '.current_stage = $n
      | .continue_streak = 0
      | .reentry_count = 0
      | .allowed_stop = false
      | .history += [{stage:$n, at:$t}]'
-  bouncer_block "✅ [$STAGE] 완료 → [$NEXT] 진입${INJECT:+$'\n\n'}$INJECT"
+  bouncer_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
 
 # ── 미충족 ──
@@ -182,7 +226,10 @@ $FAILURES" '{hookSpecificOutput:{additionalContext:$c}}'
       exit 0
     fi
     # 왕복 횟수는 전이가 리셋하지 않는다. 리셋하면 A→B→A→B 로 영원히 돈다.
-    LOOPS="$(jq -r '.loops // 0' "$TASK/state.json" 2>/dev/null)"; [ -n "$LOOPS" ] || LOOPS=0
+    bouncer_state_update "$TASK" --arg f "$FAILURES" '.last_failure = $f'
+    PAIR="$STAGE->$ON_FAIL"
+    LOOPS="$(jq -r --arg k "$PAIR" '.loops[$k] // 0' "$TASK/state.json" 2>/dev/null)"
+    [ -n "$LOOPS" ] && [ "$LOOPS" != "null" ] || LOOPS=0
     if [ "$(( LOOPS + 1 ))" -gt "$MAX_LOOPS" ] 2>/dev/null; then
       # 이미 상한이면 카운터를 더 올리지 않는다 — 숫자가 실제 왕복 횟수와 어긋난다.
       bouncer_state_update "$TASK" \
@@ -203,10 +250,16 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
 
     # 되돌아갈 때 이 스테이지의 진행 기록을 지운다 — 돌아오면 처음부터 다시 검증한다.
     IDS="$(jq -c '[.steps[]?.id]' <<<"$STAGE_JSON")"
+    # 되돌려 보낸 시점의 작업 트리를 기억해둔다. 아무것도 안 바뀌었는데
+    # 다시 전진시키면 같은 검사를 같은 코드에 돌리는 헛바퀴가 된다.
+    TREE="$( { git -C "$WORK_ROOT" rev-parse HEAD 2>/dev/null; \
+               git -C "$WORK_ROOT" status --porcelain 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)"
     bouncer_state_update "$TASK" --arg back "$ON_FAIL" --argjson ids "$IDS" \
-      --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" --argjson n "$LOOPS" '
+      --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" --argjson n "$LOOPS" --arg tree "$TREE" --arg pair "$PAIR" '
         .current_stage = $back
-        | .loops = $n
+        | .returned_tree = $tree
+        | .returned_to = $back
+        | .loops[$pair] = $n
         | .evidence       |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .shown          |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .stage_attempts[$s] = 0
