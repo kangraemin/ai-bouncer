@@ -9,4 +9,15 @@ for f in "$R"/config/default.yaml "$R"/examples/*.yaml "$R"/tests/fixtures/*.yam
   jq -S 'del(.compiled_at,.parser)' "$T/a.json" > "$T/a2"; jq -S 'del(.compiled_at,.parser)' "$T/b.json" > "$T/b2"
   diff -q "$T/a2" "$T/b2" >/dev/null && ok "$n 두 파서 결과 일치" || no "$n 파서 불일치"
 done
+# 모르는 이스케이프를 조용히 통과시키면 pyyaml과 결과가 갈린다 — 거부해야 한다.
+printf 'version: 1\nworkflows:\n  s: {label: t, stages: [a]}\nstages:\n  a:\n    steps: [{label: l, inject: "bad \\q"}]\n' > "$T/bad.yaml"
+for parser in "" "--builtin-parser"; do
+  # shellcheck disable=SC2086
+  if python3 "$R/engine/compile.py" "$T/bad.yaml" "$T/x.json" $parser >/dev/null 2>&1; then
+    no "잘못된 이스케이프 거부 (${parser:-pyyaml})" "통과됨"
+  else
+    ok "잘못된 이스케이프 거부 (${parser:-pyyaml})"
+  fi
+done
+
 finish

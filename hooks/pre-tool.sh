@@ -44,26 +44,16 @@ fi
 ENGINE_FILE_MSG="⛔ [ai-bouncer] 엔진 파일은 직접 수정할 수 없다.
 단계 전이와 규칙은 엔진이 관리한다. 조건을 충족시켜서 넘어가라."
 
+# 디렉토리 통째로도 막아야 한다 — `.ai-bouncer` 를 지우면 게이트가 전부 사라진다.
 FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.path // empty' <<<"$INPUT")"
 case "$FILE_PATH" in
-  */.ai-bouncer/tasks/*/state.json|*/.ai-bouncer/tasks/*/.active|\
-  */workflow.compiled.json|*/.claude/ai-bouncer/*)
+  */.ai-bouncer|*/.ai-bouncer/*|*/workflow.compiled.json|\
+  */.claude/ai-bouncer|*/.claude/ai-bouncer/*)
     bouncer_block "$ENGINE_FILE_MSG" ;;
 esac
-
-# 셸을 통한 접근도 같은 기준으로 막는다. Edit/Write만 막으면
-# `echo '{' > .claude/ai-bouncer/workflow.compiled.json` 한 줄로 전부 무력화된다.
-if [ "$TOOL" = "Bash" ]; then
-  _CMD="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
-  case "$_CMD" in
-    bouncer\ *|*/bouncer.sh\ *) ;;   # 엔진 자신의 명령은 예외
-    *)
-      if printf '%s' "$_CMD" | grep -Eq '(\.ai-bouncer/tasks/[^[:space:]]*/(state\.json|\.active)|workflow\.compiled\.json|\.claude/ai-bouncer/)' \
-         && printf '%s' "$_CMD" | grep -Eq '(^|[;&|[:space:]])(rm|mv|cp|touch|truncate|tee|sed|perl|python3?|dd|install|ex|ed|chmod|ln)\b|[^|>]>' ; then
-        bouncer_block "$ENGINE_FILE_MSG"
-      fi ;;
-  esac
-fi
+# 셸을 통한 접근은 guard.py가 같은 기준으로 막는다 (아래 Bash 분기).
+# 여기서 정규식으로 한 번 더 보던 코드는 지웠다 — 두 벌로 관리하니
+# 셸 쪽만 `.ai-bouncer` 부모 디렉토리를 놓쳐 `rm -rf .ai-bouncer` 가 통과했다.
 
 FORBID="$(bouncer_stage "$CWD" "$STAGE" | jq -c '.forbid // {}')"
 REASON="$(jq -r '.reason // ""' <<<"$FORBID")"
@@ -116,10 +106,8 @@ case "$TOOL" in
     # 허용 명령 뒤에 붙이면 통째로 통과했다.
     # 그래서 명령을 세그먼트로 쪼개고 실행 파일 이름을 정규화해서 판정한다.
     GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
-    # 이 스테이지에 아무 제약이 없으면 판정할 것도 없다.
-    if [ "$(jq -r '(.edit_files|tostring) + (.push|tostring) + ((.bash|length)|tostring)' <<<"$FORBID")" = "nullfalse0" ]; then
-      exit 0
-    fi
+    # 제약이 하나도 없는 스테이지에서도 엔진 파일 보호는 살아 있어야 한다.
+    # 예전에는 여기서 곧장 exit 0 해서, done 단계에서 상태 파일이 무방비였다.
     # 제약이 있는데 판정기를 못 쓰면 "제약 없음"이 아니라 "판정 불가"다. 막는다.
     if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
       deny "명령 판정기를 사용할 수 없다 ($GUARD).

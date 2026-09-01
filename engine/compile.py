@@ -59,10 +59,49 @@ def _split_flow(s):
     return [p.strip() for p in parts if p.strip()]
 
 
+_DQ_ESC = {'0': '\0', 'a': '\a', 'b': '\b', 't': '\t', '\t': '\t', 'n': '\n',
+           'v': '\v', 'f': '\f', 'r': '\r', 'e': '\x1b', ' ': ' ', '"': '"',
+           '/': '/', '\\': '\\', 'N': '\x85', '_': '\xa0'}
+
+
+def _unquote(v):
+    r"""따옴표 스칼라의 이스케이프를 YAML 규칙대로 푼다.
+
+    예전에는 따옴표만 벗겨냈다. 그러면 `"curl .*\\| *(bash|sh)"` 가
+    pyyaml에서는 `\|`(리터럴 파이프), 내장 파서에서는 `\\|`(파이프 대체)가 되어
+    **같은 파일이 머신마다 다른 정규식**이 됐다 — 에러도 경고도 없이.
+    앵커를 거부하면서까지 막으려던 바로 그 문제다.
+    """
+    q, body = v[0], v[1:-1]
+    if q == "'":
+        return body.replace("''", "'")          # 홑따옴표는 '' 만 이스케이프
+    out, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c != '\\':
+            out.append(c); i += 1; continue
+        if i + 1 >= len(body):
+            raise ConfigError('문자열이 백슬래시로 끝난다: %s' % v)
+        e = body[i + 1]
+        if e in _DQ_ESC:
+            out.append(_DQ_ESC[e]); i += 2; continue
+        if e in 'xuU':
+            n = {'x': 2, 'u': 4, 'U': 8}[e]
+            hexs = body[i + 2:i + 2 + n]
+            if len(hexs) != n or any(h not in '0123456789abcdefABCDEF' for h in hexs):
+                raise ConfigError('잘못된 이스케이프 `\\%s%s` — %s' % (e, hexs, v))
+            out.append(chr(int(hexs, 16))); i += 2 + n; continue
+        # 모르는 이스케이프를 그냥 통과시키면 pyyaml과 결과가 갈린다. 거부한다.
+        raise ConfigError(
+            '겹따옴표 문자열에서 `\\%s` 는 YAML 이스케이프가 아니다: %s\n'
+            '정규식처럼 백슬래시를 그대로 쓰려면 홑따옴표를 써라: \'...\'' % (e, v))
+    return ''.join(out)
+
+
 def _scalar(v):
     v = v.strip()
     if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
-        return v[1:-1]
+        return _unquote(v)
     if v.startswith('[') and v.endswith(']'):
         return [_scalar(x) for x in _split_flow(v[1:-1])]
     if v.startswith('{') and v.endswith('}'):          # 플로우 매핑

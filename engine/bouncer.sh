@@ -7,6 +7,9 @@
 #   bouncer run <step-id>             그 step의 명령을 실행하고 결과를 기록
 #   bouncer done <step-id>            사람 확인이 필요한 step을 완료 처리
 #   bouncer cancel                    작업 취소
+#   bouncer skip <step-id>            엔진이 포기한 조건을 이번 작업에서만 건너뛴다
+#   bouncer release [--force]         죽은 세션이 남긴 잠금 확인 / 회수
+#   bouncer workflows                 정의된 모드 목록
 #   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
 #   bouncer worktree finalize         병렬 작업을 base로 FF 머지하고 정리
 #
@@ -64,6 +67,14 @@ cmd_scan() {
     done < <(bouncer_chain "$PROJECT" "$wf")
   done < <(jq -r '.workflows | keys[]' "$COMPILED")
   return 0
+}
+
+# ── workflows ────────────────────────────────────────────────
+# 모드 선택지만 뽑는다. scan은 상태까지 같이 주므로 사람이 읽기엔 이쪽이 낫다.
+cmd_workflows() {
+  [ -f "$COMPILED" ] || die "워크플로우가 컴파일되지 않았다: $COMPILED"
+  jq -r '.workflows | to_entries[] |
+    "\(.key)\t\(.value.label)\n    " + (.value.stages | join(" → "))' "$COMPILED"
 }
 
 # ── check ────────────────────────────────────────────────────
@@ -233,9 +244,11 @@ cmd_status() {
 
   printf '\n[%s] steps\n' "$STAGE"
   bouncer_stage "$PROJECT" "$STAGE" | jq -r --slurpfile st "$TASK/state.json" '
-    .steps[]? |
-    (($st[0].evidence[.id] // false) as $done |
-     ($st[0].choices[.id]  // true)  as $on |
+    .steps[]? | .id as $sid |
+    (($st[0].evidence[$sid] // false) as $done |
+     (if ($st[0].skipped[$sid] // false) then false
+      elif ($st[0].choices | has($sid)) then $st[0].choices[$sid]
+      else true end) as $on |
      "  \(if .optional and ($on|not) then "⃠" elif $done then "✅" elif .blocking then "⬜" else "·" end) \(.label)\(if .optional and ($on|not) then "  (이번 작업에서 끔)" elif .blocking then "  [\(.blocking)]" else "" end)")'
 }
 
@@ -246,8 +259,10 @@ cmd_run() {
   local step; step="$(step_json "$id" "$STAGE")"
   [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다. 'bouncer status'로 확인하라."
   local kind cmd tmo
+  # jq의 `//` 는 false를 "없음"으로 보므로 has()로 물어야 한다.
   if [ "$(jq -r '.optional' <<<"$step")" = "true" ] \
-     && [ "$(jq -r --arg k "$id" '.choices[$k] // true' "$TASK/state.json")" = "false" ]; then
+     && [ "$(jq -r --arg k "$id" 'if (.choices | has($k)) then .choices[$k] else true end' \
+              "$TASK/state.json")" = "false" ]; then
     die "'$id'는 이번 작업에서 끈 항목이다. 실행할 필요가 없다."
   fi
   kind="$(jq -r '.kind' <<<"$step")"
@@ -302,6 +317,57 @@ cmd_cancel() {
     printf 'CANCELLED\t%s\n' "$TASK"
     printf '⚠️ state.json 이 손상돼 취소 표시를 남기지 못했다. 잠금은 해제했다.\n' >&2
   fi
+}
+
+# ── release ──────────────────────────────────────────────────
+# 세션이 크래시하면 SessionEnd가 안 돌아 .active가 남는다. stale_lock_hours(기본 12시간)
+# 전에는 아무도 시작할 수 없었고, cancel은 자기 작업만 다뤄서 탈출구가 없었다.
+# 남의 작업을 건드리는 일이라 --force를 반드시 요구한다.
+cmd_release() {
+  local force=0 d owner age found=0
+  [ "${1:-}" = "--force" ] && force=1
+  for d in $(bouncer_live_locks "$PROJECT"); do
+    found=1
+    owner="$(jq -r '.session_id // "?"' "$d/.active" 2>/dev/null)"
+    age=$(( $(bouncer_lock_age "$d/.active") / 60 ))
+    if [ "$owner" = "$SESSION" ]; then
+      printf '  (내 작업) %s — %s\n' "$(bouncer_state "$d" '.current_stage')" "$d"
+      continue
+    fi
+    if [ "$force" = 0 ]; then
+      printf '  세션 %s · 단계 %s · %s분 전 · %s\n' \
+        "$owner" "$(bouncer_state "$d" '.current_stage')" "$age" "$d"
+      continue
+    fi
+    rm -f "$d/.active" && printf 'RELEASED\t%s\n' "$d"
+  done
+  [ "$found" = 0 ] && { printf '잠긴 작업이 없다.\n'; return 0; }
+  if [ "$force" = 0 ]; then
+    printf '\n다른 세션이 살아 있다면 그 세션에서 계속하는 게 맞다.\n'
+    printf '그 세션이 죽은 게 확실하면: bouncer release --force\n'
+    printf '(작업 기록은 남고 잠금만 푼다. 이어서 하려면 그 뒤 bouncer status)\n'
+  fi
+}
+
+# ── skip ─────────────────────────────────────────────────────
+# 엔진이 포기 메시지에서 "이 조건을 이번 작업에서만 건너뛴다"를 제안하는데
+# 정작 그런 명령이 없었다. 엔진이 이미 포기한(max_attempts 소진) step만 열어준다 —
+# 그래야 게이트를 처음부터 우회하는 수단이 되지 않는다.
+cmd_skip() {
+  need_task
+  local id="${1:-}"; [ -n "$id" ] || die "usage: bouncer skip <step-id>"
+  local step; step="$(step_json "$id" "$STAGE")"
+  [ -n "$step" ] || die "현재 단계($STAGE)에 '$id' step이 없다. 'bouncer status'로 확인하라."
+  # 시도 횟수는 스테이지 단위로 센다 (엔진이 반송을 결정하는 기준과 같아야 한다).
+  local max tries
+  max="$(bouncer_config max_attempts 3 "$PROJECT")"
+  tries="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
+  [ "$tries" -ge "$max" ] 2>/dev/null || die "[$STAGE]는 아직 $tries/$max 번 시도했다.
+건너뛰기는 엔진이 포기한 뒤에만 쓸 수 있다. 조건을 충족시켜라."
+  bouncer_state_update "$TASK" --arg k "$id" '.skipped[$k] = true' \
+    || die "state.json을 갱신하지 못했다."
+  printf 'SKIPPED\t%s\n' "$id"
+  printf '이번 작업에서만 건너뛴다. workflow.yaml은 그대로다.\n'
 }
 
 # ── worktree ─────────────────────────────────────────────────
@@ -372,12 +438,15 @@ case "${1:-}" in
   run)       shift; cmd_run "$@" ;;
   done)      shift; cmd_done "$@" ;;
   cancel)    shift; cmd_cancel "$@" ;;
+  workflows) shift; cmd_workflows "$@" ;;
+  release)   shift; cmd_release "$@" ;;
+  skip)      shift; cmd_skip "$@" ;;
   worktree)  shift
              case "${1:-}" in
                finalize) shift; cmd_wt_finalize "$@" ;;
                create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
                *) die "usage: bouncer worktree finalize" ;;
              esac ;;
-  ""|-h|--help) sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help) sed -n '3,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

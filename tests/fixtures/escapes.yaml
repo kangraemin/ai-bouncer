@@ -1,0 +1,17 @@
+# 따옴표 이스케이프가 두 파서에서 같게 풀리는지 (정규식이 조용히 달라지던 자리)
+version: 1
+workflows:
+  simple: {label: 이스케이프, stages: [implement, done]}
+stages:
+  implement:
+    steps:
+      - label: 구현
+        inject: "탭\t줄바꿈\n따옴표\" 백슬래시\\ 유니코드\u00e9"
+    forbid:
+      bash:
+        - "curl .*\\| *(bash|sh)"     # 겹따옴표: \\ 가 리터럴 백슬래시 하나
+        - 'raw \| single'             # 홑따옴표: 백슬래시 그대로
+        - "npm .*\\bpublish\\b"
+      reason: 위험한 명령
+  done:
+    steps: [{label: 완료, inject: "끝"}]
