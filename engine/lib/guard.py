@@ -31,7 +31,8 @@ if len(sys.argv) > 1 and sys.argv[1] == '--check-path':
     PROJECT = sys.argv[3]
     TARGET = sys.argv[4]
     CWD = sys.argv[5] if len(sys.argv) > 5 else PROJECT
-    CMD, PUSH, PATTERNS, WORKTREE = '', False, [], ''
+    WORKTREE = sys.argv[6] if len(sys.argv) > 6 else ''
+    CMD, PUSH, PATTERNS = '', False, []
 else:
     CHECK_PATH = False
     CMD = sys.stdin.read()
@@ -67,7 +68,7 @@ READ_ONLY = {
     'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'fd',
     'diff', 'cmp', 'comm', 'cut', 'tr', 'column', 'nl', 'rev', 'tac',
     'fold', 'expand', 'paste', 'join', 'od', 'strings', 'seq',
-    'jq', 'shasum', 'md5sum', 'sha256sum',
+    'jq', 'shasum', 'md5sum', 'sha256sum', 'tar',
     'sort', 'find', 'sed', 'xxd', 'base64', 'uniq', 'git',   # 인자를 따로 본다
     'awk', 'gawk', 'mawk', 'nawk',                           # 프로그램을 따로 본다
 }
@@ -83,7 +84,7 @@ WRITERS = {
     'chmod': 'all', 'chown': 'all', 'mkdir': 'all', 'unlink': 'all', 'tee': 'all',
     'patch': 'all', 'ed': 'all', 'ex': 'all', 'vim': 'all', 'vi': 'all',
     'gzip': 'all', 'gunzip': 'all', 'unzip': 'all', 'split': 'all', 'csplit': 'all',
-    'cp': 'last', 'ln': 'last', 'install': 'last',
+    'cp': 'cp', 'ln': 'last', 'install': 'last',
     'mv': 'all',        # 원본이 사라지므로 원본도 쓰기 대상이다
     'xxd': 'second', 'uniq': 'second',
     'sed': 'sed', 'dd': 'dd',
@@ -96,9 +97,32 @@ GIT_TREE_WRITE = {'checkout', 'restore', 'reset', 'clean', 'apply', 'stash',
                   'am', 'rm', 'mv', 'checkout-index', 'read-tree', 'sparse-checkout',
                   'bisect', 'filter-branch', 'submodule', 'worktree'}
 # 같은 서브커맨드라도 이 형태는 파일을 안 바꾼다 (브랜치 생성 / 인덱스만)
-GIT_TREE_SAFE = {'checkout': ('-b', '-B', '--orphan'), 'switch': ('-c', '-C', '--create'),
-                 'restore': ('--staged',), 'stash': ('list', 'show'),
-                 'worktree': ('list',), 'submodule': ('status',)}
+# 같은 서브커맨드라도 이 형태는 워킹트리 파일을 안 바꾼다.
+#   need: 이 중 하나가 있어야 하고   deny: 이건 하나도 없어야 한다
+# `any(safe in cmd)` 로 보면 `restore --staged --worktree` 가 안전으로 통과했다.
+GIT_TREE_SAFE = {
+    'checkout':  {'need': ('-b', '-B', '--orphan'), 'deny': ('--', '-f', '--force')},
+    'switch':    {'need': ('-c', '-C', '--create'), 'deny': ('-f', '--force', '--discard-changes')},
+    'restore':   {'need': ('--staged',), 'deny': ('--worktree', '-W')},
+    'stash':     {'need': ('list', 'show'), 'deny': ()},
+    'worktree':  {'need': ('list',), 'deny': ()},
+    'submodule': {'need': ('status',), 'deny': ()},
+    'apply':     {'need': ('--check', '--stat', '--summary', '--numstat'), 'deny': ()},
+    'merge':     {'need': ('--abort',), 'deny': ()},
+    'rebase':    {'need': ('--abort', '--continue', '--skip', '--edit-todo'), 'deny': ()},
+    'cherry-pick': {'need': ('--abort', '--continue', '--skip'), 'deny': ()},
+    'am':        {'need': ('--abort', '--continue', '--skip'), 'deny': ()},
+    'push':      {'need': ('-n', '--dry-run'), 'deny': ()},
+    'clean':     {'need': ('-n', '--dry-run'), 'deny': ()},
+}
+
+
+def git_safe_form(sub, cmd):
+    """이 서브커맨드가 아무것도 바꾸지 않는 형태인가."""
+    spec = GIT_TREE_SAFE.get(sub)
+    if not spec:
+        return False
+    return any(a in spec['need'] for a in cmd) and not any(a in spec['deny'] for a in cmd)
 
 # 실행 파일 이름을 가리는 래퍼. 벗겨내고 진짜 명령을 봐야 한다.
 # 값을 따로 받는 플래그를 같이 적어야 한다 — `nice -n 5 cp …` 에서 `5` 를
@@ -114,6 +138,7 @@ WRAPPER_VALUE_FLAGS = {
     'caffeinate': {'-t', '-w'},
     'timeout':    {'-s', '--signal', '-k', '--kill-after'},
     'command':    set(), 'nohup': set(), 'time': set(), 'setsid': set(),
+    'exec':       set(), 'busybox': set(), 'doas': set(),
 }
 WRAPPERS = set(WRAPPER_VALUE_FLAGS)
 AWK_EXES = {'awk', 'gawk', 'mawk', 'nawk'}
@@ -125,6 +150,8 @@ DURATION = re.compile(r'^[0-9]+(\.[0-9]+)?[smhd]?$')
 # node -e / python3 -c 까지 막는 건 의미가 없다 — 이미 npm·make·./build.sh 가
 # 허용된 단계라 막아도 얻는 게 없고 흔한 관용구만 깨진다.
 INTERPRETERS = {'sh', 'bash', 'zsh', 'ksh', 'dash', 'fish', 'csh', 'tcsh'}
+# 인자가 곧 코드다. 플래그가 없어도 항상 불투명하다.
+OPAQUE_EXE = {'eval', 'source', '.'}
 INLINE_FLAGS = ('-c', '-e', '--eval', '--command', '-E', '--exec')
 
 # ── git ──────────────────────────────────────────────────────
@@ -275,9 +302,10 @@ ENV_DANGEROUS = {'PATH', 'ENV', 'IFS', 'SHELL', 'EDITOR', 'VISUAL', 'PAGER'}
 
 # 안을 들여다볼 수 없는 구문 — 무엇을 하는지 판정 불가라 거부한다
 OPAQUE = {'(', ')', '{', '}', '$', '`', '<(', '>('}
-SEPARATOR_BASE = {';', '&&', '||', '|', '&', ';;', '|&'}
-NL = '\x00NL\x00'          # shlex가 개행을 공백으로 지우므로 구분자로 살려둔다
-SEPARATORS = SEPARATOR_BASE | {NL}
+# 개행도 구분자다. 빠져 있어서 `ls\nrm -rf .ai-bouncer` 가 한 세그먼트로 읽혀
+# exe='ls' 하나만 판정됐다 — 읽기 전용에서 엔진 삭제까지 통과했다.
+SEPARATOR_BASE = {';', '&&', '||', '|', '&', ';;', '|&', '\n'}
+
 # 리다이렉트 연산자. 앞에 붙는 fd 번호는 별도 토큰으로 떨어지므로 여기 없다.
 REDIR = re.compile(r'^(>{1,2}\|?|<|<>|&>{1,2}|>&)$')
 # 엔진 소유 경로. 부분문자열이 아니라 **경로 성분**으로 본다 —
@@ -329,30 +357,84 @@ OPS = (';;', '&&', '||', '|&', '&>>', '&>', '>>', '>|', '>&', '<>',
 STRUCT = ('$(', '<(', '>(', '`', '{', '}', '(', ')')
 
 
+ANSI_C = {'a': '\a', 'b': '\b', 'e': '\x1b', 'E': '\x1b', 'f': '\f', 'n': '\n',
+          'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', "'": "'", '"': '"', '?': '?'}
+HEREDOC = re.compile(r'<<-?\s*')
+
+
+def _ansi_c(body):
+    """$'…' 안의 이스케이프를 푼다. bash 가 실제로 만드는 문자열을 봐야 한다."""
+    out, i = [], 0
+    while i < len(body):
+        c = body[i]
+        if c != '\\':
+            out.append(c); i += 1; continue
+        if i + 1 >= len(body):
+            break
+        e = body[i + 1]
+        if e in ANSI_C:
+            out.append(ANSI_C[e]); i += 2
+        elif e == 'x':
+            h = ''
+            while len(h) < 2 and i + 2 + len(h) < len(body) \
+                    and body[i + 2 + len(h)] in '0123456789abcdefABCDEF':
+                h += body[i + 2 + len(h)]
+            out.append(chr(int(h, 16)) if h else 'x'); i += 2 + len(h)
+        elif e.isdigit():
+            o = ''
+            while len(o) < 3 and i + 2 + len(o) < len(body) and body[i + 2 + len(o)] in '01234567':
+                o += body[i + 2 + len(o)]
+            out.append(chr(int(o, 8)) if o else e); i += 2 + len(o)
+        else:
+            out.append(e); i += 2
+    return ''.join(out)
+
+
 def lex(cmd):
     """셸 한 줄을 (텍스트, 종류) 로 쪼갠다. 종류는 'w'(단어) / 'op' / 'st'(구조).
 
     인용을 지킨다 — 따옴표 안의 `|`·`&&`·`>` 는 그냥 글자다.
+    히어독 본문은 통째로 건너뛴다. 본문의 `'`·`>`·`&&` 를 셸 문법으로 읽으면
+    문서를 쓰는 흔한 명령이 전부 깨진다 (그리고 판정도 엉뚱해진다).
     """
-    toks, buf, quoted, i, n = [], [], False, 0, len(cmd)
+    toks, buf, i, n = [], [], 0, len(cmd)
+    pending_heredocs = []
+
     def flush():
         if buf:
             toks.append((''.join(buf), 'w'))
             del buf[:]
+
     while i < n:
         c = cmd[i]
         if c == '\\':
+            if i + 1 < n and cmd[i + 1] == '\n':
+                i += 2; continue        # 줄 이음 — 없는 것과 같다
             if i + 1 < n:
                 buf.append(cmd[i + 1]); i += 2
             else:
                 return None
-            quoted = True
             continue
         if c == "'":
             j = cmd.find("'", i + 1)
             if j < 0:
                 return None
-            buf.append(cmd[i + 1:j]); i = j + 1; quoted = True
+            buf.append(cmd[i + 1:j]); i = j + 1
+            continue
+        if c == '$' and i + 1 < n and cmd[i + 1] in ("'", '"'):
+            q = cmd[i + 1]
+            j, out = i + 2, []
+            while j < n:
+                if cmd[j] == '\\' and j + 1 < n:
+                    out.append(cmd[j:j + 2]); j += 2; continue
+                if cmd[j] == q:
+                    break
+                out.append(cmd[j]); j += 1
+            if j >= n:
+                return None
+            body = ''.join(out)
+            buf.append(_ansi_c(body) if q == "'" else body.replace('\\', ''))
+            i = j + 1
             continue
         if c == '"':
             j, out = i + 1, []
@@ -363,22 +445,51 @@ def lex(cmd):
                     out.append(cmd[j]); j += 1
             if j >= n:
                 return None
-            buf.append(''.join(out)); i = j + 1; quoted = True
+            buf.append(''.join(out)); i = j + 1
+            continue
+        if c == '\n' and pending_heredocs:
+            # 히어독 본문을 종료어까지 건너뛴다
+            flush(); toks.append(('\n', 'op'))
+            i += 1
+            for word in pending_heredocs:
+                while i < n:
+                    e = cmd.find('\n', i)
+                    line = cmd[i:e if e >= 0 else n]
+                    i = (e + 1) if e >= 0 else n
+                    if line.strip() == word:
+                        break
+            pending_heredocs = []
             continue
         if c in ' \t':
-            flush(); quoted = False; i += 1
+            flush(); i += 1
             continue
-        # 구조 토큰과 연산자는 인용 밖에서만 의미가 있다
+        m = HEREDOC.match(cmd, i)
+        if m:
+            flush()
+            j = m.end()
+            q = ''
+            if j < n and cmd[j] in '"\'':
+                q = cmd[j]; j += 1
+            k = j
+            while k < n and (cmd[k].isalnum() or cmd[k] in '_-.'):
+                k += 1
+            word = cmd[j:k]
+            if q and k < n and cmd[k] == q:
+                k += 1
+            if word:
+                pending_heredocs.append(word)
+                toks.append(('<<', 'op')); toks.append((word, 'heredoc'))
+                i = k
+                continue
         hit = next((o for o in STRUCT if cmd.startswith(o, i)), None)
         if hit:
-            flush(); toks.append((hit, 'st')); i += len(hit); quoted = False
+            flush(); toks.append((hit, 'st')); i += len(hit)
             continue
         hit = next((o for o in OPS if cmd.startswith(o, i)), None)
         if hit:
-            # `2>` 처럼 앞에 붙은 fd 번호는 연산자에 딸린 것이다
             if buf and ''.join(buf).isdigit() and hit[0] in '<>':
                 del buf[:]
-            flush(); toks.append((hit, 'op')); i += len(hit); quoted = False
+            flush(); toks.append((hit, 'op')); i += len(hit)
             continue
         buf.append(c); i += 1
     flush()
@@ -394,16 +505,31 @@ EFFECTIVE_CWD = ['']
 
 
 def cwd_now():
-    return EFFECTIVE_CWD[0] or CWD or PROJECT
+    c = EFFECTIVE_CWD[0]
+    return (CWD or PROJECT) if (not c or c == UNKNOWN_CWD) else c
 
 
-def track_cd(exe, args):
-    """`cd <dir>` 세그먼트면 이후 상대경로의 기준을 옮긴다."""
-    if exe not in ('cd', 'pushd'):
+def cwd_unknown():
+    return EFFECTIVE_CWD[0] == UNKNOWN_CWD
+
+
+UNKNOWN_CWD = '\x00?'
+
+
+def track_cd(exe, args, struct=()):
+    """`cd <dir>` 세그먼트면 이후 상대경로의 기준을 옮긴다.
+
+    `cd -` 는 어디로 가는지 모르고, 서브셸 `( cd x )` 의 이동은 밖으로 안 샌다.
+    어느 쪽이든 "모른다"로 두고, 이후 상대경로 쓰기는 거부한다 —
+    예전에는 `cd . && cd - && rm f` 가 통과했다.
+    """
+    if exe not in ('cd', 'pushd', 'popd'):
         return
+    if any(t in ('(', ')') for t in struct):
+        return                          # 서브셸 안의 이동은 밖에 영향이 없다
     tgt = next((a for a in args if not a.startswith('-')), None)
-    if tgt is None:
-        EFFECTIVE_CWD[0] = os.path.expanduser('~')
+    if exe == 'popd' or tgt is None or tgt == '-' or '-' in args:
+        EFFECTIVE_CWD[0] = UNKNOWN_CWD
         return
     EFFECTIVE_CWD[0] = abspath(tgt)
 
@@ -453,6 +579,11 @@ def glob_re(pat):
     return re.compile(''.join(o) + '$')
 
 
+def relative_and_unknown(p):
+    """기준을 모르는 상태에서 상대경로를 쓰려 한다."""
+    return cwd_unknown() and not os.path.isabs(p.strip('"\''))
+
+
 def path_forbidden(p):
     """이 경로가 edit_files 스코프에 걸리는가. 뒤에 오는 패턴이 이긴다(`!` 는 예외).
 
@@ -476,7 +607,6 @@ def path_forbidden(p):
 
 FIRST_ARG_NOT_PATH = {'chmod', 'chown', 'chgrp'}
 VALUE_FLAGS = {'truncate': {'-s', '--size'}, 'mkdir': {'-m', '--mode'},
-               'chmod': {'--reference'}, 'chown': {'--reference'},
                'install': {'-m', '-o', '-g', '--mode', '--owner', '--group'}}
 
 
@@ -490,11 +620,21 @@ def write_targets(exe, args):
         if not a.startswith('-') and a.strip('"\''):
             pos.append(a)
         i += 1
-    if exe in FIRST_ARG_NOT_PATH and pos:
+    # `--reference=X` 를 주면 첫 인자가 모드가 아니라 대상이다
+    if exe in FIRST_ARG_NOT_PATH and pos \
+       and not any(a.startswith('--reference') for a in args):
         pos = pos[1:]           # 첫 인자는 모드/소유자다 (755, u+w, ram:staff)
     mode = WRITERS[exe]
     if mode == 'all':
         return pos
+    if mode == 'cp':
+        # `cp -t <디렉토리> a b` 는 대상이 앞에 온다
+        for i2, a in enumerate(args):
+            if a in ('-t', '--target-directory') and i2 + 1 < len(args):
+                return [args[i2 + 1]]
+            if a.startswith('--target-directory='):
+                return [a.split('=', 1)[1]]
+        return pos[-1:] if len(pos) > 1 else []
     if mode == 'last':
         return pos[-1:] if len(pos) > 1 else []      # 대상이 하나뿐이면 형태가 이상하다
     if mode == 'second':
@@ -540,6 +680,12 @@ def parse_redirects(seg):
     clean, redirs, struct, i = [], [], [], 0
     while i < len(seg):
         text, kind = seg[i]
+        if kind == 'heredoc':
+            i += 1
+            continue
+        if kind == 'op' and text == '<<':
+            i += 1
+            continue
         if kind == 'op' and REDIR.match(text):
             tgt = seg[i + 1][0] if i + 1 < len(seg) else ''
             redirs.append((text, tgt))
@@ -572,8 +718,13 @@ def resolve_exe(seg):
             continue
         base = os.path.basename(raw)
         last = base
+        head_flags = []
+        for a in seg[i + 1:]:
+            if not a.startswith('-'):
+                break
+            head_flags.append(a)
         if base == 'env' and any(a == '-S' or a.startswith('--split-string')
-                                 or (a.startswith('-S') and len(a) > 2) for a in seg[i + 1:]):
+                                 or (a.startswith('-S') and len(a) > 2) for a in head_flags):
             # `env -S "…"` 는 문자열 하나가 통째로 명령이다. 안을 판정할 수 없다.
             return 'env -S', seg[i:], env
         if base in WRAPPERS:
@@ -702,17 +853,15 @@ def glob_could_hit_engine(tok):
     t = tok.strip('"\'').replace('\\', '/')
     if not (set(t) & GLOB_CHARS):
         return False
-    head = t.split('*')[0].split('?')[0].split('[')[0]
-    name = head.rsplit('/', 1)[-1]
-    # 엔진 디렉토리는 전부 점으로 시작한다. 점 없는 글로브(`a*`, `*.js`)는
-    # 애초에 삼킬 수 없다 — 예전엔 `ai-bouncer`.startswith('a') 로 `ls a*` 까지 막혔다.
-    if not name.startswith('.'):
-        return False
-    for want in ENGINE_DIRS + (ENGINE_PARENTS,):
-        for comp in want:
-            if comp.startswith(name):
-                return True
-    return False
+    # 접두 문자열 비교로는 `.claude/*` 를 못 잡았다 (`ai-bouncer` 는 점이 없다).
+    # 글로브를 정규식으로 바꿔 엔진 경로와 그 조상에 실제로 맞는지 본다.
+    rel = norm(t)
+    try:
+        rx = glob_re(rel)
+    except re.error:
+        return True                     # 판정 못 하면 막는다
+    targets = ['.ai-bouncer', '.claude', '.claude/ai-bouncer']
+    return any(rx.match(x) for x in targets)
 
 
 def check_engine_files(segments):
@@ -731,6 +880,8 @@ def check_engine_files(segments):
         exe, cmd, _ = resolve_exe(clean)
         if cmd and is_bouncer(cmd[0]):
             continue
+        if exe in OPAQUE_EXE:
+            out(OPAQUE_MSG % exe)
         # `git clean -fdx` 는 gitignore된 것을 지운다 — 상태 디렉토리가 정확히 그것이다.
         if exe == 'git' and git_sub(cmd) == 'clean' \
            and not any(a in ('-n', '--dry-run') or (a.startswith('-') and not a.startswith('--')
@@ -833,10 +984,11 @@ def git_read_error(cmd):
         return None                     # `git` 만 치면 도움말
     if sub in GIT_READ:
         return None
+    # `git apply --check`, `git push --dry-run` 처럼 아무것도 안 바꾸는 형태
+    if git_safe_form(sub, cmd):
+        return None
     if sub == 'clean':
-        # `-n`/`--dry-run` 이면 아무것도 지우지 않는다
-        if any(a in ('-n', '--dry-run') or (a.startswith('-') and not a.startswith('--')
-                                            and 'n' in a[1:]) for a in cmd):
+        if any(a.startswith('-') and not a.startswith('--') and 'n' in a[1:] for a in cmd):
             return None
         return "`git clean` 은 파일을 지운다. 확인만 하려면 `-n` 을 붙여라."
     if sub not in GIT_SUB:
@@ -869,9 +1021,15 @@ def git_read_error(cmd):
     return None
 
 
+OPAQUE_MSG = ("`%s` 는 인자가 곧 실행할 코드라 무엇을 하는지 판정할 수 없다.\n"
+              "명령을 그대로 적어라.")
+
+
 def check_readonly_cmd(exe, cmd):
     if cmd and is_bouncer(cmd[0]):
         return
+    if exe in OPAQUE_EXE:
+        out(OPAQUE_MSG % exe)
     if exe == 'env -S':
         out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.\n"
             "명령을 그대로 적어라.")
@@ -883,8 +1041,9 @@ def check_readonly_cmd(exe, cmd):
     short = spec.get('inshort')
     for a in args:
         # `-ni.bak` 처럼 다른 단축 플래그와 묶여 오는 형태도 잡아야 한다
-        combined = (short and a.startswith('-') and not a.startswith('--')
-                    and short in a[1:].split('=')[0])
+        # 선행 알파벳 묶음만 플래그다. 값까지 훑으면 `-es/main/x/` 의 'i' 에 걸린다.
+        mm = re.match(r'-([a-zA-Z]+)', a) if a.startswith('-') and not a.startswith('--') else None
+        combined = bool(short and mm and short in mm.group(1))
         if a in WRITE_FLAG_ANY or a.startswith(WRITE_PREFIX_ANY) \
            or a in spec['exact'] or (spec['prefix'] and a.startswith(spec['prefix'])) \
            or combined:
@@ -904,6 +1063,11 @@ def check_readonly_cmd(exe, cmd):
         if pos > 1:
             out("`%s <입력> <출력>` 은 두 번째 인자를 파일로 쓴다. 출력 인자를 빼라." % exe)
     if exe == 'sed':
+        if any(a in ('-f', '--file') or a.startswith('--file=') for a in args):
+            out("`sed -f <파일>` 은 스크립트를 확인할 수 없어 허용되지 않는다.")
+        for a in args:
+            if a.startswith('--expression=') and sed_writes(a.split('=', 1)[1]):
+                out("sed 스크립트의 `w` 명령은 파일을 쓴다. 이 단계에서는 허용되지 않는다.")
         # 따옴표로 묶인 스크립트(`'1w out'`)와 공백으로 갈라진 형태(`1w out`) 둘 다 본다.
         if any(sed_writes(a) for a in args if not a.startswith('-')) \
            or any(SED_W_SPLIT.match(a) for a in args[:-1]):
@@ -914,6 +1078,11 @@ def check_readonly_cmd(exe, cmd):
         for a in args:
             if not a.startswith('-') and awk_writes(a):
                 out("이 awk 프로그램은 파일을 쓰거나 명령을 실행할 수 있다: %s" % a[:60])
+    if exe == 'tar':
+        mm = [re.match(r'-?([a-zA-Z]+)', a) for a in args if not a.startswith('--')]
+        letters = ''.join(m.group(1) for m in mm if m)
+        if not ('t' in letters or any(a in ('--list', '--test-label') for a in args)):
+            out("`tar` 는 목록 보기(`-t`) 외에는 파일을 쓴다. 이 단계에서는 허용되지 않는다.")
     if exe == 'find' and any(a in ('-exec', '-execdir', '-delete', '-ok', '-okdir')
                              for a in args):
         out("`find -exec/-delete` 는 임의 명령을 실행한다. 이 단계에서는 허용되지 않는다.")
@@ -924,6 +1093,8 @@ def check_readonly_cmd(exe, cmd):
 
 
 def check_push_cmd(exe, cmd, struct=()):
+    if exe in OPAQUE_EXE:
+        out(OPAQUE_MSG % exe)
     if exe == 'env -S':
         out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.")
     if exe == 'git' and struct:
@@ -947,6 +1118,8 @@ def check_push_cmd(exe, cmd, struct=()):
     if sub is None:
         out("`git -c …` 는 별칭으로 push를 숨길 수 있어 이 단계에서는 허용되지 않는다.")
     if sub in GIT_PUSH_SUBS:
+        if sub == 'push' and any(a in ('-n', '--dry-run') for a in cmd):
+            return                      # 아무것도 보내지 않는다
         out("push가 차단되었다.")
     if sub == 'subtree' and 'push' in cmd:
         out("push가 차단되었다.")
@@ -955,7 +1128,18 @@ def check_push_cmd(exe, cmd, struct=()):
 
 
 if CHECK_PATH:
-    if EDIT is not None and (EDIT is True or path_forbidden(TARGET)):
+    # 셸 `case` 로 따로 보던 것을 여기로 모았다. 거긴 정규화를 안 해서
+    # `…/worktrees/../tasks/x/state.json` 이 예외를 타고 통과했다.
+    if is_engine_path(TARGET):
+        sys.stdout.write(ENGINE_MSG)
+    elif outside_worktree(TARGET):
+        sys.stdout.write(
+            "이 작업은 별도 worktree에서 진행 중이다:\n    %s\n"
+            "그 밖의 파일을 고치려 한다: %s\n\n"
+            "여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.\n"
+            "worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:\n    cd %s"
+            % (WORKTREE, TARGET, WORKTREE))
+    elif EDIT is not None and (EDIT is True or path_forbidden(TARGET)):
         sys.stdout.write("파일 수정이 차단되었다: %s" % norm(TARGET))
     sys.exit(0)
 
@@ -982,7 +1166,7 @@ if EDIT is True:
         check_outside(clean, redirs, exe, cmd[1:])
         if exe:
             check_readonly_cmd(exe, cmd)
-        track_cd(exe, cmd[1:])
+        track_cd(exe, cmd[1:], struct)
 
 elif EDIT is not None:
     # ── 경로 스코프 스테이지 (`edit_files: [글로브…]`) ─────────
@@ -992,8 +1176,11 @@ elif EDIT is not None:
         clean, redirs, struct = parse_redirects(seg)
         for op, tgt in redirs:
             # /dev/null 과 fd 복제까지 막으면 `npm test 2>&1` 조차 안 돈다.
-            if redirect_writes(op, tgt) and path_forbidden(tgt):
-                out("이 단계에서 %s 에 쓸 수 없다." % tgt)
+            if redirect_writes(op, tgt):
+                if relative_and_unknown(tgt):
+                    out("`cd -` / 서브셸 이동 뒤라 `%s` 가 어느 디렉토리인지 알 수 없다." % tgt)
+                if path_forbidden(tgt):
+                    out("이 단계에서 %s 에 쓸 수 없다." % tgt)
         if not clean:
             continue
         exe, cmd, env = resolve_exe(clean)
@@ -1005,17 +1192,26 @@ elif EDIT is not None:
                     out(ENGINE_MSG)
         if exe == 'env -S':
             out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.")
+        if exe in OPAQUE_EXE:
+            out(OPAQUE_MSG % exe)
         if inline_program(exe, cmd):
             out("`%s -c …` 안의 코드는 확인할 수 없어 이 단계에서는 허용되지 않는다.\n"
                 "스크립트 파일로 만들어 실행하거나, 명령을 직접 써라." % exe)
         args = cmd[1:]
         if exe == 'git':
             sub = git_sub(cmd)
-            safe = GIT_TREE_SAFE.get(sub, ())
-            # `git checkout -b`(브랜치 생성)·`git restore --staged`(인덱스만) 처럼
-            # 워킹트리 파일을 안 바꾸는 형태는 통과시킨다
-            if sub in GIT_TREE_WRITE and not any(a in safe for a in cmd) \
-               and git_read_error(cmd):
+            ok_form = git_safe_form(sub, cmd)
+            # `git checkout -- src/a.js` / `git restore src/a.js` 처럼 경로를
+            # 명시하면 그 경로만 본다. 스코프가 열어준 곳은 되돌릴 수 있어야 한다.
+            if not ok_form and sub in ('checkout', 'restore'):
+                if '--' in cmd:
+                    paths = cmd[cmd.index('--') + 1:]
+                elif sub == 'restore':
+                    paths = [a for a in cmd[cmd.index(sub) + 1:] if not a.startswith('-')]
+                else:
+                    paths = []
+                ok_form = bool(paths) and not any(path_forbidden(a) for a in paths)
+            if sub in GIT_TREE_WRITE and not ok_form and git_read_error(cmd):
                 out("`git %s` 는 워킹트리를 바꾼다. 이 단계에서는 허용되지 않는다.\n"
                     "고칠 수 있는 범위가 정해져 있다면 그 파일만 직접 수정해라." % sub)
         elif exe == 'find' and any(a in ('-delete', '-exec', '-execdir', '-ok', '-okdir')
@@ -1024,15 +1220,13 @@ elif EDIT is not None:
         elif exe in WRITERS:
             pos = [a for a in args if not a.startswith('-') and a.strip('"\'')]
             targets = write_targets(exe, args)
-            if not targets and not pos and WRITERS[exe] in ('all', 'last', 'second'):
-                # `patch < p.diff`, `xargs touch` 처럼 대상이 stdin에서 온다.
-                # 확인할 수 없으면 열어주지 않는다.
-                out("`%s` 가 무엇을 고칠지 인자에서 확인할 수 없다. "
-                    "대상 파일을 인자로 적어라." % exe)
             for a in targets:
+                if relative_and_unknown(a):
+                    out("`cd -` / 서브셸 이동 뒤라 `%s` 가 어느 디렉토리인지 알 수 없다.\n"
+                        "절대경로로 적거나, 이동을 한 번에 하나씩 해라." % a)
                 if path_forbidden(a):
                     out("`%s` 로 %s 를 고칠 수 없다." % (exe, a))
-        track_cd(exe, args)
+        track_cd(exe, args, struct)
 
 if PUSH:
     # ── push 금지 (스코프 모드와 함께 걸릴 수 있으므로 독립적으로 본다) ──
@@ -1044,7 +1238,7 @@ if PUSH:
         check_env(env, False)
         check_outside(clean, redirs, exe, cmd[1:])
         check_push_cmd(exe, cmd, struct)
-        track_cd(exe, cmd[1:])
+        track_cd(exe, cmd[1:], struct)
 
 if EDIT is None and not PUSH and WORKTREE:
     for seg in SEGMENTS:
@@ -1053,7 +1247,7 @@ if EDIT is None and not PUSH and WORKTREE:
             continue
         exe, cmd, _ = resolve_exe(clean)
         check_outside(clean, redirs, exe, cmd[1:])
-        track_cd(exe, cmd[1:])
+        track_cd(exe, cmd[1:], struct)
 
 for pat in PATTERNS:
     try:
