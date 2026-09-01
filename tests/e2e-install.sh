@@ -39,10 +39,15 @@ done
 ok "파일 배치"
 [ -f .claude/skills/dev-bounce/SKILL.md ] && ok "스킬 설치" || no "스킬 설치"
 grep -qxF '.ai-bouncer/' .gitignore && ok ".gitignore에 런타임 상태 추가" || no ".gitignore"
+# 설정 디렉토리 안 런타임 파일이 커밋되면 세션마다 가짜 diff가 뜬다
+for f in workflow.compiled.json .update-check; do
+  grep -qxF "$f" .claude/ai-bouncer/.gitignore || { no "설정 디렉토리 gitignore" "$f 누락"; break; }
+done
+grep -qxF '.update-check' .claude/ai-bouncer/.gitignore && ok "설정 디렉토리 런타임 파일도 제외"
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 5 ] && ok "hook 5개 등록" || no "hook 등록" "${n}개"
+[ "$n" = 6 ] && ok "hook 6개 등록" || no "hook 등록" "${n}개"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \
   && ok "남의 hook 보존" || no "남의 hook 보존"
 
@@ -71,7 +76,7 @@ python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue
 printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
 bash "$R/install.sh" --ci >/dev/null 2>&1
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 5 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
+[ "$n" = 6 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null 2>&1
 [ "$(jq -r '.settings.max_continue' .claude/ai-bouncer/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
 grep -q '사용자 수정' .claude/ai-bouncer/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"
