@@ -50,6 +50,31 @@ FAILURES=""    # blocking 미충족 사유
 HUMAN_WAIT=0   # 사람/승인 UI를 기다리는 중인가
 
 add_inject()  { INJECT="${INJECT}${INJECT:+$'\n\n'}$1"; }
+
+# 전이·반송 등 어떤 경로로 차단하든 여기를 지난다. 상한을 넘으면 세션을 돌려준다.
+# 전이가 continue_streak 을 리셋해도 이 카운터는 리셋되지 않는다.
+MAX_BLOCKS=$(( MAX_CONTINUE * 2 + 4 ))
+guarded_block() {
+  local n
+  n="$(jq -r '.blocks_total // 0' "$TASK/state.json" 2>/dev/null)"; [ -n "$n" ] || n=0
+  n=$(( n + 1 ))
+  if [ "$n" -gt "$MAX_BLOCKS" ] 2>/dev/null; then
+    bouncer_state_update "$TASK" '.blocks_total = 0 | .continue_streak = 0 | .reentry_count = 0
+      | .allowed_stop = true | .returned_to = null | .returned_tree = null'
+    jq -n --arg c "⛔ 사용자 개입 없이 ${MAX_BLOCKS}번 연속으로 진행했다. 세션을 돌려준다.
+
+$1
+
+AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 답을 기다려라):
+  1. 계속 진행한다
+  2. 접근을 바꾼다
+  3. 작업을 중단한다 (bouncer cancel)" \
+      '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+    exit 0
+  fi
+  bouncer_state_update "$TASK" --argjson n "$n" '.blocks_total = $n'
+  bouncer_block "$1"
+}
 add_failure() { FAILURES="${FAILURES}${FAILURES:+$'\n'}- $1"; }
 
 while IFS= read -r step; do
@@ -140,15 +165,15 @@ if [ -z "$FAILURES" ]; then
   RET_TO="$(bouncer_state "$TASK" '.returned_to')"
   if [ -n "$RET_TO" ] && [ "$RET_TO" = "$STAGE" ]; then
     RET_TREE="$(bouncer_state "$TASK" '.returned_tree')"
-    NOW_TREE="$( { git -C "$WORK_ROOT" rev-parse HEAD 2>/dev/null; \
-                   git -C "$WORK_ROOT" status --porcelain 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)"
+    NOW_TREE="$(bouncer_tree_hash "$WORK_ROOT")"
     if [ -n "$RET_TREE" ] && [ "$RET_TREE" = "$NOW_TREE" ]; then
       bouncer_state_update "$TASK" '.continue_streak = (.continue_streak // 0) + 1'
       NS="$(bouncer_state "$TASK" '.continue_streak')"; [ -n "$NS" ] || NS=1
       # 여기서 그냥 막으면 아래 상한 검사에 영영 도달하지 못한다.
       # 고칠 의사가 없거나 고칠 수 없는 상황이면 세션을 사용자에게 돌려줘야 한다.
       if [ "$NS" -ge "$MAX_CONTINUE" ] 2>/dev/null; then
-        bouncer_state_update "$TASK" '.allowed_stop = true | .continue_streak = 0'
+        bouncer_state_update "$TASK" \
+          '.allowed_stop = true | .continue_streak = 0 | .returned_to = null | .returned_tree = null'
         jq -n --arg c "⛔ [$STAGE] 되돌아온 뒤 ${NS}번 동안 작업 트리가 그대로다.
 고칠 수 없거나 고칠 것이 없는 상태로 보인다. 사용자에게 넘긴다.
 
@@ -161,7 +186,7 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
         exit 0
       fi
-      bouncer_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
+      guarded_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
 
 이대로 다시 검증에 보내면 같은 결과가 나온다. 무엇이 틀렸는지 다시 보고 실제로 고쳐라.
 직전 실패:
@@ -184,11 +209,16 @@ $(bouncer_state "$TASK" '.last_failure')"
   # 다음 스테이지의 지시를 지금 함께 전달한다. 그러지 않으면 blocking 없는
   # 스테이지는 "진입 → 다음 Stop에서 즉시 통과"라 지시를 받는 턴이 없다.
   NEXT_TXT="$(bouncer_stage "$CWD" "$NEXT" \
-    | jq -r '[.steps[]? | select(.kind=="inject") | .text] | join("\n\n")')"
+    | jq -r --slurpfile st "$TASK/state.json" \
+        '[.steps[]? | select(.kind=="inject")
+          | select((.optional | not) or (($st[0].choices[.id]) // true))
+          | .text] | join("\n\n")')"
   if [ -n "$NEXT_TXT" ]; then
     while IFS= read -r nid; do
       [ -n "$nid" ] && bouncer_state_update "$TASK" --arg k "$nid" '.shown[$k] = true'
-    done < <(bouncer_stage "$CWD" "$NEXT" | jq -r '.steps[]? | select(.kind=="inject") | .id')
+    done < <(bouncer_stage "$CWD" "$NEXT" | jq -r --slurpfile st "$TASK/state.json" \
+      '.steps[]? | select(.kind=="inject")
+       | select((.optional | not) or (($st[0].choices[.id]) // true)) | .id')
   fi
   bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
     '.current_stage = $n
@@ -196,7 +226,7 @@ $(bouncer_state "$TASK" '.last_failure')"
      | .reentry_count = 0
      | .allowed_stop = false
      | .history += [{stage:$n, at:$t}]'
-  bouncer_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
+  guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi
 
 # ── 미충족 ──
@@ -212,7 +242,8 @@ if [ -n "$ON_FAIL" ] && [ "$HUMAN_WAIT" != "1" ]; then
   ATTEMPTS="$(jq -r --arg s "$STAGE" '.stage_attempts[$s] // 0' "$TASK/state.json" 2>/dev/null)"
   [ -n "$ATTEMPTS" ] || ATTEMPTS=0
   ATTEMPTS=$(( ATTEMPTS + 1 ))
-  bouncer_state_update "$TASK" --arg s "$STAGE" --argjson n "$ATTEMPTS" '.stage_attempts[$s] = $n'
+  [ "$ATTEMPTS" -le $(( MAX_ATTEMPTS + 1 )) ] 2>/dev/null \
+    && bouncer_state_update "$TASK" --arg s "$STAGE" --argjson n "$ATTEMPTS" '.stage_attempts[$s] = $n'
 
   LIMIT="$MAX_ATTEMPTS"; [ "$CAN_FIX_HERE" = "0" ] && LIMIT=1
   if [ "$ATTEMPTS" -ge "$LIMIT" ] 2>/dev/null; then
@@ -222,7 +253,7 @@ if [ -n "$ON_FAIL" ] && [ "$HUMAN_WAIT" != "1" ]; then
       rm -f "$TASK/.active"
       jq -n --arg c "⛔ [$STAGE] 조건을 충족하지 못해 작업을 중단했다.
 
-$FAILURES" '{hookSpecificOutput:{additionalContext:$c}}'
+$FAILURES" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
       exit 0
     fi
     # 왕복 횟수는 전이가 리셋하지 않는다. 리셋하면 A→B→A→B 로 영원히 돈다.
@@ -248,12 +279,22 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
     fi
     LOOPS=$(( LOOPS + 1 ))
 
-    # 되돌아갈 때 이 스테이지의 진행 기록을 지운다 — 돌아오면 처음부터 다시 검증한다.
-    IDS="$(jq -c '[.steps[]?.id]' <<<"$STAGE_JSON")"
+    # 되돌아갈 때, 반송 대상부터 실패 스테이지까지의 진행 기록을 전부 지운다.
+    # 실패 스테이지 것만 지우면 사이 스테이지의 게이트가 "한 번 통과했으니 통과"로
+    # 영원히 건너뛰어진다 — 그 사이에 코드가 바뀌었는데도.
+    IDS="$(
+      { CH="$(bouncer_chain "$CWD" "$WORKFLOW")"
+        started=0
+        while IFS= read -r st; do
+          [ "$st" = "$ON_FAIL" ] && started=1
+          [ "$started" = 1 ] && bouncer_stage "$CWD" "$st" | jq -r '.steps[]?.id'
+          [ "$st" = "$STAGE" ] && break
+        done <<< "$CH"
+      } | jq -R -s 'split("\n") | map(select(length > 0))'
+    )"
     # 되돌려 보낸 시점의 작업 트리를 기억해둔다. 아무것도 안 바뀌었는데
     # 다시 전진시키면 같은 검사를 같은 코드에 돌리는 헛바퀴가 된다.
-    TREE="$( { git -C "$WORK_ROOT" rev-parse HEAD 2>/dev/null; \
-               git -C "$WORK_ROOT" status --porcelain 2>/dev/null; } | shasum -a 256 | cut -d' ' -f1)"
+    TREE="$(bouncer_tree_hash "$WORK_ROOT")"
     bouncer_state_update "$TASK" --arg back "$ON_FAIL" --argjson ids "$IDS" \
       --arg s "$STAGE" --arg t "$(date -u +%FT%TZ)" --argjson n "$LOOPS" --arg tree "$TREE" --arg pair "$PAIR" '
         .current_stage = $back
@@ -266,7 +307,7 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
         | .continue_streak = 0
         | .allowed_stop = false
         | .history += [{stage:$back, at:$t, returned_from:$s}]'
-    bouncer_block "↩️ [$STAGE] 조건을 충족하지 못해 [$ON_FAIL] 단계로 되돌아간다. (${LOOPS}/${MAX_LOOPS}회)
+    guarded_block "↩️ [$STAGE] 조건을 충족하지 못해 [$ON_FAIL] 단계로 되돌아간다. (${LOOPS}/${MAX_LOOPS}회)
 
 미충족 조건:
 $FAILURES${INJECT:+$'\n\n'}$INJECT"
@@ -301,7 +342,7 @@ if [ "$REENTRY_N" -gt $(( MAX_CONTINUE * 2 )) ] 2>/dev/null; then
 워크플로우를 더 밀지 않고 세션을 사용자에게 돌려준다.
 
 미충족 조건:
-$FAILURES" '{hookSpecificOutput:{additionalContext:$c}}'
+$FAILURES" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
   exit 0
 fi
 
@@ -316,12 +357,12 @@ AskUserQuestion으로 사용자에게 물어라:
   1. 계속 시도한다
   2. 접근을 바꾼다 (필요하면 이전 단계로 되돌린다)
   3. 이 조건을 이번 작업에서만 건너뛴다
-  4. 작업을 중단한다" '{hookSpecificOutput:{additionalContext:$c}}'
+  4. 작업을 중단한다" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
   exit 0
 fi
 
 bouncer_state_update "$TASK" '.continue_streak = (.continue_streak // 0) + 1 | .allowed_stop = false'
-bouncer_block "[$STAGE] 아직 끝나지 않았다.
+guarded_block "[$STAGE] 아직 끝나지 않았다.
 
 미충족 조건:
 $FAILURES${INJECT:+$'\n\n'}$INJECT"

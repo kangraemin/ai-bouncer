@@ -22,6 +22,26 @@ for c in 'bouncer status; printf pwned > a.js' 'bouncer status; git push' \
   blocked "$c" && ok "차단: ${c:0:44}" || no "우회 성공" "$c"
 done
 
+echo "[래퍼·환경변수·셸 구문에 숨기기]"
+for c in 'X=1 rm -f a.js' 'sudo rm -f a.js' 'timeout 5 rm -f a.js' 'busybox rm a.js' \
+         'C=rm; $C -f a.js' '{ rm -f a.js; }' '( rm -f a.js )' \
+         'if true; then rm -f a.js; fi' 'for f in a.js; do rm -f $f; done' \
+         'echo $(rm -f a.js)' 'cat <(rm -f a.js)' 'echo x 1> a.js' 'echo x 2> a.js'; do
+  blocked "$c" && ok "차단: ${c:0:44}" || no "우회 성공" "$c"
+done
+
+echo "[목록에 없던 쓰기 도구]"
+for c in 'curl -o a.js http://x' 'wget -O a.js http://x' 'tar -xf p.tar' 'unzip -o p.zip' \
+         'sqlite3 db "create table t(x)"' 'sort -o a.js a.js' 'split a.js' \
+         'openssl enc -out a.js' './scripts/build.sh' 'make install' 'npx tsx x.ts'; do
+  blocked "$c" && ok "차단: ${c:0:44}" || no "우회 성공" "$c"
+done
+
+echo "[경로 정규화 우회]"
+for c in 'rm docs/../a.js' 'rm ./docs/../a.js' 'rm docs/x/../../a.js'; do
+  blocked "$c" && ok "차단: ${c:0:44}" || no "경로 우회" "$c"
+done
+
 echo "[인터프리터·에디터로 쓰기]"
 for c in 'python3 -c "open(\"a.js\",\"w\")"' 'node -e "require(\"fs\").writeFileSync(\"a.js\",\"x\")"' \
          'perl -i -pe "s/x/y/" a.js' 'ruby -e "File.write(\"a.js\",\"x\")"' \
@@ -32,7 +52,8 @@ done
 
 echo "[git write 서브커맨드]"
 for c in 'git checkout HEAD -- a.js' 'git restore a.js' 'git reset --hard HEAD~1' \
-         'git clean -fdx' 'git apply d.diff' 'git stash pop'; do
+         'git clean -fdx' 'git apply d.diff' 'git stash pop' \
+         'git -c alias.p=push p' 'git config alias.p push' 'git submodule foreach rm -f a.js'; do
   blocked "$c" && ok "차단: ${c:0:44}" || no "우회 성공" "$c"
 done
 
@@ -43,7 +64,8 @@ for c in '"rm" -f a.js' "'cp' b.js a.js" '/bin/rm -f a.js' '\rm -f a.js' \
 done
 
 echo "[push 위장]"
-for c in 'git push' '"git" push' 'git -C . push' 'git -c core.x=y push' 'git   push --all'; do
+for c in 'git push' '"git" push' 'git -C . push' 'git -c core.x=y push' 'git   push --all' \
+         'GIT_DIR=.git git push'; do
   blocked "$c" && ok "차단: ${c:0:44}" || no "우회 성공" "$c"
 done
 
@@ -63,10 +85,27 @@ for t in Edit Write; do
   [ -n "$(W x "$t" "$T/.ai-bouncer/tasks/x/state.json")" ] && ok "$t 로 state.json 차단" || no "$t state.json"
 done
 
-echo "[정상 명령은 통과해야 한다]"
-for c in 'bouncer status' 'git status' 'git log --oneline' 'ls -la' 'npm test' \
-         'cat a.js' 'grep -rn x .' 'cat a.js | grep x' 'ls | wc -l'; do
-  blocked "$c" && no "정상 명령 차단됨" "$c" || ok "통과: $c"
+echo "[읽기 전용 단계에서 정상 명령은 통과해야 한다]"
+# 과차단은 사용자가 도구를 꺼버리게 만드는 원인이라 우회만큼 중요하다.
+for c in 'bouncer status' 'bouncer run verify/x' 'git status' 'git log --oneline' \
+         'git log --format="%h -> %s"' 'git diff HEAD' 'git show --stat' \
+         'echo "a -> b"' 'grep "a>b" a.js' \
+         'ls -la' 'cat a.js' 'grep -rn x .' 'cat a.js | grep x' 'ls | wc -l' \
+         "find . -name '*.js'" "awk '{print \$1}' a.js" 'cat a.js | sed -n 1p' \
+         'sort a.js | uniq -c' 'jq .name package.json' 'head -20 a.js'; do
+  blocked "$c" && no "정상 명령 차단됨" "$c" || ok "통과: ${c:0:40}"
+done
+
+echo "[구현 단계(push만 금지)에서는 빌드·테스트가 돌아야 한다]"
+bash .claude/ai-bouncer/engine/bouncer.sh cancel >/dev/null 2>&1
+bash .claude/ai-bouncer/engine/bouncer.sh start simple impl >/dev/null 2>&1
+for c in 'npm test' 'npm test > /dev/null' 'npm run build && npm test' \
+         'python3 -m pytest -q' 'cargo build' 'make' 'node -e "console.log(1)"' \
+         'git add -A && git commit -m x'; do
+  blocked "$c" && no "구현 단계 과차단" "$c" || ok "통과: ${c:0:40}"
+done
+for c in 'git push origin main' 'git -c alias.p=push p'; do
+  blocked "$c" && ok "구현 단계에서도 push 차단: ${c:0:34}" || no "push 우회" "$c"
 done
 
 echo "[판정기가 없으면 열지 않고 막는다]"

@@ -65,9 +65,12 @@ bouncer_lock_age() {
   printf '%s' "$age"
 }
 
-# 읽을 수 없는(손상된) 락인지 — 소유자 판별이 안 되면 아무도 해제할 수 없다
+# 읽을 수 없는(손상된) 락인지 — 소유자 판별이 안 되면 아무도 해제할 수 없다.
+# 이런 락은 시간과 무관하게 회수 대상이다. 안 그러면 영구 데드락이 된다.
 bouncer_lock_broken() {
-  jq -e '.session_id|strings' "$1" >/dev/null 2>&1 && return 1 || return 0
+  [ -f "$1" ] || return 0
+  jq -e 'type == "object" and (.session_id | type == "string") and (.session_id | length > 0)' \
+     "$1" >/dev/null 2>&1 && return 1 || return 0
 }
 
 bouncer_touch_lock() {
@@ -96,15 +99,46 @@ bouncer_live_locks() {
 bouncer_state() { jq -r "${2} // empty" "$1/state.json" 2>/dev/null; }
 
 # 실패하면 원본을 건드리지 않고 1을 반환한다. 호출부는 반환값을 확인해야 한다.
+#
+# tmp+mv 는 교체를 원자적으로 만들지만 read-modify-write 전체를 직렬화하지는 않는다.
+# 동시에 여러 프로세스가 각자 읽고 자기 키만 얹어 쓰면 마지막 것만 남는다(lost update).
+# mkdir 은 원자적이라 그것으로 짧은 임계구역을 만든다.
 bouncer_state_update() {
   local dir="$1"; shift
-  local f="$dir/state.json" tmp="$dir/.state.$$.tmp"
+  local f="$dir/state.json" lock="$dir/.lock" tmp="$dir/.state.$$.tmp"
   [ -f "$f" ] || return 1
+
+  local i=0
+  until mkdir "$lock" 2>/dev/null; do
+    i=$((i+1))
+    # 잠금을 쥔 프로세스가 죽었을 수 있다. 오래된 것은 걷어낸다.
+    if [ "$i" -gt 50 ]; then
+      local age
+      age=$(( $(date +%s) - $(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null || echo 0) ))
+      [ "$age" -gt 30 ] && rm -rf "$lock" || return 1
+    fi
+    sleep 0.02
+  done
+
+  local rc=0
   if jq "$@" "$f" > "$tmp" 2>/dev/null && [ -s "$tmp" ] && jq -e . "$tmp" >/dev/null 2>&1; then
     mv "$tmp" "$f"
   else
-    rm -f "$tmp"; return 1
+    rm -f "$tmp"; rc=1
   fi
+  rmdir "$lock" 2>/dev/null
+  return $rc
+}
+
+# 죽은 프로세스가 남긴 임시 파일을 걷어낸다. 누적되면 디렉토리가 지저분해진다.
+bouncer_sweep_tmp() {
+  local d="$1" f pid
+  for f in "$d"/.state.*.tmp "$d"/.active.*.tmp; do
+    [ -f "$f" ] || continue
+    pid="${f##*.state.}"; pid="${pid##*.active.}"; pid="${pid%%.tmp}"
+    case "$pid" in ''|*[!0-9]*) rm -f "$f"; continue ;; esac
+    kill -0 "$pid" 2>/dev/null || rm -f "$f"
+  done
 }
 
 # ── 워크플로우 정의 ──────────────────────────────────────────
@@ -121,6 +155,20 @@ bouncer_is_last_stage() {
   jq -e --arg w "$2" --arg c "$3" '
     (.workflows[$w].stages // []) | (index($c) != null and index($c) == (length - 1))
   ' "$(bouncer_compiled_file "$1")" >/dev/null 2>&1
+}
+
+# 작업 트리의 "내용" 지문. status --porcelain 은 경로와 상태 문자만 주므로
+# 이미 수정된 파일을 다시 고쳐도 값이 같다 — 그걸로 비교하면 영원히 "안 바뀜"이 된다.
+# git 을 쓸 수 없으면 빈 값을 돌려준다. 호출부는 그때 비교를 건너뛴다.
+bouncer_tree_hash() {
+  local w="${1:-$PWD}"
+  git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { printf ''; return; }
+  {
+    git -C "$w" rev-parse HEAD 2>/dev/null
+    git -C "$w" diff HEAD 2>/dev/null
+    git -C "$w" ls-files -o --exclude-standard -z 2>/dev/null \
+      | xargs -0 shasum -a 256 2>/dev/null
+  } | shasum -a 256 | cut -d' ' -f1
 }
 
 # ── hook 출력 ────────────────────────────────────────────────
