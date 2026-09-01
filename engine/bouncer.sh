@@ -98,11 +98,17 @@ cmd_start() {
   set -- ${args[@]+"${args[@]}"}
 
   # 남의 잠금이 살아 있으면 기본적으로 거부한다. 같은 트리에서 두 작업이 돌면 충돌한다.
-  local other conflict=""
+  local other conflict="" mine=""
   for other in $(bouncer_live_locks "$PROJECT"); do
-    [ "$(jq -r '.session_id // empty' "$other/.active" 2>/dev/null)" = "$SESSION" ] && continue
+    if [ "$(jq -r '.session_id // empty' "$other/.active" 2>/dev/null)" = "$SESSION" ]; then
+      mine="$other"; continue
+    fi
     conflict="$other"
   done
+  # 한 세션이 활성 작업을 둘 이상 가지면, 두 번째는 hook에 잡히지 않고 락만 붙든다.
+  [ -n "$mine" ] && die "이 세션에 이미 진행 중인 작업이 있다: $mine
+'bouncer status' 로 확인하고 이어서 하거나, 'bouncer cancel' 로 정리한 뒤 새로 시작하라."
+
   if [ -n "$conflict" ] && [ "$parallel" = 0 ]; then
     die "다른 세션이 작업 중이다: $conflict ($(bouncer_state "$conflict" '.current_stage'))
 같은 트리에서 동시에 진행하면 충돌한다. 둘 중 하나를 골라라:
@@ -161,13 +167,21 @@ cmd_start() {
   # 검사와 생성 사이에 다른 세션이 끼어들 수 있다(TOCTOU).
   # 내 락을 만든 뒤 다시 확인해서, 나보다 먼저 잡은 쪽이 있으면 내 것을 물린다.
   if [ "$parallel" = 0 ]; then
-    local mine_at other_at
+    local mine_at other_at lose
     mine_at="$(jq -r '.claimed_at' "$dir/.active")"
     for other in $(bouncer_live_locks "$PROJECT"); do
       [ "$other" = "$dir" ] && continue
       [ "$(jq -r '.session_id // empty' "$other/.active" 2>/dev/null)" = "$SESSION" ] && continue
       other_at="$(jq -r '.claimed_at // empty' "$other/.active" 2>/dev/null)"
-      if [ -n "$other_at" ] && [ "$other_at" \< "$mine_at" ] || [ "$other_at" = "$mine_at" ]; then
+      [ -n "$other_at" ] || continue
+      # claimed_at 은 초 단위라 같은 초에 시작하면 문자열이 같다.
+      # 그때 양쪽이 "상대가 먼저"라고 판단해 둘 다 물러나면 아무도 시작하지 못한다.
+      # 동률이면 task_id 사전순으로 승자를 하나 정한다.
+      lose=0
+      if [ "$other_at" \< "$mine_at" ]; then lose=1
+      elif [ "$other_at" = "$mine_at" ] && [ "$(basename "$other")" \< "$(basename "$dir")" ]; then lose=1
+      fi
+      if [ "$lose" = 1 ]; then
         rm -rf "$dir"
         die "다른 세션이 먼저 작업을 시작했다: $other
 같은 트리에서 동시에 진행하면 충돌한다.
@@ -181,7 +195,9 @@ cmd_start() {
   # 격리에 실패했는데 태스크를 남기면, 사용자가 요청한 격리 없이 메인 트리에서
   # 락을 쥔 채 작업하게 된다 — 그 상태로 두느니 시작을 무르는 게 맞다.
   if [ "$parallel" = 1 ]; then
-    if ! cmd_wt_create "$slug"; then
+    # cmd_wt_create 내부는 die(=exit)를 쓴다. 서브셸로 감싸야 여기로 돌아온다.
+    # 그러지 않으면 아래 롤백은 영원히 실행되지 않는 죽은 코드다.
+    if ! ( cmd_wt_create "$slug" ); then
       rm -rf "$dir"
       die "격리(worktree) 생성에 실패해 작업을 시작하지 않았다. 위 오류를 해결하고 다시 시도하라."
     fi
