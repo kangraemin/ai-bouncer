@@ -25,7 +25,15 @@ command -v python3 >/dev/null 2>&1 || die "python3가 필요하다. 없으면 ho
 python3 -c 'import json,re,sys' >/dev/null 2>&1 \
   || die "python3가 정상 동작하지 않는다. 제거를 중단한다 — 반쯤 제거된 상태로 남는 것이 더 나쁘다."
 
-ROOT="$PWD/.claude"
+# install 이 git 루트에 설치하므로 제거도 거기서 해야 한다.
+# $PWD 만 보면 모노레포 하위에서 "설치된 ai-bouncer가 없다"는 거짓 진단이 나온다.
+PROJECT="$PWD"
+if [ ! -d "$PROJECT/.claude/ai-bouncer" ]; then
+  _top="$(git rev-parse --show-toplevel 2>/dev/null)"
+  [ -n "$_top" ] && [ -d "$_top/.claude/ai-bouncer" ] && PROJECT="$_top"
+fi
+cd "$PROJECT" || die "프로젝트 디렉토리로 이동할 수 없다: $PROJECT"
+ROOT="$PROJECT/.claude"
 DIR="$ROOT/ai-bouncer"; SETTINGS="$ROOT/settings.json"
 [ -d "$DIR" ] || die "설치된 ai-bouncer가 없다: $DIR"
 printf 'ai-bouncer 제거 ← %s\n' "$DIR"
@@ -89,7 +97,8 @@ PYG
   # 제거 직후 워킹트리가 더러워진다. 진행 중 작업이 없으면 같이 치운다.
   if [ -d "$PWD/.ai-bouncer" ] && [ -z "$(ls -A "$PWD/.ai-bouncer" 2>/dev/null)" ]; then
     rmdir "$PWD/.ai-bouncer" 2>/dev/null
-  elif [ -d "$PWD/.ai-bouncer" ]; then
+  elif [ -d "$PWD/.ai-bouncer" ] && [ "$PURGE" != 1 ]; then
+    # --purge 는 아래에서 직접 지운다. 여기서 "남는다"고 알리면 순서가 뒤집힌다.
     printf '  ⚠️ %s/.ai-bouncer 가 남아 있다 (진행 중 작업 기록).\n' "$PWD"
     printf '     git이 이제 이걸 미추적으로 본다 — 지우려면: rm -rf .ai-bouncer\n'
   fi

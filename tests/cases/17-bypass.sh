@@ -7,6 +7,12 @@
 #
 # 통과하면 범주당 한 줄만 출력한다. 실패한 항목만 개별로 나온다.
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+# 실제 홈을 건드리지 않는다 (install 이 $HOME/.local/bin 에, worktree 가
+# $HOME/.ai-bouncer/ 에 쓴다)
+if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
+  BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
+fi
+
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 cd "$T"; git init -q .; git config user.email t@t; git config user.name t
 echo x > a.js; echo y > b.js; mkdir -p docs src; echo d > docs/p.md; git add .; git commit -qm i

@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # 케이스 11 — pyyaml이 없는 머신에서도 같은 결과가 나와야 한다 (조용한 가드 소실 방지)
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+# 실제 홈을 건드리지 않는다 (install 이 $HOME/.local/bin 에, worktree 가
+# $HOME/.ai-bouncer/ 에 쓴다)
+if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
+  BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
+fi
+
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 for f in "$R"/config/default.yaml "$R"/examples/*.yaml "$R"/tests/fixtures/*.yaml; do
   n=$(basename "$f")

@@ -2,6 +2,12 @@
 # 설치 → 동작 → 제거 e2e
 set -uo pipefail
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# 실제 홈을 건드리지 않는다 (install 이 $HOME/.local/bin 에, worktree 가
+# $HOME/.ai-bouncer/ 에 쓴다)
+if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
+  BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
+fi
+
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 PASS=0; FAIL=0
 ok(){ printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }

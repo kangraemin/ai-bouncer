@@ -35,6 +35,10 @@ group(){
 
 # setup <workflow.yaml 경로> [프롬프트디렉토리]
 setup() {
+  # 케이스를 단독 실행할 때도 실제 홈을 건드리지 않는다
+  if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
+    BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
+  fi
   T="$(mktemp -d)"; cd "$T"
   git init -q .; git config user.email t@t; git config user.name t
   echo hello > app.js; git add app.js; git commit -qm init
