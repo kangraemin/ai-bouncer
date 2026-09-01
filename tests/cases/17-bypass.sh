@@ -29,6 +29,41 @@ bash "$BOUNCER" start plan probe >/dev/null 2>&1     # plan = 읽기 전용 단�
 
 printf '\n[읽기 전용 단계 — 뚫려선 안 되는 것]\n'
 
+# 개행도 명령 구분자다. 예전엔 세그먼트 분리에서 빠져 있어 `ls` 하나만 판정되고
+# 뒤에 붙은 것은 통째로 통과했다 (읽기 전용에서 엔진 삭제까지 뚫렸다).
+NL_BAD=0
+for c in "ls
+rm -f a.js" "ls
+rm -rf .ai-bouncer" "true
+python3 -c \"open('a.js','w')\"" "echo hi
+git push origin main"; do
+  [ -n "$(B "$c")" ] || { NL_BAD=1; printf '     ↳ %s\n' "$(printf '%s' "$c" | tr '\n' '⏎')"; }
+done
+[ "$NL_BAD" = 0 ] && ok "개행으로 명령 잇기 (4건)" || no "개행으로 명령 잇기" "위 항목 통과됨"
+
+
+group "인자가 곧 코드인 것" must_block <<'CASES'
+eval "rm -f a.js"
+eval 'rm -rf .ai-bouncer'
+exec rm -f a.js
+source /tmp/x.sh
+. /tmp/x.sh
+busybox rm a.js
+CASES
+
+group "이름 위장 (ANSI-C 인용·줄이음)" must_block <<'CASES'
+rm$'' -f a.js
+$'\x72m' -f a.js
+CASES
+
+group "엔진 디렉토리를 글로브로 삼키기" must_block <<'CASES'
+rm -rf .claude/*
+rm -rf .claude/a*
+rm -rf .claude/ai-bounc*
+mv .claude/* /tmp/x
+rm -rf .ai*
+CASES
+
 group "허용 명령 뒤에 다른 명령 붙이기" must_block <<'CASES'
 bouncer status; printf pwned > a.js
 bouncer status; git push
@@ -145,6 +180,11 @@ sed -n '1W pwn.txt' a.js
 sed '1wpwn.txt' a.js
 sed 's/console/X/wpwn.txt' a.js
 sed --in-place s/a/b/ a.js
+sed -n -f /dev/stdin a.js
+sed --expression='1w pwn.txt' a.js
+git restore --staged --worktree a.js
+cd . && cd - && rm -f a.js
+(cd /tmp); rm -f a.js
 uniq a.js pwn.txt
 xxd a.js pwn.txt
 sort -o pwn.txt a.js
@@ -347,6 +387,14 @@ grep -w foo a.js
 base64 -i a.js
 xxd -l 32 a.js
 uniq a.js
+sed -e's/main/x/' a.js
+env ls -S
+tar -tf x.tar
+git push --dry-run
+git apply --check /tmp/p.diff
+git apply --stat
+git merge --abort
+git rebase --continue
 git clean -n
 git clean -nd
 git version

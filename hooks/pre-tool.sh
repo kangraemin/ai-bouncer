@@ -23,10 +23,17 @@ TOOL="$(jq -r '.tool_name // empty'     <<<"$INPUT")"
 # `bouncer status && rm -rf x` 가 통째로 빠져나간다 (감사에서 실제로 뚫렸다).
 if [ "$TOOL" = "Bash" ]; then
   _C="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
-  if printf '%s' "$_C" \
-     | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
-    exit 0
-  fi
+  # grep 의 `^…$` 는 **줄** 앵커다. 명령 어딘가에 `bouncer` 한 줄만 끼우면
+  # 통째로 통과했다 (감사에서 실제로 뚫렸다). 개행이 있으면 아예 면제하지 않는다.
+  case "$_C" in
+    *"
+"*) ;;
+    *)
+      if printf '%s' "$_C" \
+         | grep -Eq '^[[:space:]]*(bouncer|[^[:space:];&|<>()`$]*/bouncer\.sh)([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$'; then
+        exit 0
+      fi ;;
+  esac
 fi
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
@@ -56,17 +63,7 @@ fi
 ENGINE_FILE_MSG="⛔ [ai-bouncer] 엔진 파일은 직접 수정할 수 없다.
 단계 전이와 규칙은 엔진이 관리한다. 조건을 충족시켜서 넘어가라."
 
-# 디렉토리 통째로도 막아야 한다 — `.ai-bouncer` 를 지우면 게이트가 전부 사라진다.
-# NotebookEdit 은 notebook_path 를 쓴다. 빠뜨리면 경로가 빈 값으로 넘어가
-# 스코프 검사가 통째로 건너뛰어진다.
 FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.notebook_path // .tool_input.path // empty' <<<"$INPUT")"
-case "$FILE_PATH" in
-  # 병렬 작업 worktree(~/.ai-bouncer/worktrees/)는 작업 대상이지 엔진 상태가 아니다
-  */.ai-bouncer/worktrees/*) ;;
-  */.ai-bouncer|*/.ai-bouncer/*|*/workflow.compiled.json|\
-  */.claude/ai-bouncer|*/.claude/ai-bouncer/*)
-    bouncer_block "$ENGINE_FILE_MSG" ;;
-esac
 # 셸을 통한 접근은 guard.py가 같은 기준으로 막는다 (아래 Bash 분기).
 # 여기서 정규식으로 한 번 더 보던 코드는 지웠다 — 두 벌로 관리하니
 # 셸 쪽만 `.ai-bouncer` 부모 디렉토리를 놓쳐 `rm -rf .ai-bouncer` 가 통과했다.
@@ -109,24 +106,12 @@ WT="$(bouncer_state "$TASK" '.worktree.path')"
 
 case "$TOOL" in
   Edit|Write|MultiEdit|NotebookEdit)
-    if [ -n "$WT" ] && [ -n "$FILE_PATH" ]; then
-      case "$FILE_PATH" in
-        "$WT"/*) ;;
-        "$ROOT"/*) bouncer_block "⛔ [ai-bouncer] 이 작업은 별도 worktree에서 진행 중이다.
-    $WT
-그런데 그 밖의 파일을 고치려 한다: $FILE_PATH
-
-여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.
-worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:
-    cd $WT" ;;
-      esac
-    fi
     if [ -f "$GUARD" ] && command -v python3 >/dev/null 2>&1; then
       if [ -z "$FILE_PATH" ] && [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
         deny "어느 파일을 고치려는지 알 수 없다. 이 단계에는 수정 제한이 걸려 있다."
       fi
       R="$(python3 "$GUARD" --check-path "$(jq -c '.edit_files // null' <<<"$FORBID")" \
-            "$ROOT" "$FILE_PATH" "$CWD" 2>/dev/null)" || R=""
+            "$ROOT" "$FILE_PATH" "$CWD" "$WT" 2>/dev/null)" || R=""
       [ -n "$R" ] && deny "$R"
     elif [ "$(jq -r '.edit_files' <<<"$FORBID")" != "null" ]; then
       deny "경로 판정기를 사용할 수 없다 ($GUARD). 이 단계에는 수정 제한이 걸려 있다."
