@@ -160,7 +160,10 @@ exit 1
 SHIM
 chmod 755 "$DIR/bin/bouncer"
 BINDIR="$HOME/.local/bin"; mkdir -p "$BINDIR"
-ln -sf "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null
+# 심볼릭 링크로 걸면 **마지막에 설치한 프로젝트**를 가리키게 되고,
+# 그 프로젝트를 제거하는 순간 다른 모든 프로젝트에서 bouncer 가 사라진다.
+# 셔임은 내용이 프로젝트와 무관하므로 실제 파일로 복사한다.
+cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null && chmod 755 "$BINDIR/bouncer" 
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *) printf '  ⚠️ %s 가 PATH에 없다. 쉘 설정에 추가하라:\n     export PATH="%s:$PATH"\n' "$BINDIR" "$BINDIR" ;;

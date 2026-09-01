@@ -160,10 +160,14 @@ if [ -d "$WT_DIR" ]; then
   fi
 fi
 
-# 다른 프로젝트가 아직 쓰고 있으면 심볼릭 링크를 살려둔다. 아니면 끊어진 링크가 남는다.
+# 셔임은 프로젝트와 무관한 내용이라 다른 프로젝트가 계속 쓴다. 남겨둔다.
+# (예전에는 마지막 설치 프로젝트를 가리키는 심볼릭 링크였고, 그걸 지우면
+#  멀쩡히 설치된 다른 프로젝트에서도 bouncer 가 사라졌다)
 BINLINK="$HOME/.local/bin/bouncer"
 if [ -L "$BINLINK" ] && [ ! -e "$BINLINK" ]; then
   rm -f "$BINLINK"; printf '  끊어진 bouncer 링크 제거\n'
+elif [ "$PURGE" = 1 ] && [ -f "$BINLINK" ]; then
+  rm -f "$BINLINK"; printf '  bouncer 실행 파일 제거 (--purge)\n'
 fi
 
 printf '\n제거 완료.\n'

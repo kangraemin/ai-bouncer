@@ -327,7 +327,9 @@ def is_bouncer(tok):
     """엔진 자신의 명령인가. basename만 보면 `./src/bouncer` 로 위장된다."""
     t = tok.strip('"\'').lstrip('\\')
     if '/' not in t:
-        return t in BOUNCER_EXE            # PATH로 찾는 형태
+        # 설치본은 PATH 에 `bouncer` 로만 놓인다. `bouncer.sh` 는 정의상
+        # 엔진일 수 없는데도 면제를 받아 엔진 파일 검사까지 건너뛰었다.
+        return t == 'bouncer'
     return t.replace('\\', '/').endswith('.claude/ai-bouncer/engine/bouncer.sh')
 # 엔진 파일을 **읽기만** 하는 것은 막을 이유가 없다.
 # (설정을 확인하려는 것뿐인데 스테이지마다 다르게 막히면 혼란만 준다)
@@ -584,14 +586,22 @@ def abspath(p):
 
 
 def norm(p):
-    """프로젝트 기준 상대경로. 프로젝트 밖이면 절대경로 그대로."""
+    """프로젝트 기준 상대경로. 프로젝트 밖이면 절대경로 그대로.
+
+    병렬 작업의 worktree 는 프로젝트의 사본이므로 worktree 기준으로도 상대화한다.
+    안 그러면 worktree 안 모든 파일이 "프로젝트 밖"이 되어 edit_files 스코프가
+    통째로 사라진다 — 사용자가 건 가드가 병렬에서만 조용히 없어졌다.
+    """
     a = abspath(p)
     if not a:
         return '.'
-    if a == PROJECT:
-        return '.'
-    if PROJECT and a.startswith(PROJECT + '/'):
-        return a[len(PROJECT) + 1:]
+    for root in (WORKTREE, PROJECT):
+        if not root:
+            continue
+        if a == root:
+            return '.'
+        if a.startswith(root + '/'):
+            return a[len(root) + 1:]
     return a
 
 
@@ -1192,6 +1202,15 @@ if TOKENS is None:
 SEGMENTS = split_segments(TOKENS)
 check_engine_files(SEGMENTS)
 
+def reset_cwd():
+    """판정 패스를 새로 시작할 때 cd 추적을 초기화한다.
+
+    EDIT 패스 마지막 세그먼트의 `cd` 가 PUSH 패스 첫 세그먼트로 새어,
+    `touch src/a.js && cd -` 처럼 **쓰기보다 뒤에 오는 cd** 가 앞을 막았다.
+    """
+    EFFECTIVE_CWD[0] = ''
+
+
 if EDIT is True:
     # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
     bad = sorted({t for t, k in TOKENS if k == 'st'})
@@ -1270,6 +1289,7 @@ elif EDIT is not None:
                     out("`%s` 로 %s 를 고칠 수 없다." % (exe, a))
         track_cd(exe, args, struct)
 
+reset_cwd()
 if PUSH:
     # ── push 금지 (스코프 모드와 함께 걸릴 수 있으므로 독립적으로 본다) ──
     for seg in SEGMENTS:
@@ -1282,6 +1302,7 @@ if PUSH:
         check_push_cmd(exe, cmd, struct)
         track_cd(exe, cmd[1:], struct)
 
+reset_cwd()
 if EDIT is None and not PUSH and WORKTREE:
     for seg in SEGMENTS:
         clean, redirs, struct = parse_redirects(seg)
