@@ -68,9 +68,16 @@ fi
 FORBID="$(bouncer_stage "$CWD" "$STAGE" | jq -c '.forbid // {}')"
 REASON="$(jq -r '.reason // ""' <<<"$FORBID")"
 [ -n "$REASON" ] || REASON="현재 단계에서 허용되지 않는 동작이다."
-deny() { bouncer_block "⛔ [ai-bouncer / $STAGE] $1
+deny() {
+  # 판정기가 낸 사유와 yaml의 reason 이 같은 말이면 두 번 보여주지 않는다.
+  if [ "$1" = "$REASON" ] || printf '%s' "$1" | grep -qF "$REASON"; then
+    bouncer_block "⛔ [ai-bouncer / $STAGE] $1"
+  else
+    bouncer_block "⛔ [ai-bouncer / $STAGE] $1
 
-$REASON"; }
+$REASON"
+  fi
+}
 
 EDIT="$(jq -c '.edit_files // null' <<<"$FORBID")"
 PUSH="$(jq -r '.push'               <<<"$FORBID")"
