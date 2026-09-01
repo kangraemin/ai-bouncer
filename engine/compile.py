@@ -511,6 +511,18 @@ def compile_config(raw, base_dir, sources):
                 _err('stages.%s.on_fail' % sname,
                      '`%s`는 앞선 스테이지가 아니다 — 되돌아가기만 허용된다' % target)
 
+    # 종단 스테이지에 통과 조건을 걸면 작업이 영원히 안 끝나고 잠금이 남는다.
+    # 넘어갈 다음 단계가 없으므로 조건을 충족해도 갈 곳이 없기 때문이다.
+    for wname, wf in workflows.items():
+        last = wf['stages'][-1]
+        blocking = [st['label'] for st in stages[last]['steps'] if st.get('blocking')]
+        if blocking:
+            _err('stages.%s' % last,
+                 '워크플로우 `%s`의 마지막 스테이지인데 통과 조건이 걸려 있다: %s\n'
+                 '  마지막 스테이지는 넘어갈 곳이 없어서, 조건을 걸면 작업이 끝나지 않고\n'
+                 '  잠금이 남는다. 조건이 필요하면 그 앞에 스테이지를 하나 두고 거기에 걸어라.'
+                 % (wname, ', '.join(blocking)))
+
     used = {s for w in workflows.values() for s in w['stages']}
     orphans = sorted(set(stages) - used)
     if orphans:
