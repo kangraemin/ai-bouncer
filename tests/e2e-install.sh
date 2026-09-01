@@ -43,7 +43,7 @@ grep -qxF '.ai-bouncer/' .gitignore && ok ".gitignore에 런타임 상태 추가
 for f in workflow.compiled.json .update-check; do
   grep -qxF "$f" .claude/ai-bouncer/.gitignore || { no "설정 디렉토리 gitignore" "$f 누락"; break; }
 done
-grep -qxF '.update-check' .claude/ai-bouncer/.gitignore && ok "설정 디렉토리 런타임 파일도 제외"
+grep -qxF '.update-check' .claude/ai-bouncer/.gitignore && ok "설정 디렉토리 런타임 파일도 제외" || no "설정 디렉토리 gitignore" ".update-check 누락"
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)

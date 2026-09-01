@@ -118,8 +118,24 @@ NL = '\x00NL\x00'          # shlex가 개행을 공백으로 지우므로 구분
 SEPARATORS = SEPARATOR_BASE | {NL}
 # 리다이렉트 연산자. 앞에 붙는 fd 번호는 별도 토큰으로 떨어지므로 여기 없다.
 REDIR = re.compile(r'^(>{1,2}\|?|<|<>|&>{1,2}|>&)$')
-ENGINE_PARTS = ('.ai-bouncer/tasks', 'workflow.compiled.json', '.claude/ai-bouncer')
+# 엔진 소유 경로. 부분문자열이 아니라 **경로 성분**으로 본다 —
+# `.ai-bouncer/tasks` 만 보면 부모인 `rm -rf .ai-bouncer` 를 놓쳐 게이트가 통째로 사라진다.
+ENGINE_DIRS = (('.ai-bouncer',), ('.claude', 'ai-bouncer'))
+ENGINE_FILES = ('workflow.compiled.json',)
 BOUNCER_EXE = ('bouncer', 'bouncer.sh')
+# 엔진 파일을 **읽기만** 하는 것은 막을 이유가 없다.
+# (설정을 확인하려는 것뿐인데 스테이지마다 다르게 막히면 혼란만 준다)
+ENGINE_READ_OK = {
+    'cat', 'head', 'tail', 'wc', 'ls', 'stat', 'file', 'tree', 'du', 'jq',
+    'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'cmp', 'nl', 'od',
+    'strings', 'md5sum', 'sha256sum', 'shasum', 'realpath', 'dirname', 'basename',
+}
+
+
+ENGINE_MSG = ("엔진 파일(.ai-bouncer/ 상태, .claude/ai-bouncer/ 설정·엔진, "
+              "workflow.compiled.json)은 직접 수정할 수 없다.\n"
+              "읽는 것은 자유다 — `cat`/`ls`/`grep` 으로 확인해라.\n"
+              "작업 상태를 바꾸려면 `bouncer` 명령을 써라.")
 
 
 def out(msg):
@@ -256,8 +272,21 @@ def awk_writes(prog):
     return False
 
 
+def is_engine_path(tok):
+    """이 토큰이 엔진 소유 경로를 가리키는가. 성분 단위로 본다."""
+    parts = norm(tok).replace('\\', '/').split('/')
+    if parts[-1] in ENGINE_FILES:
+        return True
+    for want in ENGINE_DIRS:
+        n = len(want)
+        for i in range(len(parts) - n + 1):
+            if tuple(parts[i:i + n]) == want:
+                return True
+    return False
+
+
 def check_engine_files(segments):
-    """엔진 파일은 어느 스테이지에서도 직접 다룰 수 없다.
+    """엔진 파일은 어느 스테이지에서도 직접 **수정**할 수 없다.
 
     세그먼트마다 따로 본다. 줄 전체의 첫 토큰이 bouncer 인지로 면제하면
     `bouncer status && echo x > state.json` 이 통째로 빠져나간다.
@@ -267,11 +296,13 @@ def check_engine_files(segments):
         if exe in BOUNCER_EXE:
             continue
         clean, redirs = parse_redirects(seg)
-        for t in clean + [tgt for _, tgt in redirs]:
-            n = norm(t)
-            if any(part in t.replace('\\', '/') or part in n for part in ENGINE_PARTS):
-                out("엔진 파일(state.json / .active / workflow.compiled.json / "
-                    ".claude/ai-bouncer/)은 직접 다룰 수 없다.")
+        for op, tgt in redirs:
+            if op != '<' and is_engine_path(tgt):
+                out(ENGINE_MSG)
+        if exe in ENGINE_READ_OK:
+            continue                    # 읽기는 자유
+        if any(is_engine_path(t) for t in clean):
+            out(ENGINE_MSG)
 
 
 def check_redirects(redirs):

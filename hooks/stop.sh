@@ -89,9 +89,16 @@ while IFS= read -r step; do
   BLOCKING="$(jq -r '.blocking // empty' <<<"$step")"
   OPTIONAL="$(jq -r '.optional' <<<"$step")"
 
-  # 시작할 때 사용자가 끈 항목은 건너뛴다 (choices는 hook 전용 필드)
+  # 사용자가 끈 항목은 건너뛴다.
+  #  · choices  — 시작할 때 --off 로 끈 optional 항목
+  #  · skipped  — 엔진이 포기한 뒤 `bouncer skip` 으로 이번 작업만 면제한 항목
+  # jq의 `//` 는 false를 "없음"으로 보므로 has()로 물어야 한다.
+  if [ "$(jq -r --arg k "$ID" '.skipped[$k] // false' "$TASK/state.json" 2>/dev/null)" = "true" ]; then
+    continue
+  fi
   if [ "$OPTIONAL" = "true" ]; then
-    CHOSEN="$(jq -r --arg k "$ID" '.choices[$k] // false' "$TASK/state.json" 2>/dev/null)"
+    CHOSEN="$(jq -r --arg k "$ID" \
+      'if (.choices | has($k)) then .choices[$k] else true end' "$TASK/state.json" 2>/dev/null)"
     [ "$CHOSEN" = "true" ] || continue
   fi
 
@@ -207,6 +214,18 @@ $(bouncer_state "$TASK" '.last_failure')"
 
   # ── 전이 ──
   NEXT="$(bouncer_next_stage "$CWD" "$WORKFLOW" "$STAGE")"
+  # 다음 단계가 비었다고 곧장 "끝"으로 보면 안 된다. 작업 도중 workflow.yaml에서
+  # 그 워크플로우나 단계를 지우거나 이름을 바꿔도 똑같이 빈 값이 나오는데,
+  # 그러면 finalize(커밋·클린 트리 게이트)가 통째로 건너뛰어지고 작업이 "완료"된다.
+  if [ -z "$NEXT" ] && ! bouncer_is_last_stage "$CWD" "$WORKFLOW" "$STAGE"; then
+    guarded_block "⛔ [ai-bouncer] 진행 중인 작업의 체인을 찾을 수 없다.
+워크플로우 '$WORKFLOW'의 단계 '$STAGE' 가 workflow.yaml에 없다 —
+작업 도중에 이름이 바뀌었거나 삭제된 것으로 보인다.
+
+되돌리는 방법은 둘 중 하나다:
+  · workflow.yaml에서 '$WORKFLOW' / '$STAGE' 를 원래대로 되돌린다
+  · 이 작업을 포기한다: bouncer cancel"
+  fi
   if [ -z "$NEXT" ]; then
     # 종단 도달 — lock 해제. 작업 문서는 남긴다.
     bouncer_state_update "$TASK" --arg t "$(date -u +%FT%TZ)" \
@@ -220,15 +239,19 @@ $(bouncer_state "$TASK" '.last_failure')"
   # 스테이지는 "진입 → 다음 Stop에서 즉시 통과"라 지시를 받는 턴이 없다.
   NEXT_TXT="$(bouncer_stage "$CWD" "$NEXT" \
     | jq -r --slurpfile st "$TASK/state.json" \
-        '[.steps[]? | select(.kind=="inject")
-          | select((.optional | not) or (($st[0].choices[.id]) // true))
+        '[.steps[]? | .id as $sid | select(.kind=="inject")
+          | select(($st[0].skipped[$sid] // false) | not)
+          | select((.optional | not)
+                   or (if ($st[0].choices | has($sid)) then $st[0].choices[$sid] else true end))
           | .text] | join("\n\n")')"
   if [ -n "$NEXT_TXT" ]; then
     while IFS= read -r nid; do
       [ -n "$nid" ] && bouncer_state_update "$TASK" --arg k "$nid" '.shown[$k] = true'
     done < <(bouncer_stage "$CWD" "$NEXT" | jq -r --slurpfile st "$TASK/state.json" \
-      '.steps[]? | select(.kind=="inject")
-       | select((.optional | not) or (($st[0].choices[.id]) // true)) | .id')
+      '.steps[]? | .id as $sid | select(.kind=="inject")
+       | select(($st[0].skipped[$sid] // false) | not)
+       | select((.optional | not)
+                or (if ($st[0].choices | has($sid)) then $st[0].choices[$sid] else true end)) | $sid')
   fi
   bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
     '.current_stage = $n
