@@ -352,14 +352,15 @@ def out(msg):
 # 연산자는 **따옴표 밖에서만** 연산자다. shlex 는 인용 여부를 안 알려줘서,
 # `awk -F '|' …` 의 `|` 가 파이프로, `grep '&&' f` 가 세그먼트 구분자로 읽혔다.
 # 그래서 직접 훑는다. 반환은 (텍스트, 연산자인가) 목록.
-OPS = (';;', '&&', '||', '|&', '&>>', '&>', '>>', '>|', '>&', '<>',
+OPS = (';;', '&&', '||', '|&', '&>>', '&>', '>>', '>|', '>&', '<<<', '<>',
        ';', '&', '|', '<', '>', '\n')
 STRUCT = ('$(', '<(', '>(', '`', '{', '}', '(', ')')
 
 
 ANSI_C = {'a': '\a', 'b': '\b', 'e': '\x1b', 'E': '\x1b', 'f': '\f', 'n': '\n',
           'r': '\r', 't': '\t', 'v': '\v', '\\': '\\', "'": "'", '"': '"', '?': '?'}
-HEREDOC = re.compile(r'<<-?\s*')
+HEREDOC = re.compile(r'<<-?(?!<)\s*')
+ARITH = (('$((', '))'), ('$[', ']'))
 
 
 def _ansi_c(body):
@@ -452,16 +453,38 @@ def lex(cmd):
             flush(); toks.append(('\n', 'op'))
             i += 1
             for word in pending_heredocs:
+                found = False
                 while i < n:
                     e = cmd.find('\n', i)
                     line = cmd[i:e if e >= 0 else n]
                     i = (e + 1) if e >= 0 else n
                     if line.strip() == word:
+                        found = True
                         break
+                if not found:
+                    # 종료어가 없다. 끝까지 본문으로 삼키면 뒤 명령이 통째로
+                    # 검사에서 사라진다 — 그건 fail-open 이다. 판정 불가로 둔다.
+                    return None
             pending_heredocs = []
             continue
         if c in ' \t':
             flush(); i += 1
+            continue
+        # 산술 확장 `$(( … ))` / `$[ … ]` 은 명령을 실행하지 않는다.
+        # 통째로 한 단어로 삼켜야 안쪽의 `<<`(좌시프트)를 히어독으로 오인하지 않고,
+        # 순수 읽기인 `echo $((1+2))` 도 막지 않는다.
+        ar = next((a for a in ARITH if cmd.startswith(a[0], i)), None)
+        if ar:
+            open_s, close_s = ar
+            j = cmd.find(close_s, i + len(open_s))
+            if j < 0:
+                return None             # 닫히지 않았다 — 판정 불가
+            inner = cmd[i + len(open_s):j]
+            if '$(' in inner or '`' in inner:
+                flush(); toks.append(('$(', 'st'))   # 안에서 명령을 실행한다
+            else:
+                buf.append(cmd[i:j + len(close_s)])
+            i = j + len(close_s)
             continue
         m = HEREDOC.match(cmd, i)
         if m:
