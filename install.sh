@@ -163,7 +163,15 @@ BINDIR="$HOME/.local/bin"; mkdir -p "$BINDIR"
 # 심볼릭 링크로 걸면 **마지막에 설치한 프로젝트**를 가리키게 되고,
 # 그 프로젝트를 제거하는 순간 다른 모든 프로젝트에서 bouncer 가 사라진다.
 # 셔임은 내용이 프로젝트와 무관하므로 실제 파일로 복사한다.
-cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null && chmod 755 "$BINDIR/bouncer" 
+# cp 는 심볼릭 링크를 **따라간다**. 구버전이 남긴 링크가 있으면 링크 대상에
+# 쓰고 링크는 그대로라, 그 프로젝트를 지우는 순간 여기 설치도 같이 죽는다.
+rm -f "$BINDIR/bouncer"
+if cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null; then
+  chmod 755 "$BINDIR/bouncer"
+else
+  printf '  ⚠️ %s 를 만들지 못했다. 엔진은 %s 로 직접 부를 수 있다.\n' \
+    "$BINDIR/bouncer" "$DIR/engine/bouncer.sh"
+fi
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *) printf '  ⚠️ %s 가 PATH에 없다. 쉘 설정에 추가하라:\n     export PATH="%s:$PATH"\n' "$BINDIR" "$BINDIR" ;;

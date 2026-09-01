@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 케이스 6 — 같은 단계에서 연속 차단이 상한을 넘으면 사용자에게 넘긴다 (무한루프 방지)
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
-cat > /tmp/_loop.yaml <<'Y'
+# 픽스처는 케이스마다 따로 둔다. 전역 경로를 쓰면 케이스끼리 덮어쓴다.
+FIXTURE_DIR="$(mktemp -d)"; trap 'rm -rf "$FIXTURE_DIR"' EXIT
+cat > "$FIXTURE_DIR/_loop.yaml" <<'Y'
 version: 1
 workflows:
   plan: {label: 테스트용, stages: [work, done]}
@@ -15,7 +17,7 @@ stages:
   done:
     steps: [{label: 완료, inject: "끝."}]
 Y
-setup /tmp/_loop.yaml || exit 1
+setup "$FIXTURE_DIR/_loop.yaml" || exit 1
 trap cleanup EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start plan "무한루프" >/dev/null   # config: max_continue=3

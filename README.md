@@ -191,7 +191,7 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 
 프로젝트 밖에도 두 가지가 생긴다:
 
-- `~/.local/bin/bouncer` — 셸에서 부를 수 있게 하는 심볼릭 링크.
+- `~/.local/bin/bouncer` — 셸에서 부를 수 있게 하는 실행 파일. 내용이 프로젝트와 무관해서(현재 위치의 설치본을 찾아 실행한다) 한 프로젝트를 제거해도 다른 프로젝트가 계속 쓴다. `--purge` 로도 지우지 않는다.
   현재 디렉토리에서 위로 올라가며 프로젝트를 찾으므로 어느 레포에서든 그 레포의 엔진이 돈다.
 - `~/.ai-bouncer/worktrees/<repo>/<branch>/` — 병렬 작업용 worktree.
   레포 밖에 두는 이유는 빌드 도구가 긁지 않고 권한 프롬프트도 뜨지 않게 하기 위해서다.

@@ -24,23 +24,21 @@ REENTRY="$(jq -r '.stop_hook_active // false' <<<"$INPUT")"
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0      # 내 작업 없으면 관여 안 함
 COMPILED="$(bouncer_compiled_file "$CWD")"
-if [ ! -f "$COMPILED" ] || ! jq -e . "$COMPILED" >/dev/null 2>&1; then
-  # 예전에는 "스테이지가 yaml 에 없다"로 오진해 멀쩡한 yaml 을 되돌리라고 시켰다.
-  # 파일이 아예 없을 때 조용히 나가던 것도 같이 막는다.
-  printf '%s' '{"decision":"block","reason":"⛔ [ai-bouncer] 워크플로우 설정을 읽을 수 없다.\n규칙을 알 수 없는 상태에서는 단계를 넘길 수 없다.\n  · `bouncer check` 로 workflow.yaml 을 확인하라 (yaml 이 멀쩡하면 다음 세션 시작 때 다시 컴파일된다)\n  · 작업을 포기한다: bouncer cancel"}'
-  exit 0
-fi
+# 진단은 guarded_block 이 정의된 뒤에 한다 — 직접 block 을 내보내면
+# 상한 카운터를 안 거쳐 세션이 영원히 안 돌아온다 (30/30 차단이 재현됐다).
+CONFIG_BROKEN=0
+[ ! -f "$COMPILED" ] || jq -e . "$COMPILED" >/dev/null 2>&1 || CONFIG_BROKEN=1
+[ -f "$COMPILED" ] || CONFIG_BROKEN=1
 
 WORKFLOW="$(bouncer_state "$TASK" '.workflow')"
 STAGE="$(bouncer_state "$TASK" '.current_stage')"
 WORK_ROOT="$(bouncer_state "$TASK" '.work_root')"
 [ -n "$WORK_ROOT" ] || WORK_ROOT="$CWD"
-if ! jq -e . "$TASK/state.json" >/dev/null 2>&1; then
-  # pre-tool 과 CLI 는 막는데 Stop 만 조용히 나가면, 게이트 없이 계속 진행된다.
-  printf '%s' '{"decision":"block","reason":"⛔ [ai-bouncer] 작업 상태 파일이 손상됐다.\n진행 상황을 알 수 없어 단계를 넘길 수 없다.\n  · 작업을 포기한다: bouncer cancel"}'
-  exit 0
+STATE_BROKEN=0
+jq -e . "$TASK/state.json" >/dev/null 2>&1 || STATE_BROKEN=1
+if [ "$STATE_BROKEN" = 0 ]; then
+  [ -n "$WORKFLOW" ] && [ -n "$STAGE" ] || exit 0
 fi
-[ -n "$WORKFLOW" ] && [ -n "$STAGE" ] || exit 0
 [ "$STAGE" = "cancelled" ] && exit 0
 
 bouncer_touch_lock "$TASK"   # 하트비트 — 방치 판정의 근거
@@ -95,6 +93,18 @@ AskUserQuestion으로 물어라 (도구가 없으면 텍스트로 제시하고 �
   bouncer_state_update "$TASK" --argjson n "$n" '.blocks_total = $n'
   bouncer_block "$1"
 }
+
+if [ "${STATE_BROKEN:-0}" = 1 ]; then
+  guarded_block "⛔ [ai-bouncer] 작업 상태 파일이 손상됐다.
+진행 상황을 알 수 없어 단계를 넘길 수 없다.
+  · 작업을 포기한다: bouncer cancel"
+fi
+if [ "${CONFIG_BROKEN:-0}" = 1 ]; then
+  guarded_block "⛔ [ai-bouncer] 워크플로우 설정을 읽을 수 없다.
+규칙을 알 수 없는 상태에서는 단계를 넘길 수 없다.
+  · \`bouncer check\` 로 workflow.yaml 을 확인하라 (yaml 이 멀쩡하면 다음 세션 시작 때 다시 컴파일된다)
+  · 작업을 포기한다: bouncer cancel"
+fi
 
 # 엔진이 이 스테이지를 포기했다고 기록한다. `bouncer skip` 은 이 표시가 있어야 열린다.
 # 지금 막고 있는 조건이 다른 스테이지 소속일 수도 있어서(반송 뒤가 그렇다)
@@ -250,6 +260,14 @@ if [ -z "$FAILURES" ]; then
   # 그러지 않으면 조건 없는 스테이지를 사이에 두고 같은 검사를 무한히 반복한다.
   RET_TO="$(bouncer_state "$TASK" '.returned_to')"
   RET_FROM="$(bouncer_state "$TASK" '.returned_from')"
+  # 반송된 상태에서는 현재 스테이지의 조건이 전부 통과라 FAILURES 가 비어 있다.
+  # 정작 막고 있는 건 되돌려보낸 스테이지의 게이트이므로 거기서 id 를 가져온다.
+  # (이 백필이 아래 포기 분기보다 **앞에** 있어야 한다 — 뒤에 두면 죽은 코드다)
+  if [ -z "$BLOCKING_IDS" ] && [ -n "$RET_FROM" ]; then
+    while IFS= read -r _bid; do
+      [ -n "$_bid" ] && add_blocking_id "$_bid"
+    done < <(bouncer_stage "$CWD" "$RET_FROM" | jq -r '.steps[]? | select(.blocking) | .id')
+  fi
   if [ -n "$RET_TO" ] && [ "$RET_TO" = "$STAGE" ]; then
     RET_TREE="$(bouncer_state "$TASK" '.returned_tree')"
     NOW_TREE="$(bouncer_tree_hash "$WORK_ROOT")"
@@ -274,13 +292,6 @@ $(skip_hint)
   3. 작업을 중단한다 (bouncer cancel)" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
         mark_gave_up
         exit 0
-      fi
-      # 이 분기는 현재 스테이지(반송 대상)의 조건이 전부 통과한 상태라 FAILURES 가 비어 있다.
-      # 정작 막고 있는 건 되돌려보낸 스테이지의 게이트이므로 거기서 id 를 가져온다.
-      if [ -z "$BLOCKING_IDS" ] && [ -n "$RET_FROM" ]; then
-        while IFS= read -r _bid; do
-          [ -n "$_bid" ] && add_blocking_id "$_bid"
-        done < <(bouncer_stage "$CWD" "$RET_FROM" | jq -r '.steps[]? | select(.blocking) | .id')
       fi
       guarded_block "[$STAGE] 되돌아온 뒤 작업 트리가 그대로다 — 아무것도 바뀌지 않았다. (${NS}/${MAX_CONTINUE})
 
@@ -355,7 +366,7 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
      | .allowed_stop = false
      | .user_turns_at_wait = null
      | .returned_from = null
-     | .gave_up = ((.gave_up // {}) | del(.[$s]))
+     | .gave_up = ((.gave_up // {}) | del(.[$s]) | del(.[$n]))
      | .history += [{stage:$n, at:$t}]'
   guarded_block "✅ [$STAGE] 완료 → [$NEXT] 진입${NEXT_TXT:+$'\n\n'}$NEXT_TXT"
 fi

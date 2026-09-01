@@ -31,12 +31,18 @@ for f in "$CASES"/*.sh "$R"/tests/e2e-install.sh; do
 import sys, pathlib
 lines = [l.rstrip() for l in pathlib.Path(sys.argv[1]).read_text().split('\n')]
 sig = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+# 셋업 몇 줄이 겹치는 건 정상이다. 붙여넣기 사고의 신호는 **단정이 함께**
+# 복제되는 것이다 — 같은 검증이 두 벌 있으면 한쪽은 반드시 죽은 코드다.
 N = 8
 seen, dup = {}, None
 for i in range(len(sig) - N + 1):
-    key = '\n'.join(sig[i:i + N])
+    block = sig[i:i + N]
+    if sum(1 for l in block if l.lstrip().startswith(('ok "', 'no "'))
+           or ' ok "' in l or ' no "' in l) < 2:
+        continue
+    key = '\n'.join(block)
     if key in seen:
-        dup = sig[i].strip()[:60]
+        dup = block[0].strip()[:60]
         break
     seen[key] = i
 if dup:
@@ -47,8 +53,20 @@ PY
     no "$n 에 통째로 복붙된 블록" "8줄 이상이 두 번 나온다"
     BAD=1
   fi
+  # 루프가 실패를 알린 뒤 무조건 찍는 ok. 감사에서 나온 실제 형태다 —
+  # 루프 안에서 no 를 부르고 done 바로 뒤에서 ok 를 찍으면 실패가 통과로 집계된다.
+  # (if/else 안의 ok 는 정상이므로 `done` 직후만 본다)
+  bare="$(awk '
+    /^[[:space:]]*done[[:space:]]*$/ { prev_done=1; next }
+    /^[[:space:]]*$/ || /^[[:space:]]*#/ { next }
+    prev_done && /^[[:space:]]*ok "/ { print NR": "$0 }
+    { prev_done=0 }' "$f" | head -2)"
+  if [ -n "$bare" ]; then
+    no "$n 에 루프 뒤 무조건 ok" "$(printf '%s' "$bare" | tr '\n' ' ')"
+    BAD=1
+  fi
 done
-[ "$BAD" = 0 ] && ok "죽은 코드·중복 단정 없음"
+[ "$BAD" = 0 ] && ok "죽은 코드·중복 단정·조건 없는 ok 없음"
 
 # 단정을 하나도 안 부르는 섹션 (echo "[제목]" 뒤에 ok/no 가 없는 것)
 BAD=0

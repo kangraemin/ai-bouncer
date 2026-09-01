@@ -166,8 +166,12 @@ fi
 BINLINK="$HOME/.local/bin/bouncer"
 if [ -L "$BINLINK" ] && [ ! -e "$BINLINK" ]; then
   rm -f "$BINLINK"; printf '  끊어진 bouncer 링크 제거\n'
-elif [ "$PURGE" = 1 ] && [ -f "$BINLINK" ]; then
-  rm -f "$BINLINK"; printf '  bouncer 실행 파일 제거 (--purge)\n'
+fi
+# --purge 는 **이 프로젝트** 범위 옵션이다. 전역 런처를 지우면 멀쩡히 설치된
+# 다른 프로젝트에서도 bouncer 가 사라진다 (심볼릭 링크에서 고치려던 그 실패 모드).
+if [ "$PURGE" = 1 ] && [ -f "$BINLINK" ]; then
+  printf '  전역 런처는 남긴다: %s (다른 프로젝트가 쓴다)\n' "$BINLINK"
+  printf '     정말 지우려면: rm -f %s\n' "$BINLINK"
 fi
 
 printf '\n제거 완료.\n'
