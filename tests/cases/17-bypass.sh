@@ -19,6 +19,12 @@ B(){ printf '{"session_id":"S1","cwd":"%s","tool_name":"Bash","tool_input":{"com
 must_block(){ [ -n "$(B "$1")" ]; }
 must_pass(){  [ -z "$(B "$1")" ]; }
 
+# worktree 예외를 심볼릭 링크로 타는 시도를 재현하려면 실제 링크가 있어야 한다
+mkdir -p .ai-bouncer/worktrees/w/.claude/ai-bouncer .ai-bouncer/tasks
+ln -sf ../tasks .ai-bouncer/worktrees/esc
+printf '#!/bin/sh\necho hijack\n' > bouncer && chmod +x bouncer
+mkdir -p src && cp bouncer src/bouncer
+
 bash "$BOUNCER" start plan probe >/dev/null 2>&1     # plan = 읽기 전용 단계
 
 printf '\n[읽기 전용 단계 — 뚫려선 안 되는 것]\n'
@@ -31,6 +37,17 @@ bouncer status && rm -f a.js
 CASES
 
 group "래퍼·환경변수·셸 구문에 숨기기" must_block <<'CASES'
+command cp -v b.js a.js
+command rm -v a.js
+command sh -v -c "rm -f a.js"
+FOO=/tmp cp b.js a.js
+timeout 5 cp b.js a.js
+nice -n 5 cp b.js a.js
+env -u FOO cp b.js a.js
+echo a.js | xargs -I % cp b.js %
+sh -c "echo pwned > a.js"
+bash -c "rm -rf docs"
+find . -name a.js -delete
 X=1 rm -f a.js
 sudo rm -f a.js
 timeout 5 rm -f a.js
@@ -114,6 +131,8 @@ sed -n '1w pwn.txt' a.js
 sed -n '$w pwn.txt' a.js
 sed -n '1,$w pwn.txt' a.js
 sed -n '1W pwn.txt' a.js
+sed '1wpwn.txt' a.js
+sed 's/console/X/wpwn.txt' a.js
 sed --in-place s/a/b/ a.js
 uniq a.js pwn.txt
 xxd a.js pwn.txt
@@ -184,6 +203,11 @@ exec rm -f a.js
 CASES
 
 group "push 위장" must_block <<'CASES'
+FOO=/tmp git push
+GIT_DIR=/tmp/x git push
+nice -n 5 git push
+timeout 5 git push
+sh -c "git push origin main"
 env git push
 command git push
 nohup git push
@@ -210,6 +234,19 @@ rm ../$(basename $PWD)/a.js
 CASES
 
 group "엔진 파일 조작" must_block <<'CASES'
+find . -name state.json -delete
+./bouncer
+src/bouncer status
+CASES
+
+group "심볼릭 링크로 worktree 예외 타기" must_block <<'CASES'
+echo x > .ai-bouncer/worktrees/esc/state.json
+tee .ai-bouncer/worktrees/esc/state.json
+echo x > .ai-bouncer/worktrees/w/.claude/ai-bouncer/workflow.yaml
+rm -rf .ai-bouncer/worktrees/w/.ai-bouncer/tasks
+CASES
+
+group "엔진 파일 조작(기존)" must_block <<'CASES'
 python3 -c "import json;json.load(open(\".ai-bouncer/tasks/x/state.json\"))"
 rm -f .ai-bouncer/tasks/x/.active
 echo {} > .claude/ai-bouncer/workflow.compiled.json
@@ -290,6 +327,19 @@ grep -w foo a.js
 base64 -i a.js
 xxd -l 32 a.js
 uniq a.js
+sed 's/word/x/' a.js
+sed 's/write/x/g' a.js
+sed -e 's/aw/b/' a.js
+timeout 5 cat a.js
+nice -n 5 grep x a.js
+git branch --list 'feat*'
+git branch --contains HEAD
+git tag -l 'v1*'
+git remote show origin
+git remote get-url origin
+awk '{ print ($1 > 5) }' a.js
+cat a.js > /dev/stdout
+cat a.js > /dev/null
 CASES
 
 printf '\n[구현 단계 — push만 금지]\n'
@@ -303,6 +353,9 @@ python3 -m pytest -q
 cargo build
 make
 node -e "console.log(1)"
+python3 -c "print(1)"
+timeout 30 npm test
+nice -n 5 make build
 git add -A && git commit -m x
 rm -rf dist
 mkdir -p build

@@ -59,11 +59,34 @@ WRITERS = {
 }
 # 워킹트리를 통째로 되돌리는 git 서브커맨드 — 경로를 안 줘도 파일을 바꾼다
 GIT_TREE_WRITE = {'checkout', 'restore', 'reset', 'clean', 'apply', 'stash',
-                  'revert', 'merge', 'rebase', 'cherry-pick', 'pull'}
+                  'revert', 'merge', 'rebase', 'cherry-pick', 'pull', 'switch',
+                  'am', 'rm', 'mv', 'checkout-index', 'read-tree', 'sparse-checkout',
+                  'bisect', 'filter-branch', 'submodule', 'worktree', 'fetch'}
 
 # 실행 파일 이름을 가리는 래퍼. 벗겨내고 진짜 명령을 봐야 한다.
-WRAPPERS = {'env', 'command', 'nohup', 'time', 'stdbuf', 'timeout', 'nice',
-            'ionice', 'setsid', 'caffeinate', 'xargs'}
+# 값을 따로 받는 플래그를 같이 적어야 한다 — `nice -n 5 cp …` 에서 `5` 를
+# 명령으로 착각하면 뒤의 cp 를 아예 안 보게 된다(우회) 또는 `5` 를 막는다(과차단).
+WRAPPER_VALUE_FLAGS = {
+    'env':        {'-u', '--unset', '-C', '--chdir', '-S', '--split-string'},
+    'nice':       {'-n', '--adjustment'},
+    'ionice':     {'-c', '-n', '--class', '--classdata'},
+    'stdbuf':     {'-i', '-o', '-e', '--input', '--output', '--error'},
+    'xargs':      {'-I', '-i', '-n', '-L', '-P', '-s', '-E', '-d',
+                   '--replace', '--max-args', '--max-procs', '--delimiter'},
+    'caffeinate': {'-t', '-w'},
+    'timeout':    {'-s', '--signal', '-k', '--kill-after'},
+    'command':    set(), 'nohup': set(), 'time': set(), 'setsid': set(),
+}
+WRAPPERS = set(WRAPPER_VALUE_FLAGS)
+# timeout 은 값을 위치인자로 받는다 (`timeout 5 cmd`)
+DURATION = re.compile(r'^[0-9]+(\.[0-9]+)?[smhd]?$')
+# 안에 든 프로그램을 들여다볼 수 없는 것들. 인라인 코드를 주면 판정 불가다.
+# 셸만 막는다. `sh -c '…'` 는 한 토큰이라 세그먼트 분리도 리다이렉트 검사도
+# 통째로 비껴가서, push 금지와 엔진 보호가 한 줄로 무력화된다.
+# node -e / python3 -c 까지 막는 건 의미가 없다 — 이미 npm·make·./build.sh 가
+# 허용된 단계라 막아도 얻는 게 없고 흔한 관용구만 깨진다.
+INTERPRETERS = {'sh', 'bash', 'zsh', 'ksh', 'dash', 'fish', 'csh', 'tcsh'}
+INLINE_FLAGS = ('-c', '-e', '--eval', '--command', '-E', '--exec')
 
 # ── git ──────────────────────────────────────────────────────
 # 어떤 인자를 줘도 읽기인 서브커맨드
@@ -80,18 +103,24 @@ GIT_READ = {
 #   max_pos  : 허용되는 위치인자 개수 상한
 #   bad      : 하나라도 있으면 쓰기로 보는 플래그
 GIT_SUB = {
-    'remote':       dict(first={'show', 'get-url'}, bare_ok=True,  max_pos=1, bad=set()),
+    'remote':       dict(first={'show', 'get-url'}, bare_ok=True,  max_pos=2, bad=set()),
     'stash':        dict(first={'list', 'show'},    bare_ok=False, max_pos=2, bad=set()),
     'worktree':     dict(first={'list'},            bare_ok=False, max_pos=1, bad=set()),
     'submodule':    dict(first={'status'},          bare_ok=True,  max_pos=1, bad=set()),
     'notes':        dict(first={'list', 'show'},    bare_ok=True,  max_pos=2, bad=set()),
     'reflog':       dict(first={'show'},            bare_ok=True,  max_pos=2, bad=set()),
     # 목록 형태만 읽기다. `git branch <이름>` 은 브랜치를 만든다.
-    'branch':       dict(first=None, bare_ok=True, max_pos=0,
+    'branch':       dict(first=None, bare_ok=True, max_pos=0, list_flags={
+                             '-l', '--list', '--contains', '--no-contains',
+                             '--merged', '--no-merged', '--points-at',
+                             '--format', '--sort'},
                          bad={'-d', '-D', '--delete', '-m', '-M', '--move', '-c', '-C',
                               '--copy', '-f', '--force', '-u', '--set-upstream-to',
                               '--unset-upstream', '--edit-description'}),
-    'tag':          dict(first=None, bare_ok=True, max_pos=0,
+    'tag':          dict(first=None, bare_ok=True, max_pos=0, list_flags={
+                             '-l', '--list', '--contains', '--no-contains',
+                             '--merged', '--no-merged', '--points-at',
+                             '--format', '--sort'},
                          bad={'-d', '--delete', '-a', '-s', '-m', '-f', '--force'}),
     # 인자 하나면 읽기, 둘이면 .git/HEAD 를 다시 쓴다.
     'symbolic-ref': dict(first=None, bare_ok=True, max_pos=1, bad={'-d', '--delete'}),
@@ -118,7 +147,13 @@ POSITIONAL_OUT = {
     'uniq': {'-f', '-s', '-w', '--skip-fields', '--skip-chars', '--check-chars'},
 }
 # sed 의 w/W 명령. 주소가 앞에 붙으면(`1w`, `$w`, `1,$w`) 놓치기 쉬워 문자군을 넓게 잡는다.
-SED_W = re.compile(r'(^|[;/}0-9$,~+])[wW]\s+\S')
+# sed 의 w/W 는 두 형태로 온다. BSD sed 는 파일명 앞 공백을 요구하지 않는다.
+#   1) s///w file  — 치환 명령의 플래그
+#   2) [주소]w file — 단독 명령 (`1w`, `$w`, `1,$w`, `/re/,$w`)
+# 넓은 정규식 하나로 잡으면 `s/word/x/` 의 정규식 안 w 까지 걸린다.
+_ADDR = r'(?:[0-9]+|\$|/(?:\\.|[^/])*/)'
+SED_W_SUBST = re.compile(r's(.)(?:\\.|(?!\1).)*\1(?:\\.|(?!\1).)*\1[gpiIeE0-9]*[wW]\s*\S')
+SED_W_CMD = re.compile(r'(?:^|[;}])\s*(?:' + _ADDR + r'(?:,' + _ADDR + r')?)?\s*[wW]\s*\S')
 SED_W_SPLIT = re.compile(r'^[0-9$,~+/]*[wW]$')
 # awk 프로그램 안의 쓰기·실행. 변수를 거친 리다이렉트까지 잡으려면
 # 대상 형태가 아니라 `print`/`printf` 뒤의 `>` 자체를 봐야 한다.
@@ -147,6 +182,14 @@ ENGINE_DIRS = (('.ai-bouncer',), ('.claude', 'ai-bouncer'))
 ENGINE_EXEMPT = (('.ai-bouncer', 'worktrees'),)
 ENGINE_FILES = ('workflow.compiled.json',)
 BOUNCER_EXE = ('bouncer', 'bouncer.sh')
+
+
+def is_bouncer(tok):
+    """엔진 자신의 명령인가. basename만 보면 `./src/bouncer` 로 위장된다."""
+    t = tok.strip('"\'').lstrip('\\')
+    if '/' not in t:
+        return t in BOUNCER_EXE            # PATH로 찾는 형태
+    return t.replace('\\', '/').endswith('.claude/ai-bouncer/engine/bouncer.sh')
 # 엔진 파일을 **읽기만** 하는 것은 막을 이유가 없다.
 # (설정을 확인하려는 것뿐인데 스테이지마다 다르게 막히면 혼란만 준다)
 ENGINE_READ_OK = {
@@ -210,11 +253,22 @@ def glob_re(pat):
 
 
 def path_forbidden(p):
-    """이 경로가 edit_files 스코프에 걸리는가. 뒤에 오는 패턴이 이긴다(`!` 는 예외)."""
-    rel, hit = norm(p), False
+    """이 경로가 edit_files 스코프에 걸리는가. 뒤에 오는 패턴이 이긴다(`!` 는 예외).
+
+    스코프는 프로젝트 안에서만 뜻이 있다. `**` 는 `^.*$` 라 절대경로까지 삼켜서,
+    예전에는 `/tmp/scratch.txt` 조차 "스코프 안"이 되어 막혔다.
+    """
+    rel = norm(p)
+    if rel.startswith('/') or rel.startswith('../'):
+        return False                    # 프로젝트 밖 — 이 스코프의 관심사가 아니다
+    hit = False
     for pat in EDIT:
         neg = pat.startswith('!')
-        if glob_re(pat[1:] if neg else pat).match(rel):
+        body = pat[1:] if neg else pat
+        # `!src/**` 는 "src 아래"만 뜻하지만 사용자는 src 자체도 포함해서 읽는다.
+        # 그래야 `mkdir -p src`, `cp a src` 가 통한다.
+        alt = body[:-3] if body.endswith('/**') else None
+        if glob_re(body).match(rel) or (alt and glob_re(alt).match(rel)):
             hit = not neg
     return hit
 
@@ -280,34 +334,59 @@ def parse_redirects(seg):
     return clean, redirs
 
 
+ASSIGN = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+
+
 def resolve_exe(seg):
     """(실행 파일 이름, 그 지점부터의 토큰, 환경변수 이름들) 을 돌려준다.
 
-    `X=1 env nohup git push` 처럼 접두가 겹겹이 붙어도 진짜 명령까지 벗겨낸다.
+    `X=1 env nohup nice -n 5 git push` 처럼 접두가 겹겹이 붙어도 진짜 명령까지 벗겨낸다.
     """
     env, i, last = [], 0, ''
     while i < len(seg):
-        t = seg[i].strip('"\'').lstrip('\\')
-        if '=' in t and '/' not in t and not t.startswith('-'):
-            env.append(t.split('=', 1)[0])
+        raw = seg[i].strip('"\'').lstrip('\\')
+        # 환경변수 접두. 값에 `/` 가 있는지로 가르면 `FOO=/tmp cp …` 가
+        # 접두로 인식되지 않고 basename('FOO=/tmp')='tmp' 가 명령이 돼 빠져나간다.
+        if ASSIGN.match(raw):
+            env.append(raw.split('=', 1)[0])
             i += 1
             continue
-        base = os.path.basename(t)
+        base = os.path.basename(raw)
         last = base
-        # `command -v foo` / `type -p foo` 는 조회다. 래퍼로 벗기면 foo가 명령이 된다.
-        if base in ('command', 'type') and any(a in ('-v', '-V', '-p')
-                                               for a in seg[i + 1:]):
-            return base, seg[i:], env
         if base in WRAPPERS:
-            j = i + 1
-            while j < len(seg) and seg[j].startswith('-'):
-                j += 1
-            if j >= len(seg):           # 래퍼만 있고 뒤에 명령이 없다
+            # `command -v foo` / `type -p foo` 는 조회다. 단 그 플래그가
+            # **첫 비플래그 토큰보다 앞에** 있을 때만 — 아니면 `command cp -v a b`
+            # 의 cp 를 안 보게 된다.
+            if base in ('command', 'type'):
+                head = []
+                for a in seg[i + 1:]:
+                    if not a.startswith('-'):
+                        break
+                    head.append(a)
+                if any(a in ('-v', '-V', '-p') for a in head):
+                    return base, seg[i:], env
+            j, vals = i + 1, WRAPPER_VALUE_FLAGS[base]
+            while j < len(seg):
+                a = seg[j]
+                if a in vals:
+                    j += 2; continue
+                if a.startswith('-'):
+                    j += 1; continue
+                if base == 'timeout' and DURATION.match(a):
+                    j += 1; continue        # `timeout 5 cmd` 의 5
+                break
+            if j >= len(seg):               # 래퍼만 있고 뒤에 명령이 없다
                 return base, seg[i:], env
             i = j
             continue
         return base, seg[i:], env
     return last, seg[i:] if i < len(seg) else [], env
+
+
+def inline_program(exe, cmd):
+    """인라인 코드를 실행하는 형태인가 (`sh -c …`, `python3 -c …`)."""
+    return exe in INTERPRETERS and any(
+        a in INLINE_FLAGS or a.startswith(INLINE_FLAGS) for a in cmd[1:])
 
 
 def git_sub(cmd):
@@ -343,26 +422,50 @@ def awk_writes(prog):
         if prog[s - 1:s] == '>' or prog[e:e + 1] in ('=', '>'):
             continue                    # >= 나 >> 의 일부
         head = AWK_STMT_SPLIT.split(prog[:s])[-1]
+        # 괄호가 열려 있으면 표현식 안이다 — `print ($1 > 5)` 는 비교다.
+        if head.count('(') > head.count(')'):
+            continue
         if re.search(r'\bprintf?\b', head):
             return True
     return False
 
 
+def _has_component(parts, want):
+    n = len(want)
+    for i in range(len(parts) - n + 1):
+        if tuple(parts[i:i + n]) == want:
+            return i
+    return -1
+
+
 def is_engine_path(tok):
-    """이 토큰이 엔진 소유 경로를 가리키는가. 성분 단위로 본다."""
-    parts = norm(tok).replace('\\', '/').split('/')
+    """이 토큰이 엔진 소유 경로를 가리키는가. 성분 단위로 본다.
+
+    심볼릭 링크를 먼저 푼다 — `.ai-bouncer/worktrees/x -> ../tasks` 로 만들면
+    worktrees 예외를 타고 상태 파일을 그대로 덮어쓸 수 있었다.
+    worktrees 예외는 **그 지점까지의 접두에만** 적용한다. 뒤에 다시 엔진 성분이
+    나오면(worktree 안의 .claude/ai-bouncer/) 그건 여전히 엔진 파일이다.
+    """
+    p = norm(tok).replace('\\', '/')
+    try:
+        real = os.path.realpath(os.path.join(PROJECT, p) if not p.startswith('/') else p)
+        if real.startswith(PROJECT + '/'):
+            real = real[len(PROJECT) + 1:]
+        p = real
+    except OSError:
+        pass
+    parts = p.split('/')
     if parts[-1] in ENGINE_FILES:
         return True
     for want in ENGINE_EXEMPT:
-        n = len(want)
-        for i in range(len(parts) - n + 1):
-            if tuple(parts[i:i + n]) == want:
-                return False
+        i = _has_component(parts, want)
+        if i >= 0:
+            # 예외 지점 뒤쪽만 다시 본다 (worktree 안의 설정 디렉토리는 보호 대상)
+            parts = parts[i + len(want):]
+            break
     for want in ENGINE_DIRS:
-        n = len(want)
-        for i in range(len(parts) - n + 1):
-            if tuple(parts[i:i + n]) == want:
-                return True
+        if _has_component(parts, want) >= 0:
+            return True
     return False
 
 
@@ -374,25 +477,37 @@ def check_engine_files(segments):
     """
     for seg in segments:
         exe, cmd, _ = resolve_exe(seg)
-        if exe in BOUNCER_EXE:
+        if cmd and is_bouncer(cmd[0]):
             continue
         clean, redirs = parse_redirects(seg)
         for op, tgt in redirs:
             if op != '<' and is_engine_path(tgt):
                 out(ENGINE_MSG)
+        if exe == 'find' and any(a in ('-delete', '-exec', '-execdir', '-ok', '-okdir')
+                                 for a in cmd[1:]):
+            # `find . -name state.json -delete` 로 상태 파일이 사라졌다
+            out("`find -exec/-delete` 로는 무엇을 지울지 확인할 수 없어 허용되지 않는다.")
         if exe in ENGINE_READ_OK:
             continue                    # 읽기는 자유
         if any(is_engine_path(t) for t in clean):
             out(ENGINE_MSG)
 
 
+SINK_OK = {'/dev/null', '/dev/stdout', '/dev/stderr', '/dev/tty'}
+
+
+def redirect_writes(op, tgt):
+    """이 리다이렉트가 실제로 파일을 만드는가."""
+    if op == '<':
+        return False                    # 입력 리다이렉트는 아무것도 쓰지 않는다
+    if op == '>&' and tgt.isdigit():
+        return False                    # 2>&1 같은 fd 복제
+    return tgt not in SINK_OK
+
+
 def check_redirects(redirs):
     for op, tgt in redirs:
-        if op == '<':
-            continue                    # 입력 리다이렉트는 아무것도 쓰지 않는다
-        if op == '>&' and tgt.isdigit():
-            continue                    # 2>&1 같은 fd 복제
-        if tgt != '/dev/null':
+        if redirect_writes(op, tgt):
             out("이 단계는 읽기 전용이다. 파일로 출력을 보낼 수 없다: %s %s" % (op, tgt))
 
 
@@ -408,16 +523,17 @@ def check_env(env, readonly):
                 % name)
 
 
-def check_git_read(cmd):
+def git_read_error(cmd):
+    """읽기가 아니면 사유 문자열, 읽기면 None."""
     sub = git_sub(cmd)
     if sub is None:
-        out("`git -c …` 는 무엇을 하는지 판정할 수 없다(별칭 주입 가능). 허용되지 않는다.")
+        return ("`git -c …` 는 무엇을 하는지 판정할 수 없다(별칭 주입 가능). 허용되지 않는다.")
     if sub == '':
-        return                          # `git` 만 치면 도움말
+        return None                     # `git` 만 치면 도움말
     if sub in GIT_READ:
-        return
+        return None
     if sub not in GIT_SUB:
-        out("`git %s` 는 읽기 명령이 아니다. 이 단계에서는 허용되지 않는다." % sub)
+        return ("`git %s` 는 읽기 명령이 아니다. 이 단계에서는 허용되지 않는다." % sub)
     rule = GIT_SUB[sub]
     after = cmd[cmd.index(sub) + 1:]
     pos = [a for a in after if not a.startswith('-')]
@@ -425,22 +541,29 @@ def check_git_read(cmd):
     for f in flags:
         head = f.split('=', 1)[0]
         if head in rule['bad']:
-            out("`git %s %s` 는 쓰기 동작이다. 이 단계에서는 허용되지 않는다." % (sub, f))
+            return ("`git %s %s` 는 쓰기 동작이다. 이 단계에서는 허용되지 않는다." % (sub, f))
     if not pos:
         if rule['bare_ok']:
-            return
-        out("`git %s` 는 이 형태로는 읽기가 아니다. 허용: %s"
+            return None
+        return ("`git %s` 는 이 형태로는 읽기가 아니다. 허용: %s"
             % (sub, ', '.join(sorted(rule['first']))))
     if rule['first'] is not None and pos[0] not in rule['first']:
-        out("`git %s %s` 는 읽기가 아니다. 허용: %s"
+        return ("`git %s %s` 는 읽기가 아니다. 허용: %s"
             % (sub, pos[0], ', '.join(sorted(rule['first']))))
-    if len(pos) > rule['max_pos']:
-        out("`git %s` 에 인자를 %d개 주면 쓰기 동작이다 (읽기는 최대 %d개)."
-            % (sub, len(pos), rule['max_pos']))
+    # 목록 플래그가 있으면 위치인자는 패턴이다 (`git branch --list 'feat*'`).
+    limit = rule['max_pos']
+    if rule.get('list_flags') and any(f.split('=', 1)[0] in rule['list_flags']
+                                     for f in flags):
+        limit = max(limit, 1)
+    if len(pos) > limit:
+        return ("`git %s` 에 인자를 %d개 주면 쓰기 동작이다 (읽기는 최대 %d개)."
+            % (sub, len(pos), limit))
+
+    return None
 
 
 def check_readonly_cmd(exe, cmd):
-    if exe in BOUNCER_EXE:
+    if cmd and is_bouncer(cmd[0]):
         return
     if exe not in READ_ONLY:
         out("이 단계는 읽기 전용이다. `%s` 는 파일을 쓸 수 있어 허용되지 않는다.\n"
@@ -467,7 +590,7 @@ def check_readonly_cmd(exe, cmd):
             out("`%s <입력> <출력>` 은 두 번째 인자를 파일로 쓴다. 출력 인자를 빼라." % exe)
     if exe == 'sed':
         # 따옴표로 묶인 스크립트(`'1w out'`)와 공백으로 갈라진 형태(`1w out`) 둘 다 본다.
-        if any(SED_W.search(a) for a in args) \
+        if any(SED_W_SUBST.search(a) or SED_W_CMD.search(a) for a in args) \
            or any(SED_W_SPLIT.match(a) for a in args[:-1]):
             out("sed 스크립트의 `w` 명령은 파일을 쓴다. 이 단계에서는 허용되지 않는다.")
     if exe == 'awk':
@@ -480,12 +603,17 @@ def check_readonly_cmd(exe, cmd):
                              for a in args):
         out("`find -exec/-delete` 는 임의 명령을 실행한다. 이 단계에서는 허용되지 않는다.")
     if exe == 'git':
-        check_git_read(cmd)
+        err = git_read_error(cmd)
+        if err:
+            out(err)
 
 
 def check_push_cmd(exe, cmd):
     if exe == 'git-push':
         out("push가 차단되었다.")
+    if inline_program(exe, cmd):
+        out("`%s -c …` 안의 코드는 확인할 수 없다 (push를 숨길 수 있다).\n"
+            "스크립트 파일로 만들어 실행하거나, 명령을 직접 써라." % exe)
     if exe in ('awk', 'gawk', 'python', 'python3', 'perl', 'ruby', 'node', 'sh', 'bash') \
        and any('push' in a for a in cmd[1:]):
         out("인터프리터·셸을 통한 push 시도로 보인다. 이 단계에서는 허용되지 않는다.")
@@ -527,25 +655,44 @@ if EDIT is True:
 
 elif EDIT is not None:
     # ── 경로 스코프 스테이지 (`edit_files: [글로브…]`) ─────────
-    # `!` 예외는 "여기는 써도 된다"는 뜻이다. 예전에는 배열이어도 전면 읽기 전용으로
-    # 다뤄서, 구현 단계에 스코프를 걸면 `npm test` 조차 못 돌리는 죽은 스테이지가 됐다.
+    # `!` 예외는 "여기는 써도 된다"는 뜻이다. 임의 명령은 허용하되
+    # 스코프에 걸린 경로에 **쓰는 것만** 막는다.
     for seg in SEGMENTS:
         clean, redirs = parse_redirects(seg)
         for op, tgt in redirs:
-            if op != '<' and path_forbidden(tgt):
+            # /dev/null 과 fd 복제까지 막으면 `npm test 2>&1` 조차 안 돈다.
+            if redirect_writes(op, tgt) and path_forbidden(tgt):
                 out("이 단계에서 %s 에 쓸 수 없다." % tgt)
         if not clean:
             continue
         exe, cmd, env = resolve_exe(clean)
         check_env(env, False)
+        if not is_bouncer(cmd[0] if cmd else ''):
+            for t in clean:
+                if is_engine_path(t):
+                    out(ENGINE_MSG)
+        if inline_program(exe, cmd):
+            out("`%s -c …` 안의 코드는 확인할 수 없어 이 단계에서는 허용되지 않는다.\n"
+                "스크립트 파일로 만들어 실행하거나, 명령을 직접 써라." % exe)
         args = cmd[1:]
         if exe == 'git':
             sub = git_sub(cmd)
-            if sub in GIT_TREE_WRITE:
-                out("`git %s` 는 워킹트리를 통째로 바꾼다. 이 단계에서는 허용되지 않는다.\n"
+            # `git stash list` 처럼 읽기 형태는 통과시켜야 한다
+            if sub in GIT_TREE_WRITE and git_read_error(cmd):
+                out("`git %s` 는 워킹트리를 바꾼다. 이 단계에서는 허용되지 않는다.\n"
                     "고칠 수 있는 범위가 정해져 있다면 그 파일만 직접 수정해라." % sub)
+        elif exe == 'find' and any(a in ('-delete', '-exec', '-execdir', '-ok', '-okdir')
+                                   for a in args):
+            out("`find -exec/-delete` 는 무엇을 지울지 확인할 수 없어 허용되지 않는다.")
         elif exe in WRITERS:
-            for a in write_targets(exe, args):
+            pos = [a for a in args if not a.startswith('-') and a.strip('"\'')]
+            targets = write_targets(exe, args)
+            if not targets and not pos and WRITERS[exe] in ('all', 'last', 'second'):
+                # `patch < p.diff`, `xargs touch` 처럼 대상이 stdin에서 온다.
+                # 확인할 수 없으면 열어주지 않는다.
+                out("`%s` 가 무엇을 고칠지 인자에서 확인할 수 없다. "
+                    "대상 파일을 인자로 적어라." % exe)
+            for a in targets:
                 if path_forbidden(a):
                     out("`%s` 로 %s 를 고칠 수 없다." % (exe, a))
 
