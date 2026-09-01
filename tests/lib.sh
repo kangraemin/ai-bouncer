@@ -61,6 +61,20 @@ says(){ local pat="$1"; shift; local o; o="$("$@" 2>&1 || true)"; printf '%s' "$
 hook(){ local h="$1"; shift; printf '%s' "$1" | bash "$R/hooks/$h.sh"; }
 stop(){ hook stop "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 # 사용자가 실제로 입력한 상황을 흉내낸다. inject+blocking 게이트는 이게 있어야 통과한다.
+# implement 의 "구현 완료 대조" 게이트를 통과시킨다.
+# Stop 만으로는 못 넘어간다 — 사람 턴이 있어야 한다.
+pass_implement(){
+  stop >/dev/null
+  user_turn >/dev/null
+  bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
+  stop >/dev/null
+}
+# verify 의 "검증 보고" 게이트를 통과시킨다 (사람 대기 표시 → 사람 턴 → done).
+pass_verify(){
+  stop >/dev/null
+  user_turn >/dev/null
+  bouncer done "verify/검증 보고" >/dev/null 2>&1
+}
 user_turn(){ hook user-prompt "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 pre(){ hook pre-tool "{\"session_id\":\"${3:-S1}\",\"cwd\":\"$T\",\"tool_name\":\"$1\",\"tool_input\":$2}"; }
 # 가장 최근 작업 하나만 본다. 글롭으로 전부 읽으면 케이스가 쌓일수록

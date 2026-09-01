@@ -45,6 +45,10 @@ echo "── implement 단계 forbid ──"
 [ -n "$(pre Bash '{"command":"git push origin main"}')" ] && ok "push 차단" || no "push 차단" "통과됨"
 
 echo "── Stop: implement→verify ──"
+# implement 에 완료 대조 게이트가 생겼다 — Stop 만으로는 못 넘어간다
+stop >/dev/null                                  # 사람 대기 표시
+user_turn >/dev/null
+bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
 stop >/dev/null
 [ "$(stage)" = verify ] && ok "verify로 전이" || no "전이" "$(stage)"
 

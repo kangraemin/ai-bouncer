@@ -12,7 +12,7 @@ echo "[진행 중 워크플로우가 config에서 사라지면]"
 # 예전엔 next가 빈 값 → "종단 도달"로 오해 → finalize(커밋·클린 트리)를 통째로 건너뛰고
 # 작업이 "완료" 처리됐다. push까지 열렸다.
 bouncer start simple rename >/dev/null
-stop >/dev/null; stop >/dev/null                       # implement → verify
+pass_implement                                         # implement → verify
 python3 - "$T/.claude/ai-bouncer/workflow.yaml" <<'PY'
 import sys, re
 p = sys.argv[1]; s = open(p).read()
@@ -20,7 +20,7 @@ open(p, 'w').write(s.replace('\n  simple:\n', '\n  simplified:\n'))
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
-user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null
+pass_verify
 r=$(stop)
 printf '%s' "$r" | grep -q '체인을 찾을 수 없다' && ok "체인 소실을 알린다" || no "체인 소실" "$(printf '%s' "$r" | head -c 120)"
 [ "$(stage)" = verify ] && ok "완료로 처리하지 않는다" || no "종단 오판" "$(stage)"
@@ -53,7 +53,7 @@ bouncer start simple off1 --off "verify/e2e" >/dev/null
 LATEST="$(ls -dt "$T"/.ai-bouncer/tasks/*/ | head -1)"
 [ "$(jq -r '.choices["verify/e2e"]' "$LATEST/state.json")" = false ] \
   && ok "state에 false로 기록" || no "choices" "$(jq -c .choices "$LATEST/state.json")"
-stop >/dev/null; stop >/dev/null                       # → verify
+pass_implement                                         # → verify
 says '이번 작업에서 끔' bouncer status && ok "status가 꺼짐으로 표시" || no "status 표시" "$(bouncer status | tail -3)"
 says '끈 항목이다' bouncer run "verify/e2e" && ok "run이 거부" || no "run 거부" "$(bouncer run 'verify/e2e' 2>&1 | head -2)"
 r=$(stop); printf '%s' "$r" | grep -q 'E2E-RAN' && no "Stop이 실행함" "끈 항목인데 돌았다" || ok "Stop도 실행하지 않음"
@@ -160,7 +160,7 @@ bouncer cancel >/dev/null 2>&1
 rm -f "$T"/.ai-bouncer/tasks/*/.active
 bouncer start simple gate >/dev/null
 echo dirty >> app.js                       # finalize 클린 트리 게이트를 못 넘게
-stop >/dev/null                            # implement → verify
+pass_implement                             # implement → verify
 [ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
 stop >/dev/null                            # 사람 대기 표시 (blocking: true)
 bouncer run "verify/e2e" >/dev/null 2>&1
@@ -258,7 +258,7 @@ if [ -d "$WT2" ]; then
   [ -z "$r" ] && ok "cd 뒤 worktree 안 상대경로는 허용" || no "worktree 안 차단됨" "${r:0:70}"
   # (d) 미머지 worktree면 종단에서 잠금을 유지해야 finalize가 가능하다
   git -C "$WT2" commit -q --allow-empty -m w
-  stop >/dev/null                        # implement → verify
+  pass_implement                        # implement → verify
   stop >/dev/null                        # 사람 대기 표시
   bouncer run "verify/e2e" >/dev/null 2>&1
   user_turn >/dev/null
@@ -379,7 +379,7 @@ echo "[제안 토큰은 전이해도 살아남고, 제안한 것만 열린다]"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 bouncer start simple tok >/dev/null
-stop >/dev/null                                  # implement → verify
+pass_implement                                   # implement → verify
 python3 - "$(task_dir)/state.json" <<'PYX'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
@@ -493,7 +493,7 @@ Y
 cleanup; setup "$FIXTURE_DIR/_hf.yaml" >/dev/null || abort_setup "on_fail 픽스처" "설치 실패"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start dev hf >/dev/null
-stop >/dev/null                                  # implement → verify
+pass_implement                                   # implement → verify
 BACK=0
 for i in $(seq 1 6); do
   stop >/dev/null
@@ -514,10 +514,12 @@ bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
 # 전이하는 턴의 지시가 버려지면 반송 후 구현 지시가 영영 안 온다
 bouncer start simple inj >/dev/null
-stop >/dev/null                                   # implement → verify
+pass_implement                                    # implement → verify
 r=$(stop); r=$(stop)
 bouncer cancel >/dev/null 2>&1
 bouncer start simple inj2 >/dev/null
+stop >/dev/null; user_turn >/dev/null
+bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
 r=$(stop)                                         # implement → verify 전이
 printf '%s' "$r" | jq -r '.reason // ""' | grep -q '검증 단계다' \
   && ok "전이 턴에 다음 단계 지시가 실린다" || no "전이 지시 소실" "${r:0:80}"
