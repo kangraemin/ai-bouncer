@@ -140,7 +140,8 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | `shown` | Stop | 이미 전달한 inject |
 | `choices` | `start --off` | optional step의 on/off |
 | `skipped` | `bouncer skip` | 엔진이 포기한 뒤 이번 작업만 면제한 step |
-| `checklist` | `bouncer todo` | 할 일 목록. `blocking: checklist` 가 **엔진이 세서** 판정한다 |
+| `plan` | PostToolUse | 승인된 계획 원문 (plan 모드) |
+| `checklist` | `bouncer todo` / 계획 승인 | 할 일 목록. `blocking: checklist` 가 **엔진이 세서** 판정한다 |
 | `checklist_turn` | `bouncer todo` | 목록을 마지막으로 고친 시점의 사용자 턴 수. 세우자마자 전부 체크하는 것을 막는다 |
 | `dropped` | `bouncer todo drop` | 범위에서 뺀 항목. 조용히 사라지지 않게 남긴다 |
 | `skip_allowed` | Stop | 엔진이 포기하며 **제안한 step id 목록**. `bouncer skip` 은 여기 있는 것만 열어주고, 쓰면 그 id 를 소모한다 |

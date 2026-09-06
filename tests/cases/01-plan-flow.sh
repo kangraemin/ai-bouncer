@@ -32,7 +32,15 @@ CTX="$(printf '%s' "$r" | jq -r '.hookSpecificOutput.additionalContext // .reaso
 printf '%s' "$CTX" | grep -q '승인' && ok "미충족 사유가 구체적" || no "사유 내용" "$CTX"
 
 echo "── ExitPlanMode 승인 관찰 ──"
-hook post-tool "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"tool_name\":\"ExitPlanMode\",\"tool_input\":{}}"
+PLAN='## 계획
+- 결제 모듈 수정
+- 테스트 추가'
+hook post-tool "$(jq -nc --arg c "$T" --arg p "$PLAN" \
+  '{session_id:"S1",cwd:$c,tool_name:"ExitPlanMode",tool_input:{plan:$p}}')"
+[ "$(state '.checklist | length')" = 2 ] \
+  && ok "승인된 계획이 체크리스트가 된다" || no "계획 이관 실패" "$(state -c .checklist)"
+[ "$(state '.checklist[0].text')" = "결제 모듈 수정" ] \
+  && ok "항목 텍스트가 그대로 온다" || no "텍스트 어긋남" "$(state '.checklist[0].text')"
 [ "$(state '.evidence["plan/계획 수립과 승인"]')" = true ] \
   && ok "plan_approved 기록" || no "plan_approved 기록" "$(state .evidence)"
 
