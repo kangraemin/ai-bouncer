@@ -38,6 +38,8 @@ stages:
       - label: 계획 수립과 승인
         blocking: plan_approved
         inject_file: prompts/plan.md
+        # 승인된 계획의 목록 항목이 그대로 구현 단계 체크리스트가 된다.
+        # (post-tool 이 ExitPlanMode 를 관찰해 옮긴다)
     forbid:
       edit_files: true
       push: true

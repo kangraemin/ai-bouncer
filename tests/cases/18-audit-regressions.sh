@@ -655,4 +655,33 @@ stop >/dev/null
                      || no "답할 기회 없이 반송됨" "$(stage)"
 bouncer cancel >/dev/null 2>&1
 
+
+echo "[승인된 계획 → 체크리스트]"
+cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
+  || abort_setup "기본 설정 복구" "설치 실패"
+export CLAUDE_CODE_SESSION_ID=S1
+bouncer start plan pc >/dev/null
+PLAN2='## 계획
+- 항목 A
+1. 항목 B
+
+```
+- 코드블록 안이라 항목 아님
+```
+문단은 항목이 아니다'
+hook post-tool "$(jq -nc --arg c "$T" --arg p "$PLAN2" \
+  '{session_id:"S1",cwd:$c,tool_name:"ExitPlanMode",tool_input:{plan:$p}}')" >/dev/null
+[ "$(state '.checklist | length')" = 2 ] \
+  && ok "코드블록·문단은 항목으로 안 잡는다" || no "항목 추출 오류" "$(state -c '.checklist')"
+
+# 이미 목록이 있으면 승인이 덮지 않는다 (사용자가 손본 것을 지키려고)
+bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
+bouncer start plan pc2 >/dev/null
+bouncer todo add '사용자가 직접 넣은 항목' >/dev/null
+hook post-tool "$(jq -nc --arg c "$T" --arg p "$PLAN2" \
+  '{session_id:"S1",cwd:$c,tool_name:"ExitPlanMode",tool_input:{plan:$p}}')" >/dev/null
+[ "$(state '.checklist[0].text')" = "사용자가 직접 넣은 항목" ] \
+  && ok "기존 목록을 덮어쓰지 않는다" || no "덮어씀" "$(state -c '.checklist')"
+bouncer cancel >/dev/null 2>&1
+
 finish
