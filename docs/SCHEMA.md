@@ -70,6 +70,7 @@
 | (없음) | 둘 다 | — | 강제 안 함 |
 | `true` | `run` | 실제 종료코드 | 불가 |
 | `true` | `inject` | 사용자 턴 발생 + `bouncer done` | 불가 |
+| `done` | `inject` | 모델의 `bouncer done` (사람 턴 불필요) | 가능 — 자기신고. 사람을 기다리지 않고 끝까지 진행시키는 용도. 미표시는 실패가 아니라 진행 중으로 보고 `on_fail` 반송에 세지 않는다 |
 | `plan_approved` | `inject` | PostToolUse가 ExitPlanMode 승인 관찰 | 불가 |
 | `skill:<이름>` | `inject` | PostToolUse가 스킬 호출 관찰 | 불가 |
 
@@ -160,7 +161,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | 체인에 정의 없는 스테이지 | 오타로 단계가 조용히 사라진다 |
 | `on_fail`이 뒤쪽/체인 밖 | 되돌아가기만 허용 (무한 전진 방지) |
 | `blocking`·`optional`인데 `label` 없음 | 진행 상태를 위치가 아닌 이름으로 추적 |
-| `blocking` 값이 목록 밖 | `true` / `plan_approved` / `checklist` / `skill:<이름>` 외 |
+| `blocking` 값이 목록 밖 | `true` / `plan_approved` / `checklist` / `done` / `skill:<이름>` 외 |
 | 같은 스테이지에 중복된 `label` | step id가 겹쳐 진행 기록이 엉킨다 |
 | 한 체인에 같은 스테이지가 두 번 | |
 | `version`이 1이 아님 | |

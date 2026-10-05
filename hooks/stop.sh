@@ -67,6 +67,7 @@ INJECT=""      # 이번에 주입할 텍스트
 FAILURES=""    # blocking 미충족 사유
 HUMAN_WAIT=0   # 사람/승인 UI를 기다리는 중인가
 HARD_FAIL=0    # 사람과 무관하게 실패한 조건이 있는가 (run 게이트 등)
+PENDING_DONE=0 # 모델이 아직 done 표시를 안 했을 뿐인가 (실패가 아니라 진행 중)
 
 add_inject()  { INJECT="${INJECT}${INJECT:+$'\n\n'}$1"; }
 
@@ -209,7 +210,7 @@ while IFS= read -r step; do
     # 반면 순수 inject blocking은 모델의 자기신고이므로 실제 사용자 턴이 있어야 인정한다.
     if [ "$DONE" = "true" ]; then
       case "$BLOCKING" in
-        plan_approved|skill:*|checklist) continue ;;
+        plan_approved|skill:*|checklist|done) continue ;;
         *) [ "$USER_TURN_HAPPENED" = "true" ] && continue ;;
       esac
     fi
@@ -232,15 +233,17 @@ while IFS= read -r step; do
         elif [ "${CL_LEFT:-1}" != 0 ]; then
           add_failure "남은 항목 ${CL_LEFT}/${CL_N}개 ($LABEL) — \`bouncer todo\` 로 확인"
           add_blocking_id "$ID"
-        elif [ "$UT_NOW" -le "${CL_TURN:--1}" ] 2>/dev/null; then
-          # 목록을 세우고 같은 턴에 전부 체크하면 사람이 본 적이 없다.
-          add_failure "목록을 사용자에게 보여주고 확인받아야 한다 ($LABEL)"
-          add_blocking_id "$ID"
-          HUMAN_WAIT=1
         else
+          # 예전엔 "목록을 세운 턴에 전부 체크하면 사용자 확인"을 요구했다.
+          # 그 탓에 done 전인데도 모델이 매번 사용자에게 승인을 물었다 — 제거.
           bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = true'
           continue
         fi ;;
+      done)
+        # 사람을 기다리지 않는다 — 모델이 할 일을 마치고 직접 표시한다.
+        add_inject "→ 위를 마쳤으면 실행: bouncer done '$ID'   ($LABEL)"
+        add_failure "아직 완료 표시 안 됨 ($LABEL)"; add_blocking_id "$ID"
+        PENDING_DONE=1 ;;
       *)
         if [ "$DONE" != "true" ]; then
           add_inject "→ 위를 마쳤으면 실행: bouncer done '$ID'   ($LABEL)"
@@ -431,7 +434,9 @@ ON_FAIL="$(jq -r '.on_fail // empty' <<<"$STAGE_JSON")"
 # 다만 사람과 무관한 조건(run 게이트)이 실패했다면 그건 반송 사유다.
 # 예전엔 HUMAN_WAIT 하나로 막아서, 기본 default.yaml 의 verify 처럼
 # 사람 확인이 함께 있는 스테이지는 on_fail 이 **절대** 발동하지 않았다.
-if [ -n "$ON_FAIL" ] && { [ "$HUMAN_WAIT" != "1" ] || [ "$HARD_FAIL" = "1" ]; }; then
+# 아직 done 표시를 안 한 것은 실패가 아니라 진행 중이다 — 그걸로 반송하면
+# 검증이 오래 걸리는 작업이 몇 번 멈췄다는 이유만으로 구현 단계로 쫓겨난다.
+if [ -n "$ON_FAIL" ] && { [ "$HARD_FAIL" = "1" ] || { [ "$HUMAN_WAIT" != "1" ] && [ "$PENDING_DONE" != "1" ]; }; }; then
   CAN_FIX_HERE=1
   [ "$(jq -r '.forbid.edit_files' <<<"$STAGE_JSON")" = "true" ] && CAN_FIX_HERE=0
   # 사람 확인 게이트가 함께 미충족이면 즉시 반송하면 안 된다 — 답할 기회를
@@ -527,11 +532,27 @@ if [ "$HUMAN_WAIT" = "1" ]; then
   # 지금 시점의 턴 수를 새겨둔다. 이보다 늘어나야 사람이 답한 것으로 인정한다.
   bouncer_state_update "$TASK" --argjson n "$UT_NOW" \
     '.allowed_stop = true | .user_turns_at_wait = (.user_turns_at_wait // $n)'
+  # Stop 의 additionalContext 는 턴을 이어가게 만든다. 재진입 때마다 내보내면
+  # 사람을 기다리는 동안 hook 이 계속 깨워 Claude Code 상한(9회)까지 돈다.
+  # 재진입이면 조용히 멈추게 둔다 — 지시는 첫 Stop 에서 이미 전달됐다.
+  [ "$REENTRY" = "true" ] && exit 0
   if [ -n "$INJECT" ] || [ -n "$FAILURES" ]; then
     jq -n --arg c "[$STAGE] 아직 끝나지 않았다.${FAILURES:+$'\n\n'}${FAILURES:+미충족 조건:
 }$FAILURES${INJECT:+$'\n\n'}$INJECT" \
       '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
   fi
+  exit 0
+fi
+
+# 직전 차단 이후 도구를 하나도 안 썼는데 또 멈추려 한다 = 기다리는 중이다
+# (백그라운드 작업 완료 대기 등). 다시 막아봐야 같은 응답만 반복되므로 멈추게 둔다.
+# 백그라운드 작업이 끝나면 그 알림으로 턴이 다시 열리고, 그때 다시 판정한다.
+SEQ_NOW="$(cat "$TASK/.tool_seq" 2>/dev/null)"; case "$SEQ_NOW" in ''|*[!0-9]*) SEQ_NOW=0 ;; esac
+SEQ_AT_BLOCK="$(cat "$TASK/.tool_seq_at_block" 2>/dev/null)"; case "$SEQ_AT_BLOCK" in ''|*[!0-9]*) SEQ_AT_BLOCK=-1 ;; esac
+if [ "$REENTRY" = "true" ] && [ "$SEQ_NOW" = "$SEQ_AT_BLOCK" ]; then
+  bouncer_state_update "$TASK" '.continue_streak = 0 | .reentry_count = 0'
+  jq -n --arg m "[ai-bouncer] [$STAGE] 대기 중 — 미충족 조건이 남아 있어 다음 턴에 이어서 확인한다." \
+    '{systemMessage:$m}'
   exit 0
 fi
 
@@ -572,6 +593,7 @@ $(skip_hint)
 fi
 
 bouncer_state_update "$TASK" '.continue_streak = (.continue_streak // 0) + 1 | .allowed_stop = false'
+printf '%s' "$SEQ_NOW" > "$TASK/.tool_seq_at_block" 2>/dev/null || true
 guarded_block "[$STAGE] 아직 끝나지 않았다.
 
 미충족 조건:

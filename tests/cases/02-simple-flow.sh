@@ -24,30 +24,14 @@ printf '%s' "$r" | grep -q '남은 항목 1/2' && ok "남은 항목 수를 센�
 [ "$(stage)" = implement ] && ok "남은 항목이 있으면 못 넘어간다" || no "전이됨" "$(stage)"
 
 bouncer todo done 2 >/dev/null
-r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
-printf '%s' "$r" | grep -q '사용자에게 보여주고' \
-  && ok "세운 직후 전부 체크하면 통과하지 않는다" || no "같은 턴 통과됨" "${r:0:60}"
+stop >/dev/null; [ "$(stage)" = verify ] && ok "목록을 다 체크하면 사용자 확인 없이 전이" || no "전이" "$(stage)"
 
-user_turn >/dev/null
-stop >/dev/null; [ "$(stage)" = verify ] && ok "목록 완료 + 사용자 턴 후 전이" || no "전이" "$(stage)"
-
-# 실제 순서: 엔진이 보고를 요구하며 멈춤 허용 → 사용자 턴 → 모델이 done → 다음 Stop에서 전이
-stop >/dev/null
-[ "$(state .allowed_stop)" = true ] && ok "사람 답변 대기로 멈춤 허용" || no "멈춤 허용"
-user_turn
+# verify 검증 보고: 사람을 기다리지 않는다. done 전엔 계속 진행시키고, done 하면 전이
+r=$(stop)
+[ "$(stage)" = verify ] && ok "done 전에는 verify 유지" || no "done 없이 전이" "$(stage)"
+printf '%s' "$r" | jq -r '.reason // ""' | grep -q "bouncer done 'verify/검증 보고'" \
+  && ok "done 전엔 계속 진행시키며 done 명령을 안내" || no "안내 없음" "${r:0:80}"
+printf '%s' "$r" | grep -q '사용자 확인 대기' && no "사람 대기로 표시됨" "${r:0:80}" || ok "사람 대기로 표시하지 않음"
 bouncer done "verify/검증 보고" >/dev/null
-stop >/dev/null; [ "$(stage)" = finalize ] && ok "사용자 턴 후 finalize로 전이" || no "전이" "$(stage)"
-
-# 사용자 턴 없이 done만 친 경우는 통과하면 안 된다
-cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null || exit 1
-bouncer start simple "우회 시도" >/dev/null
-# implement 에 완료 대조 게이트가 생겼다 — Stop 만으로는 못 넘어간다
-stop >/dev/null                                  # 사람 대기 표시
-user_turn >/dev/null
-bouncer todo add 'x' >/dev/null; bouncer todo done 1 >/dev/null
-user_turn >/dev/null
-stop >/dev/null   # implement -> verify
-bouncer done "verify/검증 보고" >/dev/null
-stop >/dev/null
-[ "$(stage)" = verify ] && ok "사용자 턴 없이 done만으론 통과 못 함" || no "자기신고 우회 차단" "$(stage)"
+stop >/dev/null; [ "$(stage)" = finalize ] && ok "사용자 턴 없이 done 후 finalize로 전이" || no "전이" "$(stage)"
 finish

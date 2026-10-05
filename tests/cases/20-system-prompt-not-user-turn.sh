@@ -13,10 +13,6 @@ turns(){ state '.user_turns // 0'; }
 prompt_turn(){ hook user-prompt "$1" >/dev/null; }
 
 bouncer start simple sysprompt >/dev/null
-pass_implement
-[ "$(stage)" = verify ] || abort_setup "verify 진입" "$(stage)"
-stop >/dev/null                                # 사람 대기 표시
-bouncer done "verify/검증 보고" >/dev/null 2>&1
 BASE="$(turns)"
 
 echo
@@ -33,16 +29,12 @@ prompt_turn "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"prompt\":\"평범한 문장
 prompt_turn "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"prompt\":\"평범한 문장\",\"turnOrigin\":\"task_notification\"}"
 [ "$(turns)" = "$BASE" ] && ok "turnOrigin≠human 무시" || no "turnOrigin≠human 무시" "$(turns) != $BASE"
 
-stop >/dev/null
-[ "$(stage)" = verify ] && ok "알림만으로는 사람 확인 게이트가 안 열림" || no "알림만으로는 사람 확인 게이트가 안 열림" "$(stage)"
 
 echo
 echo "[사람 입력은 센다]"
 prompt_turn "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"prompt\":\"계속해\",\"origin\":{\"kind\":\"human\"}}"
 [ "$(turns)" -gt "$BASE" ] && ok "origin.kind=human 카운트" || no "origin.kind=human 카운트" "$(turns)"
 
-stop >/dev/null
-[ "$(stage)" = finalize ] && ok "사람 턴 뒤 게이트 통과" || no "사람 턴 뒤 게이트 통과" "$(stage)"
 
 N="$(turns)"
 prompt_turn "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"prompt\":\"출처 필드 없는 구버전 입력\"}"

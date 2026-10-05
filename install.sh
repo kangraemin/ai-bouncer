@@ -115,6 +115,17 @@ MANIFEST="$(jq --arg p "$ROOT/skills/dev-bounce/SKILL.md" '. + [$p]' <<<"$MANIFE
 # 워크플로우와 프롬프트는 사용자 자산 — 이미 있으면 덮어쓰지 않는다.
 if [ -f "$DIR/workflow.yaml" ]; then
   printf '  workflow.yaml 유지 (기존 설정 보존)\n'
+  # 예전 기본값의 "검증 보고"는 사람 확인(blocking: true)이라 done 전에 매번 승인을 물었다.
+  # 사용자가 손대지 않은 그 한 줄만 blocking: done 으로 옮긴다. 다른 step 은 건드리지 않는다.
+  python3 - "$DIR/workflow.yaml" <<'PYM' || true
+import re, sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8').read()
+n = re.sub(r'(- label: 검증 보고\n(\s+)blocking: )true\b', r'\1done', s, count=1)
+if n != s:
+    open(p, 'w', encoding='utf-8').write(n)
+    print('  workflow.yaml: "검증 보고"를 사람 확인 없이 진행하도록 갱신 (blocking: done)')
+PYM
 else
   install -m 644 "$SRC/config/default.yaml" "$DIR/workflow.yaml"
   MANIFEST="$(jq --arg p "$DIR/workflow.yaml" '. + [$p]' <<<"$MANIFEST")"

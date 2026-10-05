@@ -41,6 +41,11 @@ if [ "$TOOL" = "Bash" ]; then
 fi
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
+# 도구 호출 수를 센다. Stop 이 "직전 차단 이후 모델이 아무것도 안 했다"를
+# 알아야 백그라운드 작업 대기를 무한 차단 루프로 만들지 않는다. state.json 잠금을
+# 타면 매 호출이 느려지므로 별도 파일에 덮어쓴다.
+_SEQ="$(cat "$TASK/.tool_seq" 2>/dev/null)"; case "$_SEQ" in ''|*[!0-9]*) _SEQ=0 ;; esac
+printf '%s' "$(( _SEQ + 1 ))" > "$TASK/.tool_seq" 2>/dev/null || true
 
 # 여기까지 왔다는 건 이 세션에 활성 작업이 있다는 뜻이다.
 # 그런데 상태나 설정을 못 읽으면 "규칙 없음"이 아니라 "규칙을 알 수 없음"이다.

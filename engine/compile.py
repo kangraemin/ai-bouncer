@@ -287,7 +287,7 @@ STAGE_KEYS = {'steps', 'forbid', 'on_fail'}
 STEP_KEYS = {'label', 'inject', 'inject_file', 'run', 'by', 'timeout', 'blocking', 'optional'}
 ENGINE_TIMEOUT_MAX = 60   # Stop hook 예산을 먹지 않게. 넘으면 by: model을 써야 한다.
 FORBID_KEYS = {'edit_files', 'push', 'bash', 'reason'}
-BLOCKING_VALUES = (True, 'plan_approved', 'checklist')
+BLOCKING_VALUES = (True, 'plan_approved', 'checklist', 'done')
 # 플러그인 스킬은 이름에 콜론이 들어간다 (예: telegram:access)
 SKILL_RE = re.compile(r'^skill:[A-Za-z0-9][\w.:-]*$')
 
@@ -297,7 +297,7 @@ def _valid_blocking(v):
     if isinstance(v, bool):
         return v is True
     if isinstance(v, str):
-        return v in ('plan_approved', 'checklist') or bool(SKILL_RE.match(v))
+        return v in ('plan_approved', 'checklist', 'done') or bool(SKILL_RE.match(v))
     return False
 
 
@@ -332,7 +332,7 @@ def _compile_steps(stage, items, base_dir, sources):
 
         blocking = item.get('blocking')
         if blocking is not None and not _valid_blocking(blocking):
-            _err(where, 'blocking 값은 true / plan_approved / skill:<이름> 만 가능하다 '
+            _err(where, 'blocking 값은 true / plan_approved / checklist / done / skill:<이름> 만 가능하다 '
                         '(현재: %r)' % blocking)
         if blocking != True and blocking is not None and kind == 'run':
             _err(where, '%r는 inject 전용이다 — 도구 사용을 hook이 관찰하는 방식이라 '
