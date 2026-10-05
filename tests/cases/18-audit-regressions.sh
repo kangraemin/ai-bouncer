@@ -650,9 +650,11 @@ export CLAUDE_CODE_SESSION_ID=S1
 bouncer start dev hw >/dev/null
 stop >/dev/null                                   # impl → ver
 [ "$(stage)" = ver ] || no "ver 진입" "$(stage)"
-stop >/dev/null
-[ "$(stage)" = ver ] && ok "사람 확인 대기 중에는 즉시 반송하지 않는다" \
-                     || no "답할 기회 없이 반송됨" "$(stage)"
+r="$(stop)"
+# 사람 확인 게이트는 없앴다 — blocking: true 도 사람을 기다리지 않으므로
+# 엔진 게이트가 실패하면 그대로 구현으로 반송된다.
+printf '%s' "$r" | grep -q '사용자 확인 대기' && no "사람 대기가 남아 있음" "${r:0:80}" \
+  || ok "blocking: true 인 inject 도 사람을 기다리지 않는다"
 bouncer cancel >/dev/null 2>&1
 
 
