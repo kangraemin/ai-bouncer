@@ -336,6 +336,15 @@ if [ "${OLD_TASKS:-0}" -gt 0 ] 2>/dev/null; then
   printf '     필요하면 직접 확인하고, 새 작업은 /dev-bounce 로 시작하라.\n'
 fi
 
+# 이 컴퓨터의 설치 목록에 기록한다. `get.sh update` 가 이 목록을 보고
+# 깔린 곳 전부를 한 번에 갱신한다 (프로젝트마다 따로 업데이트하면 빠지는 곳이 생긴다).
+REG_DIR="${BOUNCER_REGISTRY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ai-bouncer}"
+if mkdir -p "$REG_DIR" 2>/dev/null; then
+  REG="$REG_DIR/installs"
+  { [ -f "$REG" ] && cat "$REG"; (cd "$PROJECT" && pwd -P); } | awk 'NF && !seen[$0]++' > "$REG.tmp" \
+    && mv "$REG.tmp" "$REG"
+fi
+
 printf '\n설치 완료 (업데이트 브랜치 %s)\n' "$BRANCH"
 printf '  워크플로우: %s\n  스킬:       /dev-bounce\n' "$DIR/workflow.yaml"
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1 \

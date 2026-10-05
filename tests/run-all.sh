@@ -12,7 +12,7 @@ if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
 fi
 
 total_p=0; total_f=0; failed=""
-for t in tests/cases/*.sh tests/e2e-install.sh; do
+for t in tests/cases/*.sh tests/e2e-install.sh tests/e2e-update-all.sh; do
   [ -f "$t" ] || continue
   name="$(basename "$t" .sh)"
   printf '\n\033[1m── %s ──\033[0m\n' "$name"

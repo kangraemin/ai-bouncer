@@ -2,7 +2,8 @@
 # ai-bouncer 부트스트랩 — 저장소를 받아 요청한 동작을 실행한다.
 #
 #   curl -fsSL <이 파일 URL> | bash              현재 프로젝트에 설치
-#   curl -fsSL <이 파일 URL> | bash -s update    최신으로 갱신 (설치와 동일, 설정은 보존)
+#   curl -fsSL <이 파일 URL> | bash -s update    이 컴퓨터에 깔린 곳 전부를 최신으로 갱신 (설정은 보존)
+#   curl -fsSL <이 파일 URL> | bash -s update --here   현재 프로젝트만 갱신
 #   curl -fsSL <이 파일 URL> | bash -s uninstall  제거
 #   curl -fsSL <이 파일 URL> | bash -s migrate    구버전(전역 설치)에서 이관
 
@@ -25,7 +26,13 @@ rc=0
 case "$ACTION" in
   # 받아온 브랜치를 설치에도 그대로 넘긴다. 안 넘기면 다음 자동 업데이트에
   # main으로 조용히 되돌아간다.
-  install|update) bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$? ;;
+  install) bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$? ;;
+  update)
+    if [ "${1:-}" = "--here" ]; then
+      shift; bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$?
+    else
+      bash "$TMP/src/update-all.sh" --branch "$BRANCH" "$@" || rc=$?
+    fi ;;
   uninstall)      bash "$TMP/src/uninstall.sh" "$@" || rc=$? ;;
   migrate)        bash "$TMP/src/migrate.sh" "$@" || rc=$? ;;
   *) printf 'ai-bouncer: 알 수 없는 동작: %s (install|update|uninstall|migrate)\n' "$ACTION" >&2; rc=1 ;;
