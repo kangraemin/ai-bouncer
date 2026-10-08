@@ -27,6 +27,8 @@ r=$(stop); isblock "$r" && ok "첫 Stop 은 막는다" || no "첫 차단" "${r:0
 pre Bash '{"command":"ls"}' >/dev/null 2>&1
 r=$(stop); isblock "$r" && no "같은 조건인데 또 막았다" "${r:0:80}" || ok "도구를 써도 같은 조건이면 다시 막지 않는다"
 printf '%s' "$r" | grep -q "bouncer done" && ok "끝났으면 칠 명령을 알려준다" || no "안내" "${r:0:120}"
+pre Bash '{"command":"ls"}' >/dev/null 2>&1
+r=$(stop); [ -z "$r" ] && ok "안내도 한 번만 — 이후 Stop 은 출력 없음" || no "안내 반복" "${r:0:80}"
 bouncer done 'verify/보고A' >/dev/null 2>&1
 pre Bash '{"command":"ls"}' >/dev/null 2>&1
 r=$(stop); isblock "$r" && ok "남은 조건이 바뀌면 다시 한 번 막는다" || no "재차단" "${r:0:80}"
