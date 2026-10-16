@@ -286,7 +286,17 @@ while IFS= read -r step; do
       bouncer_state_update "$TASK" --arg k "$ID" '.shown[$k] = true'
     fi
     if [ -n "$BLOCKING" ]; then
-      add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"
+      # `bouncer run` 이 실패를 기록했으면 "아직 안 돌림"이 아니라 실패다.
+      # 미실행으로 취급하면 HARD_FAIL 이 안 켜져, done 표시만 남은 스텝과 함께 있을 때
+      # on_fail 반송도 skip 제안도 영영 안 나오고 같은 차단만 반복된다
+      # (읽기 전용 verify 에서 .venv 가 없어 스크린샷이 exit 127 로 실패한 채 갇혔다).
+      RUN_FAILS="$(jq -r --arg k "$ID" '.attempts[$k] // 0' "$TASK/state.json" 2>/dev/null)"
+      case "$RUN_FAILS" in ''|*[!0-9]*) RUN_FAILS=0 ;; esac
+      if [ "$RUN_FAILS" -gt 0 ]; then
+        add_failure "$LABEL — \`bouncer run '$ID'\` 실패 (${RUN_FAILS}회)"; HARD_FAIL=1
+      else
+        add_failure "$LABEL — 아직 통과하지 못했다 (\`bouncer run '$ID'\`)"
+      fi
       add_blocking_id "$ID"
     fi
   fi
@@ -516,6 +526,7 @@ $(skip_hint)
         | .loops[$pair] = $n
         | .evidence       |= with_entries(select(.key as $k | ($ids | index($k)) | not))
         | .shown          |= with_entries(select(.key as $k | ($ids | index($k)) | not))
+        | .attempts       |= ((. // {}) | with_entries(select(.key as $k | ($ids | index($k)) | not)))
         | .stage_attempts[$s] = 0
         | .continue_streak = 0
         | .allowed_stop = false

@@ -1272,6 +1272,11 @@ def check_engine_files(segments):
             continue                    # `git log -- .ai-bouncer` 같은 이력 조회
         if exe in ENGINE_READ_OK:
             continue                    # 읽기는 자유
+        if exe in ('cd', 'pushd') and not redirs:
+            # 들어가는 것 자체는 아무것도 안 바꾼다. 이후 상대경로 쓰기는
+            # track_cd 로 옮긴 기준에서 다시 엔진 경로로 걸린다.
+            track_cd(exe, cmd[1:], struct)
+            continue
         if any(is_engine_path(t) for t in clean):
             out(ENGINE_MSG)
         track_cd(exe, cmd[1:], struct)
@@ -1327,7 +1332,7 @@ def check_outside(seg_tokens, redirs, exe, args):
 
 def check_redirects(redirs):
     for op, tgt in redirs:
-        if redirect_writes(op, tgt):
+        if redirect_writes(op, tgt) and not readonly_free(tgt):
             out("이 단계는 읽기 전용이다. 파일로 출력을 보낼 수 없다: %s %s" % (op, tgt))
 
 
@@ -1399,6 +1404,12 @@ OPAQUE_MSG = ("`%s` 는 인자가 곧 실행할 코드라 무엇을 하는지 �
               "명령을 그대로 적어라.")
 
 
+# 어떤 인자를 받아도 파일을 쓰거나 명령을 실행하지 않는 것만. (rg 는 --pre 로 실행한다)
+SUB_ARG_SAFE = {'echo', 'printf', 'test', '[', 'basename', 'dirname', 'realpath',
+                'readlink', 'wc', 'cat', 'head', 'tail', 'ls', 'stat', 'date',
+                'grep', 'egrep', 'fgrep', 'true', 'false', 'cd', 'pushd'}
+
+
 def check_readonly_cmd(exe, cmd):
     if cmd and is_bouncer(cmd[0]):
         return
@@ -1412,6 +1423,10 @@ def check_readonly_cmd(exe, cmd):
             "허용되지 않는다. 조회는 한 줄 명령으로 해라." % exe)
     if SUB_TOKEN in exe:
         out(SUB_EXE_MSG)
+    if exe in WRITERS and exe not in READ_ONLY and exe != 'curl' and exe != 'wget':
+        tg = write_targets(exe, cmd[1:])
+        if tg and all(readonly_free(t) for t in tg):
+            return              # 프로젝트 밖(library 등)에만 쓴다
     if exe not in READ_ONLY:
         out("이 단계는 읽기 전용이다. `%s` 는 파일을 쓸 수 있어 허용되지 않는다.\n"
             "읽기·검색은 가능하고, 검증 명령은 `bouncer run <step-id>` 로 실행한다." % exe)
@@ -1497,6 +1512,36 @@ def is_plan_file(p):
 
 def _under(a, root):
     return bool(root) and (a == root or a.startswith(root + '/'))
+
+
+HOME_CLAUDE = _real(os.path.join(os.path.expanduser('~'), '.claude'))
+
+
+def readonly_free(p):
+    """읽기 전용 스테이지에서도 써도 되는 곳인가 — 프로젝트·worktree 밖의 다른 git 레포.
+
+    읽기 전용은 **이 작업의 코드**를 못 고치게 하려는 것이다. library 같은 남의
+    디렉토리에 기록하는 것까지 막아 verify 중 지식 저장이 통째로 막혔다.
+    단 `~/.claude` 는 hook 등록·설정이 사는 곳이라 계속 막는다.
+    """
+    if not p or SUB_TOKEN in p or '$' in p or '`' in p:
+        return False
+    if cwd_unknown() and not os.path.isabs(os.path.expanduser(p.strip('"\''))):
+        return False
+    a = abspath(p)
+    if not a or _under(a, HOME_CLAUDE):
+        return False
+    if any(_under(a, r) for r in (PROJECT, WORKTREE) if r):
+        return False
+    # 다른 git 레포 안일 때만 — push 예외(push_target_outside)와 같은 기준이다.
+    # /tmp 같은 아무 곳이나 열면 엔진 파일을 복사해 내가거나 스크립트를 떨궈 둘 수 있다.
+    home = _real(os.path.expanduser('~'))
+    d = os.path.dirname(a)
+    while d and d != '/' and d != home:
+        if os.path.exists(os.path.join(d, '.git')):
+            return True
+        d = os.path.dirname(d)
+    return False
 
 
 def push_target_outside(cmd, env):
@@ -1601,6 +1646,8 @@ if CHECK_PATH:
             "여기서 고치면 검증과 finalize는 손대지 않은 worktree를 보고 전부 통과한다.\n"
             "worktree 안의 같은 파일을 고쳐라. 셸도 그 안에서 실행한다:\n    cd %s"
             % (WORKTREE, TARGET, WORKTREE))
+    elif EDIT is True and readonly_free(TARGET):
+        pass                    # 읽기 전용은 이 작업의 코드만 막는다 (library 기록 등)
     elif EDIT is not None and (EDIT is True or path_forbidden(TARGET)):
         sys.stdout.write("파일 수정이 차단되었다: %s" % norm(TARGET))
     sys.exit(0)
@@ -1640,7 +1687,8 @@ def run_passes(SEGMENTS, TOKENS):
     SUBSHELL_SEEN[0] = any(k == 'st' and t in ('(', ')') for t, k in TOKENS)
     if EDIT is True:
         # ── 전면 읽기 전용 스테이지 (`edit_files: true`) ──────────
-        bad = sorted({t for t, k in TOKENS if k == 'st'})
+        # `$(…)` 는 안쪽을 SUB_SEGMENTS 로 따로 같은 규칙에 돌린다 — 통째로 막을 이유가 없다.
+        bad = sorted({t for t, k in TOKENS if k == 'st'} - {'$(', '`', ')'})
         if bad:
             out("이 단계는 읽기 전용이다. 안을 확인할 수 없는 구문(%s)은 쓸 수 없다.\n"
                 "검증 명령을 돌려야 하면 `bouncer run <step-id>` 를 써라." % ' '.join(bad))
@@ -1655,6 +1703,11 @@ def run_passes(SEGMENTS, TOKENS):
                     "값을 먼저 구해서 명령을 그대로 적어라.")
             check_env(env, True)
             check_outside(clean, redirs, exe, cmd[1:])
+            # 치환 결과는 플래그가 될 수 있다(`sed "$(true)-i"`). 어떤 인자가 와도
+            # 아무것도 안 쓰는 명령에서만 치환 인자를 받는다.
+            if exe not in SUB_ARG_SAFE and any(SUB_TOKEN in t for t in clean[1:]):
+                out("이 단계는 읽기 전용이다. `%s` 의 인자에 치환이 있으면 플래그가 될 수 있어\n"
+                    "판정할 수 없다. 값을 먼저 구해서 그대로 적어라." % exe)
             if exe:
                 check_readonly_cmd(exe, cmd)
             track_cd(exe, cmd[1:], struct)
@@ -1680,7 +1733,8 @@ def run_passes(SEGMENTS, TOKENS):
                     "값을 먼저 구해서 명령을 그대로 적어라.")
             check_env(env, False)
             check_outside(clean, redirs, exe, cmd[1:])
-            if not is_bouncer(cmd[0] if cmd else ''):
+            if not is_bouncer(cmd[0] if cmd else '') \
+               and exe not in ENGINE_READ_OK and exe not in ('cd', 'pushd'):
                 for t in clean:
                     if is_engine_path(t):
                         out(ENGINE_MSG)
