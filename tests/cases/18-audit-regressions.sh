@@ -297,7 +297,9 @@ bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 bouncer start plan f2 >/dev/null
 mkdir -p "$T/tools"; printf '#!/bin/sh\ngit push\n' > "$T/tools/bouncer.sh"; chmod +x "$T/tools/bouncer.sh"
 F2=0
-for c in "./tools/bouncer.sh" "/tmp/evil/bouncer.sh --do-it" "tools/bouncer.sh status"; do
+# 읽기 전용은 이제 임의 스크립트 실행 자체는 허용한다(케이스 28). 이름 면제를 받으면
+# 뒤에 붙인 push 까지 통째로 빠져나가므로, 그 형태로 확인한다.
+for c in "./tools/bouncer.sh && git push" "/tmp/evil/bouncer.sh --do-it; git push" "tools/bouncer.sh status && git push origin main"; do
   [ -n "$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")" ] || F2=1
 done
 [ "$F2" = 0 ] && ok "bouncer.sh 이름만 흉내낸 스크립트는 면제 안 됨 (3건)" || no "이름 흉내 통과"
@@ -425,7 +427,7 @@ SC='["**","!src/**"]'
   && ok "Edit 도 worktree 안 스코프를 본다" || no "Edit 스코프 소실"
 
 # 슬래시 없는 `bouncer.sh` 는 엔진이 아니다
-[ -n "$(printf 'bouncer.sh anything' | python3 "$GU" true false '[]' "$T" '' "$T")" ] \
+[ -n "$(printf 'bouncer.sh anything && git push' | python3 "$GU" true true '[]' "$T" '' "$T")" ] \
   && ok "bouncer.sh 이름만으로 면제받지 않는다" || no "이름 면제 통과"
 
 # EDIT→PUSH 패스 사이 cd 추적 누수 (쓰기보다 뒤에 오는 cd 가 앞을 막았다)

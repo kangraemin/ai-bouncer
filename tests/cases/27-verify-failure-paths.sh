@@ -35,7 +35,7 @@ stop >/dev/null
 # ── 읽기 전용 게이트 ──
 LIB="$(mktemp -d)"; git -C "$LIB" init -q
 TMPX="$(mktemp -d)"
-r=$(pre Bash "{\"command\":\"printf x > $TMPX/a\"}"); [ -n "$r" ] && ok "레포 아닌 밖(/tmp)은 계속 막는다" || no "/tmp 통과" ""
+r=$(pre Bash "{\"command\":\"printf x > $TMPX/a\"}"); [ -z "$r" ] && ok "작업 트리 밖(/tmp)도 허용 (케이스 28)" || no "/tmp 차단" "${r:0:100}"
 r=$(pre Bash "{\"command\":\"printf x > $LIB/note.md\"}"); [ -z "$r" ] && ok "프로젝트 밖(library) 쓰기는 허용" || no "밖 쓰기" "${r:0:100}"
 r=$(pre Write "{\"file_path\":\"$LIB/n.md\",\"content\":\"x\"}"); [ -z "$r" ] && ok "프로젝트 밖 Write 허용" || no "밖 Write" "${r:0:100}"
 r=$(pre Bash '{"command":"printf x > src.js"}'); [ -n "$r" ] && ok "프로젝트 안 쓰기는 여전히 막는다" || no "안 쓰기 통과" ""
@@ -44,7 +44,7 @@ r=$(pre Bash '{"command":"printf x > ~/.claude/settings.json"}'); [ -n "$r" ] &&
 r=$(pre Bash '{"command":"cd .claude/ai-bouncer && grep -rn x . 2>/dev/null"}'); [ -z "$r" ] && ok "엔진 디렉토리로 cd 해서 읽기는 허용" || no "cd 읽기" "${r:0:100}"
 r=$(pre Bash '{"command":"echo $(git rev-parse HEAD)"}'); [ -z "$r" ] && ok "읽기 전용 \$() 허용" || no "\$()" "${r:0:100}"
 r=$(pre Bash '{"command":"echo $(rm -rf src)"}'); [ -n "$r" ] && ok "\$() 안의 쓰기는 막는다" || no "\$() 안 rm 통과" ""
-r=$(pre Bash '{"command":"sed $(echo -i) s/a/b/ a.js"}'); [ -n "$r" ] && ok "치환이 플래그가 되는 명령은 막는다" || no "sed 치환 통과" ""
+r=$(pre Bash '{"command":"sed $(echo -i) s/a/b/ a.js"}'); [ -z "$r" ] && ok "치환 인자는 사전에 막지 않는다 — 트리 변경은 실행 뒤 비교가 잡는다" || no "sed 치환 차단" "${r:0:100}"
 rm -rf "$LIB" "$TMPX"
 
 # ── run 실패는 done 대기와 상관없이 on_fail 로 반송 ──

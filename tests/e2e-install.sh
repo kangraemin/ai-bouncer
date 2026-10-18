@@ -55,7 +55,7 @@ done
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 6 ] && ok "hook 6개 등록" || no "hook 등록" "${n}개"
+[ "$n" = 7 ] && ok "hook 7개 등록" || no "hook 등록" "${n}개"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \
   && ok "남의 hook 보존" || no "남의 hook 보존"
 
@@ -84,7 +84,7 @@ python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue
 printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
 bash "$R/install.sh" --ci >/dev/null 2>&1
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 6 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
+[ "$n" = 7 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null 2>&1
 [ "$(jq -r '.settings.max_continue' .claude/ai-bouncer/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
 grep -q '사용자 수정' .claude/ai-bouncer/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"

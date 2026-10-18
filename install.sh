@@ -202,7 +202,9 @@ d = "${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer"
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
-    ("PostToolUse",  "ExitPlanMode|Skill",       f"{d}/hooks/post-tool.sh", 10),
+    ("PostToolUse",  "ExitPlanMode|Skill|Bash",  f"{d}/hooks/post-tool.sh", 10),
+    # 실패한 Bash 도 파일을 바꿨을 수 있다 (`sed -i … && false`). 읽기 전용 트리 감시용.
+    ("PostToolUseFailure", "Bash",               f"{d}/hooks/post-tool.sh", 10),
     ("UserPromptSubmit", None,                   f"{d}/hooks/user-prompt.sh", 10),
     ("Stop",         None,                       f"{d}/hooks/stop.sh", 300),
     ("SessionEnd",   None,                       f"{d}/hooks/session-end.sh", 5),
@@ -245,7 +247,7 @@ for event, matcher, cmd, timeout in spec:
         e["matcher"] = matcher
     arr.append(e)
 json.dump(cfg, open(settings_path, "w"), ensure_ascii=False, indent=2)
-print("  hook 6개 등록 완료")
+print("  hook %d개 등록 완료" % len(spec))
 PY
 
 # ── 5. 런타임 상태를 gitignore ───────────────────────────────

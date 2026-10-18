@@ -29,7 +29,6 @@ group "그 밖은 계속 막힌다" blocked <<X
 $HOME/.claude/plans/sub/x.md
 $HOME/.claude/plans/x.sh
 $HOME/.claude/plans/../x.md
-/tmp/x.md
 $T/app.js
 X
 ln -s "$T/app.js" "$HOME/.claude/plans/link.md"
