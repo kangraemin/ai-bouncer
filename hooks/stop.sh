@@ -442,6 +442,22 @@ worktree가 정리된다. 지금 멈추면 커밋이 그 브랜치에 갇힌다.
        | select((.optional | not)
                 or (if ($st[0].choices | has($sid)) then $st[0].choices[$sid] else true end)) | $sid')
   fi
+  # 종단 단계(done 등)에 blocking 조건이 없으면 진입과 동시에 끝낸다.
+  # 예전엔 "done 진입 → 다음 Stop 에서 잠금 해제"라, 일이 다 끝났는데도
+  # 한 턴 동안 잠금이 남아 workflow.yaml 수정·새 작업 시작이 막혔다.
+  if bouncer_is_last_stage "$CWD" "$WORKFLOW" "$NEXT" \
+     && [ -z "$(bouncer_stage "$CWD" "$NEXT" | jq -r '.steps[]? | select(.blocking) | .id')" ] \
+     && { [ -z "$(bouncer_state "$TASK" '.worktree.path')" ] \
+          || [ "$(bouncer_state "$TASK" '.worktree.merged')" = "true" ]; }; then
+    if bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" \
+      '.current_stage = $n | .finished_at = $t | .allowed_stop = false
+       | .history += [{stage:$n, at:$t}]'; then
+      rm -f "$TASK/.active"
+      jq -n --arg c "${INJECT:+$INJECT$'\n\n'}✅ [$STAGE] 완료 → [$NEXT] 작업 종료(잠금 해제)${NEXT_TXT:+$'\n\n'}$NEXT_TXT" \
+        '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'
+      exit 0
+    fi
+  fi
   # 갱신이 실패하면(잠금 경합 등) 단계는 그대로인데 "완료" 를 보고하게 된다.
   # 모델은 다음 단계라고 믿고 forbid 는 이전 단계 것을 강제한다.
   if ! bouncer_state_update "$TASK" --arg n "$NEXT" --arg t "$(date -u +%FT%TZ)" --arg s "$STAGE" \

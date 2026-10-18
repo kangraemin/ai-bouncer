@@ -158,8 +158,22 @@ echo "[skip이 실제로 통과시키는 경로]"
 export CLAUDE_CODE_SESSION_ID=S1     # 앞 섹션이 S3로 바꿔둔다 — stop()은 S1을 쓴다
 bouncer cancel >/dev/null 2>&1
 rm -f "$T"/.ai-bouncer/tasks/*/.active
+# 기본 설정엔 finalize 게이트가 없다 — 실패하는 게이트를 이 케이스에서만 붙인다
+python3 - "$T/.claude/ai-bouncer/workflow.yaml" <<'PY'
+import sys
+p = sys.argv[1]; s = open(p).read()
+s = s.replace("  # ── 종단", """      - label: 워킹트리 정리 확인
+        run: 'test -z "$(git status --porcelain)"'
+        by: engine
+        blocking: true
+
+  # ── 종단""", 1)
+open(p, 'w').write(s)
+PY
+python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
+        "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
 bouncer start simple gate >/dev/null
-echo dirty >> app.js                       # finalize 클린 트리 게이트를 못 넘게
+echo dirty >> app.js                       # 위 게이트를 못 넘게
 pass_implement                             # implement → verify
 [ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
 stop >/dev/null                            # 사람 대기 표시 (blocking: true)

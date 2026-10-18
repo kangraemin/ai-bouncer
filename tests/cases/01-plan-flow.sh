@@ -68,16 +68,12 @@ bouncer done "verify/검증 보고" >/dev/null && ok "bouncer done 기록" || no
 stop >/dev/null
 [ "$(stage)" = finalize ] && ok "finalize로 전이" || no "전이" "$(stage)"
 
-echo "── finalize: 워킹트리 더러우면 못 넘어감 ──"
+echo "── finalize: 무관한 WIP가 남아 있어도 막지 않는다 ──"
 echo dirty >> app.js
 stop >/dev/null
-[ "$(stage)" = finalize ] && ok "더러우면 유지" || no "더러우면 유지" "$(stage)"
-git add app.js && git commit -qm fix
-stop >/dev/null
-[ "$(stage)" = done ] && ok "커밋 후 done 전이" || no "done 전이" "$(stage)"
+[ "$(stage)" = done ] && ok "WIP 있어도 done 전이" || no "done 전이" "$(stage)"
 
-echo "── done: lock 해제 ──"
-stop >/dev/null
+echo "── done: 진입과 동시에 lock 해제(추가 Stop 불필요) ──"
 ls "$T"/.ai-bouncer/tasks/*/.active >/dev/null 2>&1 && no "lock 해제" "남아있음" || ok "lock 해제"
 ls "$T"/.ai-bouncer/tasks/*/state.json >/dev/null 2>&1 && ok "state.json 보존" || no "state.json 보존"
 

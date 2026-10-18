@@ -88,12 +88,6 @@ stages:
           변경 파일을 개별 git add 한다 (`git add .` / `-A` 금지).
           커밋(type 영어 + 설명 한글, 50자 이내) 후 push한다.
 
-      # 1초짜리 상태 확인은 엔진이 직접 돌린다.
-      # by: engine 은 Stop hook 안에서 실행되므로 timeout 상한이 60초다.
-      - label: 워킹트리 정리 확인
-        run: 'test -z "$(git status --porcelain)"'
-        by: engine
-        blocking: true
 
   done:
     steps:

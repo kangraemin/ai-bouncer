@@ -55,10 +55,6 @@ stages:
           있으면 /session-review 스킬로 기록해라.
         blocking: skill:session-review
 
-      - label: 워킹트리 정리 확인
-        run: 'test -z "$(git status --porcelain)"'
-        by: engine
-        blocking: true
 
   done:
     steps:

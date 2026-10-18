@@ -69,10 +69,6 @@ stages:
     steps:
       - label: 커밋과 푸시
         inject: 변경 파일을 개별 add → 커밋 → push.
-      - label: 워킹트리 정리 확인
-        run: 'test -z "$(git status --porcelain)"'
-        by: engine
-        blocking: true
 
   done:
     steps:
