@@ -52,6 +52,22 @@
 `workflow.compiled.json`에 박히므로 런타임 파일 I/O가 없다.
 프롬프트 파일만 고쳐도 해시가 바뀌어 재컴파일된다.
 
+### `run`의 `{scope}` 자리
+
+`run` 명령에 `{scope}` 를 넣으면 작업마다 돌릴 범위를 좁힐 수 있다.
+
+```yaml
+- label: e2e
+  run: "npx playwright test --workers=1 --reporter=line {scope}"
+  blocking: true
+```
+
+- 모델이 `bouncer scope <step-id> <경로…>` 로 이번 작업이 새로 만들었거나 영향받는 테스트를 적는다.
+- `bouncer run` 은 `{scope}` 를 그 경로들(하나씩 따옴표)로 바꿔 실행한다. 적은 게 없으면 빈칸이 되어 전체를 돌린다.
+- 경로만 받는다. `-` 로 시작하는 인자와 없는 경로는 거부한다. `tests/a.spec.ts:42` 처럼 줄 번호는 붙일 수 있다.
+- 범위를 바꾸면 그 step의 통과 기록은 지워진다. 다시 돌려야 한다.
+- 범위는 state.json `scope` 에 남는다. `bouncer status` 가 step마다 보여 준다.
+
 ### `by`
 
 | 값 | 실행 주체 | 시간 제약 | 용도 |
@@ -154,6 +170,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | `evidence` | Stop / PostToolUse | step별 통과 증거 |
 | `shown` | Stop | 이미 전달한 inject |
 | `choices` | `start --off` | optional step의 on/off |
+| `scope` | `bouncer scope` | `{scope}` 자리가 있는 step별 이번 작업 범위(경로 목록). 없으면 전체 |
 | `skipped` | `bouncer skip` | 엔진이 포기한 뒤 이번 작업만 면제한 step |
 | `plan` | PostToolUse | 승인된 계획 원문 (plan 모드) |
 | `checklist` | `bouncer todo` / 계획 승인 | 할 일 목록. `blocking: checklist` 가 **엔진이 세서** 판정한다 |
