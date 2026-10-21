@@ -552,7 +552,10 @@ CASES
 printf '\n[구현 단계 — push만 금지]\n'
 bash "$BOUNCER" cancel >/dev/null 2>&1
 bash "$BOUNCER" start simple impl >/dev/null 2>&1
+# 상위 디렉토리 이름에 `ai-bouncer/` 가 든 스크립트 경로는 코드 문자열이 아니다
+mkdir -p tools/my-ai-bouncer && echo 'echo hi' > tools/my-ai-bouncer/run.sh
 group "빌드·테스트·커밋·파일 수정은 자유" must_pass <<'CASES'
+bash tools/my-ai-bouncer/run.sh
 npm test
 npm test > /dev/null
 npm run build && npm test
@@ -574,6 +577,8 @@ group "그래도 push는 차단" must_block <<'CASES'
 git push origin main
 git -c alias.p=push p
 git config alias.p push
+bash -c "echo x > .claude/ai-bouncer/workflow.yaml"
+bash .claude/ai-bouncer/engine/bouncer.sh.bak
 CASES
 
 printf '\n[판정기 자체]\n'
