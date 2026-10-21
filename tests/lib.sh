@@ -19,13 +19,25 @@ abort_setup(){ no "$1" "${2:-준비 실패}"; printf '\n  %d 통과 / %d 실패\
 # 판정함수는 항목을 받아 "기대대로면 0" 을 반환해야 한다.
 # 주의: 파이프로 호출하면 서브셸이라 PASS/FAIL 이 유실된다.
 # `group <이름> <판정함수> <<'X' ... X` 처럼 히어독으로 넘겨야 한다.
+# 항목끼리는 독립이라(판정만 하고 명령을 실행하지 않는다) 병렬로 돈다.
+# 17번 케이스 하나가 순차로 8분 넘게 걸렸다. 동시 실행 수는 BOUNCER_TEST_JOBS(기본 8).
 group(){
-  local name="$1" fn="$2" total=0 bad=0 item
+  local name="$1" fn="$2" total=0 bad=0 item dir i jobs="${BOUNCER_TEST_JOBS:-8}"
+  dir="$(mktemp -d)"
   while IFS= read -r item; do
     [ -z "$item" ] && continue
     total=$((total+1))
-    if ! "$fn" "$item"; then bad=$((bad+1)); printf '     ↳ %s\n' "$item"; fi
+    printf '%s' "$item" > "$dir/$total.item"
+    ( "$fn" "$item" >/dev/null 2>&1 && : > "$dir/$total.ok" ) &
+    [ $((total % jobs)) -eq 0 ] && wait
   done
+  wait
+  i=1
+  while [ "$i" -le "$total" ]; do
+    if [ ! -f "$dir/$i.ok" ]; then bad=$((bad+1)); printf '     ↳ %s\n' "$(cat "$dir/$i.item")"; fi
+    i=$((i+1))
+  done
+  rm -rf "$dir"
   if [ "$bad" -eq 0 ]; then
     printf '  ✅ %s (%d건)\n' "$name" "$total"; PASS=$((PASS+1))
   else
