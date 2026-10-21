@@ -69,7 +69,7 @@ OPTION   <워크플로우> <단계> <id> <이름>       시작할 때 물어볼 
 
 **`bouncer: command not found`가 나오면** 두 가지 경우다. 먼저 구분해라:
 
-- `.Codex/ai-bouncer/engine/bouncer.sh` 가 **있다** → 설치는 됐고 `~/.local/bin` 이
+- `.claude/ai-bouncer/engine/bouncer.sh` 가 **있다** → 설치는 됐고 `~/.local/bin` 이
   PATH에 없는 것뿐이다. 그 경로로 직접 부르고, 사용자에게 PATH 추가를 알린다.
 - **없다** → 이 프로젝트에 설치되지 않았다. 스킬을 쓰지 말고 사용자에게 알린 뒤
   평소대로 작업한다. 설치를 임의로 진행하지 않는다.
@@ -174,7 +174,7 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
    이번 작업의 규칙은 시작 시점에 고정돼 있고, 고쳐도 다음 세션부터 적용되므로
    중간에 바꾸면 "무슨 규칙으로 검증했는지"가 흐려진다.
    승인받은 yaml을 기억해뒀다가, 이번 작업이 `done`으로 끝난 뒤에 적용한다.
-5. 작업 종료 후 Edit 도구로 `.Codex/ai-bouncer/workflow.yaml`을 수정한다
+5. 작업 종료 후 Edit 도구로 `.claude/ai-bouncer/workflow.yaml`을 수정한다
 6. `bouncer check`로 검증한다. 실패하면 되돌린다
 7. 다음 세션부터 적용된다고 알린다
 
