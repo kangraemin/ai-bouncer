@@ -203,6 +203,8 @@ KNOWN_GIT_SUBS = (GIT_READ | set(GIT_SUB) | GIT_PUSH_SUBS | GIT_TREE_WRITE
 # (GIT_EXTERNAL_DIFF, GIT_SSH, GIT_CONFIG_KEY_n 으로 별칭 주입이 전부 가능하다).
 # 접두를 넓게 잡으면 `NODE_ENV=production npm run build` 처럼 필수적인 것까지 막힌다.
 # 값이 그대로 실행·로딩되는 이름만 든다.
+# PATH·NODE_* 접두는 정상 사용이 많고(`PATH=.venv/bin:$PATH pytest`) 막아도 우회가 쉬워 뺐다(2026-10-22 감사).
+# 판정기 자체를 속이는 git·셸·동적 로더 쪽만 남긴다.
 ENV_DANGEROUS_PREFIX = ('GIT_', 'LD_', 'DYLD_', 'BASH_')
 ENV_DANGEROUS_EXACT = {'PERL5OPT', 'PERL5LIB', 'PYTHONSTARTUP',
                        'NODE_OPTIONS', 'NODE_PATH', 'RUBYOPT'}
@@ -252,7 +254,30 @@ ENGINE_READ_OK = {
     'cat', 'head', 'tail', 'wc', 'ls', 'stat', 'file', 'tree', 'du', 'jq',
     'grep', 'egrep', 'fgrep', 'rg', 'ag', 'ack', 'diff', 'cmp', 'nl', 'od',
     'strings', 'md5sum', 'sha256sum', 'shasum', 'realpath', 'dirname', 'basename',
+    'md5',
 }
+# 쓰기 옵션이 없을 때만 읽기인 명령. `sed -n 1,40p`, `find .ai-bouncer -name '*.json'` 이 수정으로 막혔다(약 26건).
+FIND_WRITE = {'-delete', '-exec', '-execdir', '-ok', '-okdir', '-fprint', '-fprint0', '-fprintf', '-fls'}
+
+
+def read_only(exe, cmd):
+    if exe in ENGINE_READ_OK:
+        return True
+    args = cmd[1:]
+    if exe == 'sed':
+        if any(a.startswith(('-i', '--in-place')) or (a.startswith('-') and not a.startswith('--') and 'i' in a[1:])
+               for a in args):
+            return False
+        # 스크립트 안의 w/W/e 명령은 파일을 쓰거나 실행한다
+        return not any(re.search(r'(^|[;{}\s/0-9$])[wWe](\s|$)', a) for a in args if not a.startswith('-'))
+    if exe == 'find':
+        return not any(a in FIND_WRITE for a in args)
+    return False
+
+
+def dotenv_source(exe, cmd):
+    # `source .env` / `. .env.local` 은 시크릿 로딩일 뿐이고, 막아도 grep|cut 으로 똑같이 된다. eval 은 계속 막는다.
+    return exe in ('source', '.') and len(cmd) == 2 and re.fullmatch(r'(\./)?(\S*/)?\.env[\w.-]*', cmd[1]) is not None
 
 
 ENGINE_MSG = ("엔진 파일(.ai-bouncer/ 상태, .claude/ai-bouncer/ 설정·엔진, "
@@ -1103,7 +1128,7 @@ def check_engine_files(segments):
             continue
         if SUB_TOKEN in exe:
             out(SUB_EXE_MSG)
-        if exe in OPAQUE_EXE:
+        if exe in OPAQUE_EXE and not dotenv_source(exe, cmd):
             out(OPAQUE_MSG % exe)
         # `git clean -fdx` 는 gitignore된 것을 지운다 — 상태 디렉토리가 정확히 그것이다.
         if exe == 'git' and git_sub(cmd) == 'clean' \
@@ -1113,12 +1138,12 @@ def check_engine_files(segments):
                 "진행 중인 작업이 통째로 사라지므로 허용되지 않는다.\n"
                 "정말 필요하면 `bouncer cancel` 로 작업을 끝낸 뒤에 해라.")
         # 읽기 명령은 글로브가 엔진 디렉토리를 훑어도 아무것도 안 바꾼다
-        for t in ([] if exe in ENGINE_READ_OK else clean):
+        for t in ([] if read_only(exe, cmd) else clean):
             if glob_could_hit_engine(t):
                 out("`%s` 는 글로브라 엔진 디렉토리(.ai-bouncer/ 등)를 삼킬 수 있다.\n"
                     "지울 대상을 정확히 적어라." % t)
         # `rm -rf .ai-bounce{r,x}` — 중괄호 확장은 셸이 푼다. 무엇이 될지 모른다.
-        if struct and any(t in ('{', '}') for t in struct) and exe not in ENGINE_READ_OK:
+        if struct and any(t in ('{', '}') for t in struct) and not read_only(exe, cmd):
             for t in clean:
                 n2 = norm(t).rsplit('/', 1)[-1]
                 if n2 and any(c.startswith(n2) for w in ENGINE_DIRS for c in w):
@@ -1136,7 +1161,7 @@ def check_engine_files(segments):
                     out(ENGINE_MSG)
         if exe == 'git' and not git_read_error(cmd):
             continue                    # `git log -- .ai-bouncer` 같은 이력 조회
-        if exe in ENGINE_READ_OK:
+        if read_only(exe, cmd):
             continue                    # 읽기는 자유
         if exe in ('cd', 'pushd') and not redirs:
             # 들어가는 것 자체는 아무것도 안 바꾼다. 이후 상대경로 쓰기는
@@ -1364,10 +1389,15 @@ def push_target_outside(cmd, env):
     return True
 
 
+# 커밋은 막지 않는다. 체인 명령이 통째로 막혀 같은 명령을 push 만 빼고 다시 치는 일이 반복됐다(2026-10-22 감사 36건).
+PUSH_MSG = ("push가 차단되었다. push 는 finalize 단계에서만 한다.\n"
+            "같은 명령에서 `git push` 부분만 빼고 다시 실행해라(add·commit 은 지금 해도 된다).")
+
+
 def check_push_cmd(exe, cmd, struct=(), env=()):
     if SUB_TOKEN in exe:
         out(SUB_EXE_MSG)
-    if exe in OPAQUE_EXE:
+    if exe in OPAQUE_EXE and not dotenv_source(exe, cmd):
         out(OPAQUE_MSG % exe)
     if exe == 'env -S':
         out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.")
@@ -1385,7 +1415,7 @@ def check_push_cmd(exe, cmd, struct=(), env=()):
         out("git 서브커맨드 자리에 변수·명령 치환이 있어 무엇을 하는지 판정할 수 없다.\n"
             "이 단계에서는 서브커맨드를 그대로 적어야 한다.")
     if exe == 'git-push':
-        out("push가 차단되었다.")
+        out(PUSH_MSG)
     if inline_program(exe, cmd):
         out("`%s -c …` 안의 코드는 확인할 수 없다 (push를 숨길 수 있다).\n"
             "스크립트 파일로 만들어 실행하거나, 명령을 직접 써라." % exe)
@@ -1404,9 +1434,9 @@ def check_push_cmd(exe, cmd, struct=(), env=()):
             return                      # 아무것도 보내지 않는다
         if sub == 'push' and push_target_outside(cmd, env):
             return                      # 이 작업과 무관한 다른 레포
-        out("push가 차단되었다.")
+        out(PUSH_MSG)
     if sub == 'subtree' and 'push' in cmd:
-        out("push가 차단되었다.")
+        out(PUSH_MSG)
     if sub == 'config' and any('alias.' in a for a in cmd):
         out("이 단계에서 git 별칭을 등록할 수 없다 (push를 숨길 수 있다).")
 
@@ -1522,13 +1552,13 @@ def run_passes(SEGMENTS, TOKENS):
             check_env(env)
             check_outside(clean, redirs, exe, cmd[1:])
             if not is_bouncer(cmd[0] if cmd else '') \
-               and exe not in ENGINE_READ_OK and exe not in ('cd', 'pushd'):
+               and not read_only(exe, cmd) and exe not in ('cd', 'pushd'):
                 for t in clean:
                     if is_engine_path(t):
                         out(ENGINE_MSG)
             if exe == 'env -S':
                 out("`env -S \"…\"` 는 문자열 하나가 통째로 명령이라 판정할 수 없다.")
-            if exe in OPAQUE_EXE:
+            if exe in OPAQUE_EXE and not dotenv_source(exe, cmd):
                 out(OPAQUE_MSG % exe)
             if inline_program(exe, cmd):
                 out("`%s -c …` 안의 코드는 확인할 수 없어 이 단계에서는 허용되지 않는다.\n"
