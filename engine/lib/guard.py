@@ -1162,6 +1162,10 @@ def check_engine_files(segments):
                     out(ENGINE_MSG)
         if exe == 'git' and not git_read_error(cmd):
             continue                    # `git log -- .ai-bouncer` 같은 이력 조회
+        # add·commit 은 인덱스와 이력만 바꾸고 파일 내용은 안 건드린다.
+        # 설치본을 커밋하려는 `git add .claude/settings.json` 이 엔진 수정으로 막혔다.
+        if exe == 'git' and git_sub(cmd) in ('add', 'commit'):
+            continue
         if read_only(exe, cmd):
             continue                    # 읽기는 자유
         if exe in ('cd', 'pushd') and not redirs:

@@ -569,11 +569,15 @@ python3 -c "print(1)"
 timeout 30 npm test
 nice -n 5 make build
 git add -A && git commit -m x
+git add .claude/settings.json .claude/ai-bouncer
+git commit -m x -- .claude/settings.json
 rm -rf dist
 mkdir -p build
 sed -i "" s/a/b/ a.js
 CASES
 group "그래도 push는 차단" must_block <<'CASES'
+git checkout -- .claude/settings.json
+git restore .claude/ai-bouncer/workflow.yaml
 git push origin main
 git -c alias.p=push p
 git config alias.p push
