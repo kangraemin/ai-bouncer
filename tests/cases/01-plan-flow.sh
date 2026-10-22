@@ -34,11 +34,17 @@ printf '%s' "$CTX" | grep -q '승인' && ok "미충족 사유가 구체적" || n
 echo "── ExitPlanMode 승인 관찰 ──"
 PLAN='## 계획
 - 결제 모듈 수정
-- 테스트 추가'
+- 테스트 추가
+
+| 바꾸는 대상 | 참조처(파일:줄) | 영향 | 조치 |
+|---|---|---|---|
+| pay() | api.ts:12 | 시그니처 변경 | 호출부 수정 |'
 hook post-tool "$(jq -nc --arg c "$T" --arg p "$PLAN" \
   '{session_id:"S1",cwd:$c,tool_name:"ExitPlanMode",tool_input:{plan:$p}}')"
 [ "$(state '.checklist | length')" = 2 ] \
   && ok "승인된 계획이 체크리스트가 된다" || no "계획 이관 실패" "$(state -c .checklist)"
+[ "$(state '[.checklist[].text | select(contains("|"))] | length')" = 0 ] \
+  && ok "영향 범위 표 행은 체크리스트에 안 들어간다" || no "표 행 유입" "$(state -c .checklist)"
 [ "$(state '.checklist[0].text')" = "결제 모듈 수정" ] \
   && ok "항목 텍스트가 그대로 온다" || no "텍스트 어긋남" "$(state '.checklist[0].text')"
 [ "$(state '.evidence["plan/계획 수립과 승인"]')" = true ] \
