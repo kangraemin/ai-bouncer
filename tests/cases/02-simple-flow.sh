@@ -12,11 +12,6 @@ r=$(pre Edit "{\"file_path\":\"$T/app.js\"}")
 [ -z "$r" ] && ok "바로 수정 가능" || no "수정 가능" "차단됨"
 
 # implement 의 완료 대조는 **엔진이 항목 수를 세는** 게이트다 (자기보고 아님)
-r=$(stop)
-[ "$(stage)" = implement ] && ok "Stop 만으로는 구현이 끝나지 않는다" || no "게이트 없음" "$(stage)"
-printf '%s' "$r" | jq -r '.reason // .hookSpecificOutput.additionalContext // ""' \
-  | grep -q '할 일 목록이 비어 있다' && ok "목록이 비면 그렇게 알린다" || no "사유 불명확" "${r:0:70}"
-
 bouncer todo add 'A 구현' 'B 구현' >/dev/null
 bouncer todo done 1 >/dev/null
 r=$(stop | jq -r '.reason // .hookSpecificOutput.additionalContext // ""')
@@ -24,14 +19,16 @@ printf '%s' "$r" | grep -q '남은 항목 1/2' && ok "남은 항목 수를 센�
 [ "$(stage)" = implement ] && ok "남은 항목이 있으면 못 넘어간다" || no "전이됨" "$(stage)"
 
 bouncer todo done 2 >/dev/null
-stop >/dev/null; [ "$(stage)" = verify ] && ok "목록을 다 체크하면 사용자 확인 없이 전이" || no "전이" "$(stage)"
+r=$(stop); [ "$(stage)" = verify ] && ok "목록을 다 체크하면 사용자 확인 없이 전이" || no "전이" "$(stage)"
+printf '%s' "$r" | grep -q '검증 단계다' && ok "verify 지시는 전이 때 전달" || no "지시 누락" "${r:0:80}"
 
-# verify 검증 보고: 사람을 기다리지 않는다. done 전엔 계속 진행시키고, done 하면 전이
+# 검증 보고는 지시만 한다 — 자기신고(bouncer done) 없이 넘어간다 (2026-10-22 감사: 230회 중 92% 의례).
 r=$(stop)
-[ "$(stage)" = verify ] && ok "done 전에는 verify 유지" || no "done 없이 전이" "$(stage)"
-printf '%s' "$r" | jq -r '.reason // ""' | grep -q "bouncer done 'verify/검증 보고'" \
-  && ok "done 전엔 계속 진행시키며 done 명령을 안내" || no "안내 없음" "${r:0:80}"
-printf '%s' "$r" | grep -q '사용자 확인 대기' && no "사람 대기로 표시됨" "${r:0:80}" || ok "사람 대기로 표시하지 않음"
-bouncer done "verify/검증 보고" >/dev/null
-stop >/dev/null; [ "$(stage)" = finalize ] && ok "사용자 턴 없이 done 후 finalize로 전이" || no "전이" "$(stage)"
+[ "$(stage)" = finalize ] && ok "done 표시 없이 finalize로 전이" || no "전이" "$(stage)"
+printf '%s' "$r" | grep -q "bouncer done" && no "done 을 요구함" "${r:0:80}" || ok "done 을 요구하지 않음"
+
+# 목록을 안 세웠으면 완료 대조는 통과한다 — 스스로 세우고 바로 체크하는 의례였다(형식 통과 20건).
+bouncer cancel >/dev/null 2>&1
+bouncer start simple "두번째" >/dev/null
+stop >/dev/null; [ "$(stage)" = verify ] && ok "빈 할 일 목록은 통과" || no "빈 목록 차단" "$(stage)"
 finish

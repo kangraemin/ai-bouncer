@@ -285,6 +285,15 @@ git archive -o out.tar HEAD
 git archive HEAD | tar -x -C /tmp/x
 CASES
 
+# 다른 레포 push 는 push 검사가 판정한다(이 레포가 아니면 통과). 읽기 전용 git 판정이 먼저
+# 막아 `git -C <다른레포> push` 가 오탐됐다. 설치본 순회의 `[ -f …/workflow.yaml ]` 검사도 막혔다.
+group "읽기 전용: 다른 레포 push·엔진 경로 존재 검사는 통과" must_pass <<'CASES'
+git -C /tmp/otherrepo push
+[ -f x/.claude/ai-bouncer/workflow.yaml ] || echo no
+test -f .claude/ai-bouncer/workflow.yaml
+[[ -d .claude/ai-bouncer ]]
+CASES
+
 group "awk 프로그램 안의 쓰기·실행" must_block <<'CASES'
 CASES
 

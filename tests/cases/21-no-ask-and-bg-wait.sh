@@ -7,26 +7,32 @@
 # 3) 사람 대기(plan 승인) 상태에서 재진입한 Stop 은 출력 없이 멈춘다
 #    (additionalContext 는 턴을 다시 열어 9회 상한까지 돈다).
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+# 2) 은 done 표시 게이트가 있어야 재현된다. 기본값엔 이제 없으니(검증 보고 자기신고 제거) 픽스처로 둔다.
+FIXTURE_DIR="$(mktemp -d)"
+python3 - "$R/config/default.yaml" "$FIXTURE_DIR/_done.yaml" <<'PY2'
+import sys
+s = open(sys.argv[1]).read()
+k = "      - label: 검증 보고\n"
+assert k in s
+open(sys.argv[2], 'w').write(s.replace(k, k + "        blocking: done\n", 1))
+PY2
 setup "$R/config/default.yaml" "$R/config/prompts" || exit 1
-trap cleanup EXIT
+trap 'cleanup; rm -rf "$FIXTURE_DIR"' EXIT
 export CLAUDE_CODE_SESSION_ID=S1
 restop(){ hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"stop_hook_active\":true}"; }
 
 echo
 echo "[사용자 턴 없이 done 까지]"
 bouncer start simple noask >/dev/null
-stop >/dev/null
 bouncer todo add 'x' >/dev/null; bouncer todo done 1 >/dev/null
 stop >/dev/null; [ "$(stage)" = verify ] && ok "implement → verify (사람 턴 없음)" || no "implement 전이" "$(stage)"
-bouncer done "verify/검증 보고" >/dev/null
 stop >/dev/null; [ "$(stage)" = finalize ] && ok "verify → finalize (사람 턴 없음)" || no "verify 전이" "$(stage)"
 [ "$(state '.user_turns // 0')" = 0 ] && ok "사용자 턴 0회" || no "사용자 턴" "$(state .user_turns)"
 
 echo
 echo "[백그라운드 대기: 도구 안 쓰고 재진입하면 차단하지 않는다]"
-cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null || exit 1
+cleanup; setup "$FIXTURE_DIR/_done.yaml" "$R/config/prompts" >/dev/null || exit 1
 bouncer start simple bgwait >/dev/null
-stop >/dev/null
 bouncer todo add 'x' >/dev/null; bouncer todo done 1 >/dev/null
 stop >/dev/null                                   # verify 진입
 r=$(stop); printf '%s' "$r" | jq -e '.decision == "block"' >/dev/null && ok "첫 Stop 은 차단(할 일 남음)" || no "첫 차단" "${r:0:80}"

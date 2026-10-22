@@ -176,10 +176,7 @@ bouncer start simple gate >/dev/null
 echo dirty >> app.js                       # 위 게이트를 못 넘게
 pass_implement                             # implement → verify
 [ "$(stage)" = verify ] || no "verify 진입" "$(stage)"
-stop >/dev/null                            # 사람 대기 표시 (blocking: true)
 bouncer run "verify/e2e" >/dev/null 2>&1
-user_turn >/dev/null                       # 사람이 실제로 답한 상황
-bouncer done "verify/검증 보고" >/dev/null 2>&1
 stop >/dev/null                            # verify → finalize
 [ "$(stage)" = finalize ] || no "finalize 진입" "$(stage)"
 GAVE=0
@@ -273,10 +270,7 @@ if [ -d "$WT2" ]; then
   # (d) 미머지 worktree면 종단에서 잠금을 유지해야 finalize가 가능하다
   git -C "$WT2" commit -q --allow-empty -m w
   pass_implement                        # implement → verify
-  stop >/dev/null                        # 사람 대기 표시
   bouncer run "verify/e2e" >/dev/null 2>&1
-  user_turn >/dev/null
-  bouncer done "verify/검증 보고" >/dev/null 2>&1
   stop >/dev/null                        # verify → finalize
   stop >/dev/null                        # finalize (worktree는 커밋 완료라 통과)
   r=$(stop)                              # done — 여기서 머지를 요구해야 한다

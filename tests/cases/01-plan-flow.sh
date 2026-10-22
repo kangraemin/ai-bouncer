@@ -60,11 +60,8 @@ bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
 stop >/dev/null
 [ "$(stage)" = verify ] && ok "verify로 전이" || no "전이" "$(stage)"
 
-echo "── verify: 검증 보고(blocking) 대기 ──"
-stop >/dev/null
-[ "$(stage)" = verify ] && ok "verify 유지 (보고 전)" || no "verify 유지" "$(stage)"
-user_turn >/dev/null                        # 사람이 실제로 답한 상황
-bouncer done "verify/검증 보고" >/dev/null && ok "bouncer done 기록" || no "bouncer done"
+echo "── verify: 검증 보고는 지시만 (자기신고 없음) ──"
+says "blocking이 아니다" bouncer done "verify/검증 보고" && ok "done 표시할 조건이 없다" || no "자기신고 남음"
 stop >/dev/null
 [ "$(stage)" = finalize ] && ok "finalize로 전이" || no "전이" "$(stage)"
 

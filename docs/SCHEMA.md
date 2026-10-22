@@ -236,8 +236,6 @@ settings:
 | 키 | 기본 | 설명 |
 |---|---|---|
 | `update_branch` | `main` | 자동 업데이트 기준 브랜치 |
-| `update_check` | `true` | 업데이트 확인 on/off |
-| `update_check_interval_hours` | `6` | 확인 주기 |
 | `max_attempts` | `3` | blocking 실패 재시도 후 `on_fail` 발동 |
 | `max_continue` | `10` | Stop 연속 차단 상한. 초과 시 사용자에게 질문 |
 | `max_loops` | `3` | `on_fail`로 앞 단계와 왕복할 수 있는 횟수. 초과하면 사용자에게 넘긴다 |

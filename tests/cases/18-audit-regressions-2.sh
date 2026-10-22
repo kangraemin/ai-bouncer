@@ -86,7 +86,6 @@ if [ -d "$WT3" ]; then
   git -C "$WT3" commit -q --allow-empty -m w
   stop >/dev/null; stop >/dev/null
   bouncer run "verify/e2e" >/dev/null 2>&1
-  user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
   stop >/dev/null; stop >/dev/null; stop >/dev/null
   [ -z "$(jq -r '.finished_at // ""' "$(task_dir)/state.json")" ] \
     && ok "미머지 병렬 작업에 finished_at 을 안 찍는다" || no "finished_at 기록됨"
@@ -143,7 +142,6 @@ p = sys.argv[1]; d = json.load(open(p))
 d['skip_allowed'] = ['finalize/워킹트리 정리 확인']
 json.dump(d, open(p, 'w'))
 PYX
-user_turn >/dev/null; bouncer done "verify/검증 보고" >/dev/null 2>&1
 bouncer run "verify/e2e" >/dev/null 2>&1
 stop >/dev/null                                  # verify → finalize
 [ "$(jq -r '.skip_allowed[0] // ""' "$(task_dir)/state.json")" = "finalize/워킹트리 정리 확인" ] \
@@ -261,9 +259,9 @@ pass_implement                                    # implement → verify
 r=$(stop); r=$(stop)
 bouncer cancel >/dev/null 2>&1
 bouncer start simple inj2 >/dev/null
-stop >/dev/null
-bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
-user_turn >/dev/null
+bouncer todo add '작업' >/dev/null 2>&1
+stop >/dev/null                                   # 남은 항목 1 → 차단
+bouncer todo done 1 >/dev/null 2>&1
 r=$(stop)                                         # implement → verify 전이
 printf '%s' "$r" | jq -r '.reason // ""' | grep -q '검증 단계다' \
   && ok "전이 턴에 다음 단계 지시가 실린다" || no "전이 지시 소실" "${r:0:80}"
@@ -349,8 +347,9 @@ cleanup; setup "$R/config/default.yaml" "$R/config/prompts" >/dev/null \
   || abort_setup "기본 설정 복구" "설치 실패"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer start simple lk >/dev/null
-stop >/dev/null; user_turn >/dev/null
-bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
+bouncer todo add '작업' >/dev/null 2>&1
+stop >/dev/null                                   # 남은 항목 1 → 차단
+bouncer todo done 1 >/dev/null 2>&1
 mkdir "$(task_dir)/.lock"                         # 잠금 경합 재현
 # 30초 넘은 잠금은 죽은 것으로 보고 걷어낸다. 병렬 실행 부하로 stop 이 늦으면
 # 경합이 사라지므로 mtime 을 미래로 둬 항상 "방금 잡힌" 잠금으로 보이게 한다.

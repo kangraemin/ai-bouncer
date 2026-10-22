@@ -100,11 +100,13 @@ if [ -d "$PROJECT/.ai-bouncer-tasks" ]; then
 fi
 
 # ── 1. 파일 배치 ─────────────────────────────────────────────
-mkdir -p "$DIR"/{engine/lib,hooks,scripts,prompts,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
+mkdir -p "$DIR"/{engine/lib,hooks,prompts,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
+# 세션 시작 업데이트 알림은 모델 문맥에 들어가는 노이즈였다(약 100줄, 모델이 할 일 없음). 갱신은 update-all 로 한다.
+rm -f "$DIR/scripts/update-check.sh" "$DIR/.update-check"; rmdir "$DIR/scripts" 2>/dev/null || true
 MANIFEST="[]"
 for f in engine/compile.py engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
          hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh hooks/user-prompt.sh \
-         hooks/stop.sh hooks/session-end.sh scripts/update-check.sh; do
+         hooks/stop.sh hooks/session-end.sh; do
   mkdir -p "$DIR/$(dirname "$f")"
   install -m 755 "$SRC/$f" "$DIR/$f" || die "복사 실패: $f"
   MANIFEST="$(jq --arg p "$DIR/$f" '. + [$p]' <<<"$MANIFEST")"
@@ -169,9 +171,15 @@ if s is not None:
         s = shift_after(s, s.index('\n', m.start()) + 1, m.group(1), int(m.group(2)) + 2)
     s = s.replace('[done] 작업이 끝났다. 무엇을 바꿨는지 한 번 요약해 보고하고 멈춘다.\n          사용자 지시 없이',
                   '[done] 작업이 끝났다. 사용자 지시 없이')
+    # 검증 보고 자기신고 제거 — 지시는 남기고 blocking: done 만 뺀다.
+    s = re.sub(r'(?m)^( +- label: 검증 보고\n)(?: +#[^\n]*\n)*? +blocking: (?:done|true)\n', r'\1', s)
+    # 체크리스트: 빈 목록은 통과하므로 "먼저 세워라" 지시를 뺀다.
+    s = re.sub(r'(?ms)^( +)요청받은 항목을 \*\*할 일 목록으로 먼저 세운다\.\*\*.*?^\1체크는 \*\*실제로 그 코드를 넣은 뒤에\*\* 한다\.[^\n]*\n(?:\1\S[^\n]*\n)*',
+               lambda m: m.group(1) + '할 일 목록이 있으면(plan 모드는 승인된 계획에서 옮겨진다) 엔진이 항목 수를 센다.\n'
+                         + m.group(1) + '구현한 항목은 `bouncer todo done <번호>`, 뺄 항목은 `bouncer todo drop <번호>`(사유를 알린다).\n', s)
     if s != s0:
         open(wf, 'w', encoding='utf-8').write(s)
-        print('  workflow.yaml: 예전 기본 지시 문구 정리 (범위·보고·커밋 형식)')
+        print('  workflow.yaml: 예전 기본 지시 문구 정리 (범위·보고·커밋 형식·자기신고)')
 try:
     p0 = p = open(plan, encoding='utf-8').read()
 except OSError:
