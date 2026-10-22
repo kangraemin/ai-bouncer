@@ -201,7 +201,6 @@ CASES
 group "아카이브·패치처럼 대상이 인자에 없는 쓰기" must_block <<'CASES'
 unzip /tmp/evil.zip
 tar xf /tmp/evil.tar
-tar cf out.tar src
 patch -p1
 ln -sf /tmp/x/a.js
 split /tmp/big
@@ -255,19 +254,35 @@ wget -O a.js http://x
 tar -xf p.tar
 unzip -o p.zip
 split a.js
-csplit a.js 1
 CASES
 
 group "허용 명령의 숨은 쓰기 모드" must_block <<'CASES'
-sort -opwn.txt a.js
+sort -ob.js a.js
 git clean -fdx
 sed --in-place s/a/b/ a.js
 git restore --staged --worktree a.js
+uniq a.js b.js
+xxd a.js b.js
+sort --output=b.js a.js
+base64 -i a.js -o b.js
+CASES
+
+# 새 파일 만들기·인덱스·이력은 작업 트리의 **기존 코드**를 바꾸지 않는다. 사전에 막지 않는다.
+# verify·plan 에서 `mkdir -p packages/core`, 임시 `cp … ./.side-probe.mjs`, 커밋용 `git add` 가
+# 막혔다(7건, 진짜 코드 수정은 0건). 새 파일이 남으면 실행 뒤 트리 비교가 잡는다.
+group "읽기 전용: 새 파일·인덱스·이력은 사전 차단하지 않는다" must_pass <<'CASES'
+tar cf out.tar src
+csplit a.js 1
+sort -opwn.txt a.js
 uniq a.js pwn.txt
 xxd a.js pwn.txt
 sort -o pwn.txt a.js
-sort --output=pwn.txt a.js
 base64 -i a.js -o pwn.txt
+mkdir -p packages/core
+git add -A
+git commit -m x
+git archive -o out.tar HEAD
+git archive HEAD | tar -x -C /tmp/x
 CASES
 
 group "awk 프로그램 안의 쓰기·실행" must_block <<'CASES'
@@ -299,13 +314,11 @@ git reset --hard HEAD~1
 git clean -fdx
 git apply d.diff
 git stash pop
-git add -A
-git commit -m x
 git -c alias.p=push p
 git config alias.p push
 git submodule foreach rm -f a.js
 git worktree add /tmp/w
-git archive -o out.tar HEAD
+git archive -o a.js HEAD
 CASES
 
 group "따옴표·경로·셸 위장" must_block <<'CASES'
@@ -363,7 +376,7 @@ rm -rf .ai-bouncer/worktrees/w/.ai-bouncer/tasks
 CASES
 
 group "엔진 파일 조작(기존)" must_block <<'CASES'
-python3 -c "import json;json.load(open(\".ai-bouncer/tasks/x/state.json\"))"
+python3 -c "import json;json.dump({},open(\".ai-bouncer/tasks/x/state.json\",\"w\"))"
 rm -f .ai-bouncer/tasks/x/.active
 echo {} > .claude/ai-bouncer/workflow.compiled.json
 sed -i "" s/a/b/ .claude/ai-bouncer/workflow.yaml
@@ -578,6 +591,24 @@ git restore .claude/ai-bouncer/workflow.yaml
 git push origin main
 bash -c "echo x > .claude/ai-bouncer/workflow.yaml"
 bash .claude/ai-bouncer/engine/bouncer.sh.bak
+CASES
+
+# 2026-10-22 transcript 재생: 엔진 파일을 건드리지 않는데 엔진 보호에 막힌 실사용 명령
+group "엔진 보호 오탐(실사용)은 통과" must_pass <<'CASES'
+D=$PWD/.claude/ai-bouncer/hooks; cat $D/stop.sh
+case "$1" in start) echo s;; *) echo other;; esac
+{ cat a.js; sed -n 1p b.js; } > /tmp/out.txt
+find . -name "*.db" -exec ls -la {} \;
+find /tmp/o -name "*.png" -exec cp {} /tmp/d/ \;
+python3 -c "import json;print(json.load(open('.ai-bouncer/tasks/x/state.json')))"
+.claude/ai-bouncer/bin/bouncer status
+cp ~/.claude/CLAUDE.md $T/.claude/
+CASES
+group "엔진 보호: 중괄호 확장·find·dotglob" must_block <<'CASES'
+rm -rf .{ai-bouncer,x}
+rm -rf .claude/{ai-bouncer,skills}
+find . -name state.json -exec rm {} \;
+shopt -s dotglob; rm -rf *
 CASES
 
 printf '\n[판정기 자체]\n'

@@ -62,7 +62,7 @@ group "프로젝트 소스를 직접 고치는 명령은 막는다" blocked <<'X
 sed -i '' s/hello/bye/ app.js
 echo x > app.js
 rm app.js
-cp /etc/hosts src.js
+cp /etc/hosts app.js
 git checkout -- app.js
 git stash
 X

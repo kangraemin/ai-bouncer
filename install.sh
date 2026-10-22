@@ -126,6 +126,63 @@ if n != s:
     open(p, 'w', encoding='utf-8').write(n)
     print('  workflow.yaml: "검증 보고"를 사람 확인 없이 진행하도록 갱신 (blocking: done)')
 PYM
+  # 모델이 원래 하는 일(범위 지키기·보고·커밋 형식)을 시키던 예전 기본 문구를 걷어낸다.
+  # 기본값 그대로인 줄만 바꾼다 — 사용자가 고친 줄은 글자가 달라 안 맞는다.
+  python3 - "$DIR/workflow.yaml" "$DIR/prompts/plan.md" <<'PYP' || true
+import re, sys
+
+def shift_after(s, start, ind, k):
+    """start 뒤로 이어지는 같은 목록의 번호 k, k+1, … 을 하나씩 당긴다."""
+    lines = s[start:].splitlines(True)
+    for i, line in enumerate(lines):
+        mm = re.match(re.escape(ind) + r'(\d+)\. ', line)
+        if mm and int(mm.group(1)) == k:
+            lines[i] = '%s%d. ' % (ind, k - 1) + line[mm.end():]
+            k += 1
+        elif mm or not line.startswith(ind + ' '):
+            break                       # 목록이 끝났다
+    return s[:start] + ''.join(lines)
+
+def drop_item(s, phrase):
+    """번호 목록에서 그 항목을 빼고 뒤 번호를 당긴다."""
+    m = re.search(r'(?m)^( +)(\d+)\. ' + re.escape(phrase) + r'\n', s)
+    if not m:
+        return s
+    return shift_after(s[:m.start()] + s[m.end():], m.start(), m.group(1), int(m.group(2)) + 1)
+
+wf, plan = sys.argv[1], sys.argv[2]
+try:
+    s0 = s = open(wf, encoding='utf-8').read()
+except OSError:
+    s0 = s = None
+if s is not None:
+    s = s.replace('승인된 계획의 After 코드를 그대로 구현한다. 범위를 임의로 넓히거나 줄이지 않는다.\n',
+                  '승인된 계획의 After 코드를 그대로 구현한다.\n')
+    s = s.replace('요청받은 범위만 구현한다. 계획을 세운 뒤라면 그 계획의 After 코드를 그대로 옮긴다.\n',
+                  '계획을 세운 뒤라면 그 계획의 After 코드를 그대로 옮긴다.\n')
+    s = re.sub(r'(?m)^ +범위를 임의로 넓히거나 줄이지 않는다\.\n', '', s)
+    s = re.sub(r'한다\. 어느 파일 어디에 넣었는지\n( +)함께 보고해라\. ', r'한다.\n\1', s)
+    s = drop_item(s, '실행한 명령어와 출력을 사용자에게 보고한다.')
+    m = re.search(r'(?m)^( +)(\d+)\. 커밋한다 — type은 영어, 설명은 한글, 50자 이내\.\n\1\d+\. push한다\.\n', s)
+    if m:
+        s = s[:m.start()] + '%s%s. 커밋하고 push한다.\n' % (m.group(1), m.group(2)) + s[m.end():]
+        s = shift_after(s, s.index('\n', m.start()) + 1, m.group(1), int(m.group(2)) + 2)
+    s = s.replace('[done] 작업이 끝났다. 무엇을 바꿨는지 한 번 요약해 보고하고 멈춘다.\n          사용자 지시 없이',
+                  '[done] 작업이 끝났다. 사용자 지시 없이')
+    if s != s0:
+        open(wf, 'w', encoding='utf-8').write(s)
+        print('  workflow.yaml: 예전 기본 지시 문구 정리 (범위·보고·커밋 형식)')
+try:
+    p0 = p = open(plan, encoding='utf-8').read()
+except OSError:
+    p0 = p = None
+if p is not None:
+    p = drop_item(p, '관련 코드를 실제로 읽는다. 추측으로 계획을 쓰지 않는다.')
+    p = drop_item(p, '계획을 사용자에게 텍스트로 출력해 눈으로 볼 수 있게 한다.')
+    if p != p0:
+        open(plan, 'w', encoding='utf-8').write(p)
+        print('  prompts/plan.md: 예전 기본 지시 문구 정리')
+PYP
 else
   install -m 644 "$SRC/config/default.yaml" "$DIR/workflow.yaml"
   MANIFEST="$(jq --arg p "$DIR/workflow.yaml" '. + [$p]' <<<"$MANIFEST")"

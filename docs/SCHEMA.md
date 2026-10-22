@@ -130,8 +130,10 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 
 - 허용: 도구·브라우저 설치(`playwright install`), `npm`/`npx`/테스트 실행, 캐시·`/tmp`·다른 레포 쓰기,
   `.gitignore` 된 산출물(`test-results/`, `dist/`) 쓰기, 변수 대입·서브셸·반복문 같은 셸 문법.
-- 사전 차단: 작업 트리 파일로의 Edit/Write, 리다이렉트, `rm`/`cp`/`sed -i` 처럼 대상이 보이는 쓰기,
-  git 쓰기 서브커맨드, `~/.claude`·엔진 파일.
+- 사전 차단: 작업 트리 파일로의 Edit/Write, **기존 파일**을 향한 리다이렉트·`rm`/`cp`/`sed -i` 처럼
+  대상이 보이는 쓰기, git 쓰기 서브커맨드, `~/.claude`·엔진 파일.
+- 셸로 **새 파일·디렉토리**를 만드는 것(`mkdir`, `> new.txt`, `cp x new.js`)과 `git add`·`git commit`·
+  `git archive` 는 사전에 막지 않는다. 트리가 바뀌면 사후 감지가 잡는다(2026-10-22 재생: 오탐 7건).
 - 사후 감지: 단계에 들어올 때 작업 트리를 git tree 로 찍어두고(`ro_base`), Bash 실행 뒤마다
   (PostToolUse / PostToolUseFailure) 다시 찍어 비교한다. 달라졌으면 바뀐 경로를 알리고,
   Stop 도 되돌릴 때까지 단계를 끝내지 못하게 한다.
@@ -175,6 +177,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 |---|---|---|
 | `current_stage` | Stop hook | 지금 단계. CLI로 바꿀 수 없다 |
 | `evidence` | Stop / PostToolUse | step별 통과 증거 |
+| `evidence_tree` | `bouncer run` / Stop | `run` step 이 통과한 시점의 추적 파일 내용 지문. 커밋·추적 안 된 산출물로는 안 바뀐다. 이후 추적 파일 내용이 달라지면 Stop 이 그 통과를 무효로 돌린다 |
 | `shown` | Stop | 이미 전달한 inject |
 | `choices` | `start --off` | optional step의 on/off |
 | `scope` | `bouncer scope` | `{scope}` 자리가 있는 step별 이번 작업 범위(경로 목록). 없으면 전체 |
