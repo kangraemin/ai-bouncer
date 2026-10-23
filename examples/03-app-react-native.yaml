@@ -6,6 +6,7 @@
 #       "제대로 봤다"는 보장하지 못한다 — 자동화 가능한 건 전부 `run`으로 써라.
 # ─────────────────────────────────────────────────────────────
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 
 workflows:
   plan:
@@ -21,10 +22,9 @@ stages:
           계획 단계다. 첫 tool call은 반드시 EnterPlanMode다.
           변경 파일별 Before/After를 실제 코드로 적고, 네이티브 모듈이 바뀌면
           iOS/Android 양쪽 영향과 재빌드 필요 여부까지 적어라.
-        blocking: plan_approved
     forbid:
-      edit_files: true
-      reason: 계획 승인 전 코드 수정 금지.
+      push: true
+      reason: 계획 단계에서는 push할 수 없다.
 
   implement:
     steps:

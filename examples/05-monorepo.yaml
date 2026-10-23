@@ -6,6 +6,7 @@
 # 명령은 전부 yaml에 고정하고 optional로 켜고 끈다.
 # ─────────────────────────────────────────────────────────────
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 
 workflows:
   plan:
@@ -20,13 +21,9 @@ stages:
         inject: |
           계획 단계다. EnterPlanMode 먼저.
           어느 패키지가 영향을 받는지, 패키지 간 의존이 있는지 명시해라.
-        blocking: plan_approved
     forbid:
-      # 계획 문서는 써야 하므로 docs/ 만 예외로 뚫는다.
-      # `!` 접두가 예외, 배열은 위에서 아래로 평가한다.
-      edit_files: ["**", "!docs/**"]
       push: true
-      reason: 계획 승인 전에는 코드를 수정할 수 없다 (계획 문서는 docs/ 아래에 써라).
+      reason: 계획 단계에서는 push할 수 없다.
 
   implement:
     steps:

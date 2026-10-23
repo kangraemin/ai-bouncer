@@ -1,4 +1,5 @@
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 workflows:
   plan:
     label: 테스트용

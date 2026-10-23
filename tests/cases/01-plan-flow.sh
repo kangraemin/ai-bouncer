@@ -14,22 +14,10 @@ printf '%s' "$START_OUT" | grep -q 'EnterPlanMode' \
   && ok "start가 첫 스테이지 지시를 즉시 전달" || no "첫 지시 전달" "start 출력에 없음"
 [ "$(stage)" = plan ] && ok "current_stage=plan" || no "시작" "$(stage)"
 
-echo "── plan 단계 forbid ──"
-[ -n "$(pre Edit "{\"file_path\":\"$T/app.js\"}")" ] && ok "Edit 차단" || no "Edit 차단" "통과됨"
-[ -n "$(pre Bash '{"command":"echo x > app.js"}')" ] && ok "bash 리다이렉트 차단" || no "bash 우회 차단" "통과됨"
-SEDI="$(jq -nc --arg c "sed -i '' s/a/b/ app.js" '{command:$c}')"
-[ -n "$(pre Bash "$SEDI")" ] && ok "sed -i 차단" || no "sed -i 차단" "통과됨"
+echo "── plan 단계 보호 ──"
+# 수정 차단은 Claude Code plan mode 가 한다 — 엔진은 상태 파일만 지킨다
 [ -n "$(pre Write "{\"file_path\":\"$T/.ai-bouncer/tasks/x/state.json\"}")" ] && ok "state.json 보호" || no "state.json 보호" "통과됨"
 [ -z "$(pre Edit "{\"file_path\":\"$T/app.js\"}" OTHER)" ] && ok "남의 세션 무관여" || no "남의 세션 무관여" "간섭"
-
-echo "── Stop: 미승인이면 전이 금지 ──"
-r=$(stop)
-[ "$(stage)" = plan ] && ok "plan 유지" || no "plan 유지" "$(stage)"
-# 사람 대기 상태라도 지시와 사유는 반드시 전달돼야 한다.
-# (양쪽 결과를 다 통과로 처리하면 "지시가 아예 안 나가는" 버그를 놓친다)
-CTX="$(printf '%s' "$r" | jq -r '.hookSpecificOutput.additionalContext // .reason // ""')"
-[ -n "$CTX" ] && ok "사람 대기여도 내용이 전달됨" || no "지시 전달" "출력이 비어 있음"
-printf '%s' "$CTX" | grep -q '승인' && ok "미충족 사유가 구체적" || no "사유 내용" "$CTX"
 
 echo "── ExitPlanMode 승인 관찰 ──"
 PLAN='## 계획
@@ -47,10 +35,8 @@ hook post-tool "$(jq -nc --arg c "$T" --arg p "$PLAN" \
   && ok "영향 범위 표 행은 체크리스트에 안 들어간다" || no "표 행 유입" "$(state -c .checklist)"
 [ "$(state '.checklist[0].text')" = "결제 모듈 수정" ] \
   && ok "항목 텍스트가 그대로 온다" || no "텍스트 어긋남" "$(state '.checklist[0].text')"
-[ "$(state '.evidence["plan/계획 수립과 승인"]')" = true ] \
-  && ok "plan_approved 기록" || no "plan_approved 기록" "$(state .evidence)"
 
-echo "── Stop: 승인 후 전이 ──"
+echo "── Stop: plan → implement (plan 은 지시만, 게이트 없음) ──"
 stop >/dev/null
 [ "$(stage)" = implement ] && ok "implement로 전이" || no "전이" "$(stage)"
 
@@ -61,7 +47,6 @@ echo "── implement 단계 forbid ──"
 echo "── Stop: implement→verify ──"
 # implement 에 완료 대조 게이트가 생겼다 — Stop 만으로는 못 넘어간다
 stop >/dev/null                                  # 사람 대기 표시
-user_turn >/dev/null
 bouncer done "implement/구현 완료 대조" >/dev/null 2>&1
 stop >/dev/null
 [ "$(stage)" = verify ] && ok "verify로 전이" || no "전이" "$(stage)"

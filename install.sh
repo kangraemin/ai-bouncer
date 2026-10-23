@@ -100,122 +100,73 @@ if [ -d "$PROJECT/.ai-bouncer-tasks" ]; then
 fi
 
 # ── 1. 파일 배치 ─────────────────────────────────────────────
-mkdir -p "$DIR"/{engine/lib,hooks,prompts,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
+mkdir -p "$DIR"/{engine/lib,engine/prompts,hooks,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
 # 세션 시작 업데이트 알림은 모델 문맥에 들어가는 노이즈였다(약 100줄, 모델이 할 일 없음). 갱신은 update-all 로 한다.
 rm -f "$DIR/scripts/update-check.sh" "$DIR/.update-check"; rmdir "$DIR/scripts" 2>/dev/null || true
 MANIFEST="[]"
-for f in engine/compile.py engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
-         hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh hooks/user-prompt.sh \
+for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py \
+         engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
+         hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
          hooks/stop.sh hooks/session-end.sh; do
   mkdir -p "$DIR/$(dirname "$f")"
   install -m 755 "$SRC/$f" "$DIR/$f" || die "복사 실패: $f"
   MANIFEST="$(jq --arg p "$DIR/$f" '. + [$p]' <<<"$MANIFEST")"
 done
+# 기본값은 엔진 소유 — 업데이트 때마다 덮어쓴다. 레포 workflow.yaml 은 이 위에 덧붙이는 override 만 담는다.
+install -m 644 "$SRC/config/default.yaml" "$DIR/engine/default.yaml" || die "복사 실패: default.yaml"
+install -m 644 "$SRC/config/legacy-defaults.json" "$DIR/engine/legacy-defaults.json" || die "복사 실패: legacy-defaults.json"
+MANIFEST="$(jq --arg a "$DIR/engine/default.yaml" --arg b "$DIR/engine/legacy-defaults.json" '. + [$a, $b]' <<<"$MANIFEST")"
+for p in "$SRC"/config/prompts/*.md; do
+  [ -f "$p" ] || continue
+  install -m 644 "$p" "$DIR/engine/prompts/$(basename "$p")" || die "복사 실패: $p"
+  MANIFEST="$(jq --arg p "$DIR/engine/prompts/$(basename "$p")" '. + [$p]' <<<"$MANIFEST")"
+done
+# 더는 쓰지 않는 hook(UserPromptSubmit) — 파일은 지운다. settings.json 등록은 아래 4단계가 전부 걷어내고 다시 쓴다.
+rm -f "$DIR/hooks/user-prompt.sh"
 install -m 644 "$SRC/skills/dev-bounce/SKILL.md" "$ROOT/skills/dev-bounce/SKILL.md" || die "스킬 복사 실패"
 MANIFEST="$(jq --arg p "$ROOT/skills/dev-bounce/SKILL.md" '. + [$p]' <<<"$MANIFEST")"
 
-# 워크플로우와 프롬프트는 사용자 자산 — 이미 있으면 덮어쓰지 않는다.
+# workflow.yaml 은 사용자 자산이다 — 기본값과 다른 것만 담는 override. 없으면 빈 것을 만든다.
+# 옛 버전이 복사해 둔 "기본값 전체 사본"은 기본값과 같은 부분을 걷어내 override 만 남긴다(원본은 .bak).
 if [ -f "$DIR/workflow.yaml" ]; then
-  printf '  workflow.yaml 유지 (기존 설정 보존)\n'
-  # 예전 기본값의 "검증 보고"는 사람 확인(blocking: true)이라 done 전에 매번 승인을 물었다.
-  # 사용자가 손대지 않은 그 한 줄만 blocking: done 으로 옮긴다. 다른 step 은 건드리지 않는다.
-  python3 - "$DIR/workflow.yaml" <<'PYM' || true
-import re, sys
-p = sys.argv[1]
-s = open(p, encoding='utf-8').read()
-n = re.sub(r'(- label: 검증 보고\n(\s+)blocking: )true\b', r'\1done', s, count=1)
-if n != s:
-    open(p, 'w', encoding='utf-8').write(n)
-    print('  workflow.yaml: "검증 보고"를 사람 확인 없이 진행하도록 갱신 (blocking: done)')
-PYM
-  # 모델이 원래 하는 일(범위 지키기·보고·커밋 형식)을 시키던 예전 기본 문구를 걷어낸다.
-  # 기본값 그대로인 줄만 바꾼다 — 사용자가 고친 줄은 글자가 달라 안 맞는다.
-  python3 - "$DIR/workflow.yaml" "$DIR/prompts/plan.md" <<'PYP' || true
-import re, sys
-
-def shift_after(s, start, ind, k):
-    """start 뒤로 이어지는 같은 목록의 번호 k, k+1, … 을 하나씩 당긴다."""
-    lines = s[start:].splitlines(True)
-    for i, line in enumerate(lines):
-        mm = re.match(re.escape(ind) + r'(\d+)\. ', line)
-        if mm and int(mm.group(1)) == k:
-            lines[i] = '%s%d. ' % (ind, k - 1) + line[mm.end():]
-            k += 1
-        elif mm or not line.startswith(ind + ' '):
-            break                       # 목록이 끝났다
-    return s[:start] + ''.join(lines)
-
-def drop_item(s, phrase):
-    """번호 목록에서 그 항목을 빼고 뒤 번호를 당긴다."""
-    m = re.search(r'(?m)^( +)(\d+)\. ' + re.escape(phrase) + r'\n', s)
-    if not m:
-        return s
-    return shift_after(s[:m.start()] + s[m.end():], m.start(), m.group(1), int(m.group(2)) + 1)
-
-wf, plan = sys.argv[1], sys.argv[2]
-try:
-    s0 = s = open(wf, encoding='utf-8').read()
-except OSError:
-    s0 = s = None
-if s is not None:
-    s = s.replace('승인된 계획의 After 코드를 그대로 구현한다. 범위를 임의로 넓히거나 줄이지 않는다.\n',
-                  '승인된 계획의 After 코드를 그대로 구현한다.\n')
-    s = s.replace('요청받은 범위만 구현한다. 계획을 세운 뒤라면 그 계획의 After 코드를 그대로 옮긴다.\n',
-                  '계획을 세운 뒤라면 그 계획의 After 코드를 그대로 옮긴다.\n')
-    s = re.sub(r'(?m)^ +범위를 임의로 넓히거나 줄이지 않는다\.\n', '', s)
-    s = re.sub(r'한다\. 어느 파일 어디에 넣었는지\n( +)함께 보고해라\. ', r'한다.\n\1', s)
-    s = drop_item(s, '실행한 명령어와 출력을 사용자에게 보고한다.')
-    m = re.search(r'(?m)^( +)(\d+)\. 커밋한다 — type은 영어, 설명은 한글, 50자 이내\.\n\1\d+\. push한다\.\n', s)
-    if m:
-        s = s[:m.start()] + '%s%s. 커밋하고 push한다.\n' % (m.group(1), m.group(2)) + s[m.end():]
-        s = shift_after(s, s.index('\n', m.start()) + 1, m.group(1), int(m.group(2)) + 2)
-    s = s.replace('[done] 작업이 끝났다. 무엇을 바꿨는지 한 번 요약해 보고하고 멈춘다.\n          사용자 지시 없이',
-                  '[done] 작업이 끝났다. 사용자 지시 없이')
-    # 검증 보고 자기신고 제거 — 지시는 남기고 blocking: done 만 뺀다.
-    s = re.sub(r'(?m)^( +- label: 검증 보고\n)(?: +#[^\n]*\n)*? +blocking: (?:done|true)\n', r'\1', s)
-    # 체크리스트: 빈 목록은 통과하므로 "먼저 세워라" 지시를 뺀다.
-    s = re.sub(r'(?ms)^( +)요청받은 항목을 \*\*할 일 목록으로 먼저 세운다\.\*\*.*?^\1체크는 \*\*실제로 그 코드를 넣은 뒤에\*\* 한다\.[^\n]*\n(?:\1\S[^\n]*\n)*',
-               lambda m: m.group(1) + '할 일 목록이 있으면(plan 모드는 승인된 계획에서 옮겨진다) 엔진이 항목 수를 센다.\n'
-                         + m.group(1) + '구현한 항목은 `bouncer todo done <번호>`, 뺄 항목은 `bouncer todo drop <번호>`(사유를 알린다).\n', s)
-    if s != s0:
-        open(wf, 'w', encoding='utf-8').write(s)
-        print('  workflow.yaml: 예전 기본 지시 문구 정리 (범위·보고·커밋 형식·자기신고)')
-try:
-    p0 = p = open(plan, encoding='utf-8').read()
-except OSError:
-    p0 = p = None
-if p is not None:
-    p = drop_item(p, '관련 코드를 실제로 읽는다. 추측으로 계획을 쓰지 않는다.')
-    p = drop_item(p, '계획을 사용자에게 텍스트로 출력해 눈으로 볼 수 있게 한다.')
-    if p != p0:
-        open(plan, 'w', encoding='utf-8').write(p)
-        print('  prompts/plan.md: 예전 기본 지시 문구 정리')
-PYP
+  python3 "$DIR/engine/migrate-workflow.py" "$DIR/workflow.yaml" || true
+  printf '  workflow.yaml 유지 (레포별 override)\n'
 else
-  install -m 644 "$SRC/config/default.yaml" "$DIR/workflow.yaml"
+  cat > "$DIR/workflow.yaml" <<'YML'
+# ai-bouncer 레포별 워크플로우 설정 — 기본값과 다른 것만 적는다.
+# 기본값은 엔진(.claude/ai-bouncer/engine/default.yaml)이 갖고 업데이트 때마다 바뀐다.
+# 병합 규칙: settings 는 키 단위 덮기 / stages.<이름>.steps 는 label 이 같으면 교체·새 label 이면 뒤에 추가 /
+#            remove: [label…] 로 기본 step 삭제 / forbid 는 키 단위 덮기. 스키마: docs/SCHEMA.md
+#
+# 예) verify 단계에 프로젝트 테스트를 게이트로 추가:
+# stages:
+#   verify:
+#     steps:
+#       - label: 유닛 테스트
+#         run: "npm test"
+#         blocking: true
+
+version: 1
+YML
   MANIFEST="$(jq --arg p "$DIR/workflow.yaml" '. + [$p]' <<<"$MANIFEST")"
 fi
-for p in "$SRC"/config/prompts/*.md; do
-  [ -f "$p" ] || continue
-  t="$DIR/prompts/$(basename "$p")"
-  [ -f "$t" ] || { install -m 644 "$p" "$t"; MANIFEST="$(jq --arg p "$t" '. + [$p]' <<<"$MANIFEST")"; }
-done
 
 # ── 2. 업데이트 브랜치 반영 ──────────────────────────────────
 # 설정은 workflow.yaml의 settings 섹션에 있다. 별도 config 파일은 없다.
 if [ "$BRANCH" != "main" ]; then
-  if grep -qE '^[[:space:]]*update_branch:' "$DIR/workflow.yaml"; then
-    python3 - "$DIR/workflow.yaml" "$BRANCH" <<'PYB'
+  python3 - "$DIR/workflow.yaml" "$BRANCH" <<'PYB'
 import re, sys
 p, b = sys.argv[1], sys.argv[2]
-s = open(p).read()
-open(p, 'w').write(re.sub(r'(?m)^(\s*)update_branch:.*$', r'\g<1>update_branch: ' + b, s, count=1))
+s = open(p, encoding='utf-8').read()
+if re.search(r'(?m)^[ \t]+update_branch:', s):
+    s = re.sub(r'(?m)^([ \t]+)update_branch:.*$', r'\g<1>update_branch: ' + b, s, count=1)
+elif re.search(r'(?m)^settings:[ \t]*$', s):
+    s = re.sub(r'(?m)^settings:[ \t]*$', 'settings:\n  update_branch: ' + b, s, count=1)
+else:
+    s = s.rstrip('\n') + '\n\nsettings:\n  update_branch: ' + b + '\n'
+open(p, 'w', encoding='utf-8').write(s)
 PYB
-    printf '  업데이트 브랜치 → %s\n' "$BRANCH"
-  else
-    printf '  ⚠️ workflow.yaml에 update_branch가 없다. settings에 직접 추가하라:\n'
-    printf '     settings:\n       update_branch: %s\n' "$BRANCH"
-  fi
+  printf '  업데이트 브랜치 → %s\n' "$BRANCH"
 fi
 
 # ── 3. bouncer 실행 파일 ─────────────────────────────────────
@@ -267,11 +218,8 @@ d = "${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer"
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
-    ("PostToolUse",  "ExitPlanMode|Skill|Bash",  f"{d}/hooks/post-tool.sh", 10),
-    # 실패한 Bash 도 파일을 바꿨을 수 있다 (`sed -i … && false`). 읽기 전용 트리 감시용.
-    ("PostToolUseFailure", "Bash",               f"{d}/hooks/post-tool.sh", 10),
-    ("UserPromptSubmit", None,                   f"{d}/hooks/user-prompt.sh", 10),
-    ("Stop",         None,                       f"{d}/hooks/stop.sh", 300),
+    ("PostToolUse",  "ExitPlanMode",             f"{d}/hooks/post-tool.sh", 10),
+    ("Stop",         None,                       f"{d}/hooks/stop.sh", 1800),
     ("SessionEnd",   None,                       f"{d}/hooks/session-end.sh", 5),
 ]
 try:
@@ -325,7 +273,7 @@ if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     printf '  .gitignore에 .ai-bouncer/ 추가\n'
   fi
   # 설정 디렉토리 안에 섞여 있는 런타임 파일들. 커밋되면 세션마다 가짜 diff가 뜬다.
-  printf 'workflow.compiled.json\n.update-check\n' > "$DIR/.gitignore"
+  printf 'workflow.compiled.json\n.update-check\nworkflow.yaml.bak*\n' > "$DIR/.gitignore"
 fi
 
 # ── 6. CLAUDE.md 규칙 블록 ───────────────────────────────────

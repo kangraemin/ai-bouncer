@@ -57,6 +57,10 @@ setup() {
   printf '.ai-bouncer/\n' > .gitignore
   mkdir -p .claude/ai-bouncer/prompts
   cp "$1" .claude/ai-bouncer/workflow.yaml
+  # 픽스처는 기본값과 합치지 않는 독립 워크플로우다 (기본값 사본인 config/default.yaml 만 예외)
+  case "$(basename "$1")" in default.yaml) ;; *)
+    /usr/bin/grep -q '^base:' .claude/ai-bouncer/workflow.yaml \
+      || sed -i '' 's/^version: 1$/version: 1\nbase: none/' .claude/ai-bouncer/workflow.yaml ;; esac
   [ -n "${2:-}" ] && cp "$2"/*.md .claude/ai-bouncer/prompts/ 2>/dev/null
   # 설정은 yaml의 settings 섹션에 넣는다 (별도 config 파일 없음)
   python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2
@@ -79,7 +83,6 @@ pass_implement(){
 # 기본 verify 의 "검증 보고"는 지시만 한다 — 넘길 조건이 없다. 다음 stop 이 판정한다.
 pass_verify(){ :; }
 # 사용자가 실제로 입력한 상황을 흉내낸다.
-user_turn(){ hook user-prompt "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
 pre(){ hook pre-tool "{\"session_id\":\"${3:-S1}\",\"cwd\":\"$T\",\"tool_name\":\"$1\",\"tool_input\":$2}"; }
 # 가장 최근 작업 하나만 본다. 글롭으로 전부 읽으면 케이스가 쌓일수록
 # 값이 여러 줄로 섞여 나와 비교가 조용히 무너진다.

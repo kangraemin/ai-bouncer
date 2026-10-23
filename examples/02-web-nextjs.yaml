@@ -5,6 +5,7 @@
 #       모델이 "테스트 통과했습니다"라고 말해도 넘어가지 못한다.
 # ─────────────────────────────────────────────────────────────
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 
 workflows:
   plan:
@@ -23,13 +24,9 @@ stages:
         # 긴 프롬프트는 파일로 뺀다. 컴파일 시점에 내용이 json에 박히므로
         # 런타임 파일 I/O는 없고, 이 파일만 고쳐도 재컴파일된다.
         inject_file: prompts/plan.md
-        # plan 전용 특수 게이트 — ExitPlanMode가 실제로 승인된 경우에만 통과한다.
-        # hook이 도구 사용을 직접 관찰하므로 모델이 우길 수 없다.
-        blocking: plan_approved
     forbid:
-      edit_files: true          # 모든 파일 수정 차단 (셸 우회 포함)
       push: true
-      reason: 계획 승인 전에는 코드를 수정할 수 없다.
+      reason: 계획 단계에서는 push할 수 없다.
 
   implement:
     steps:
@@ -50,7 +47,6 @@ stages:
 
   verify:
     # 여기서 막히면 구현 단계로 되돌아간다.
-    # 아래 forbid가 파일 수정을 막으므로 제자리 재시도가 무의미 → 1회 실패로 즉시 반송된다.
     on_fail: implement
     steps:
       - label: 린트
@@ -76,10 +72,8 @@ stages:
         blocking: true
         optional: true
     forbid:
-      # 수정은 구현 단계에서만 하도록 강제한다. 이 줄을 빼면 제자리에서 고칠 수 있다.
-      edit_files: true
       push: true
-      reason: 검증 단계에서는 코드를 고칠 수 없다. 수정은 구현 단계에서 한다.
+      reason: 검증이 끝나기 전에는 push할 수 없다.
 
   finalize:
     steps:

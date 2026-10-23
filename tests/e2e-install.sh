@@ -55,7 +55,7 @@ done
 [ "$(jq -r '.settings.update_branch' .claude/ai-bouncer/workflow.compiled.json)" = dev ] && ok "--branch dev 반영" || no "--branch"
 [ -f .claude/ai-bouncer/config.json ] && no "별도 config 파일 없음" "생성됨" || ok "별도 config 파일 없음 (설정은 yaml에)"
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 7 ] && ok "hook 7개 등록" || no "hook 등록" "${n}개"
+[ "$n" = 5 ] && ok "hook 5개 등록" || no "hook 등록" "${n}개"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \
   && ok "남의 hook 보존" || no "남의 hook 보존"
 
@@ -84,7 +84,7 @@ python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue
 printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
 bash "$R/install.sh" --ci >/dev/null 2>&1
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
-[ "$n" = 7 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
+[ "$n" = 5 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null 2>&1
 [ "$(jq -r '.settings.max_continue' .claude/ai-bouncer/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
 grep -q '사용자 수정' .claude/ai-bouncer/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"
@@ -94,7 +94,7 @@ echo "── 설치본으로 실제 동작 ──"
 export CLAUDE_CODE_SESSION_ID=S1
 bash .claude/ai-bouncer/engine/bouncer.sh start plan test >/dev/null 2>&1
 [ "$(jq -r .current_stage .ai-bouncer/tasks/*/state.json)" = plan ] && ok "작업 시작" || no "작업 시작"
-r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Edit","tool_input":{"file_path":"%s/app.js"}}' "$T" "$T" \
+r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$T" \
     | bash .claude/ai-bouncer/hooks/pre-tool.sh)
 [ -n "$r" ] && ok "설치본 hook이 차단" || no "설치본 hook 차단"
 grep -q 'CLAUDE_PROJECT_DIR' .claude/settings.json && ok "hook 경로가 이식 가능 (절대경로 아님)" || no "이식성" "절대경로 박힘"

@@ -31,11 +31,6 @@ version: 1
 workflows: {p: {label: x, stages: [a]}}
 stages: {a: {steps: [{label: s, run: "x", blocking: maybe}]}}
 Y
-try "run에 plan_approved" <<'Y'
-version: 1
-workflows: {p: {label: x, stages: [a]}}
-stages: {a: {steps: [{label: s, run: "x", blocking: plan_approved}]}}
-Y
 try "by: engine + timeout 600" <<'Y'
 version: 1
 workflows: {p: {label: x, stages: [a]}}
@@ -83,7 +78,7 @@ stages:
       - label: s
         inject: "x"
     forbid:
-      edit_files: true
+      push: false
       reason: 둘
 Y
 try "중복 키 (내장 파서)" --builtin-parser <<'Y'

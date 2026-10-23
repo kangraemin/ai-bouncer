@@ -1,6 +1,7 @@
 # ai-bouncer 워크플로우 정의
 #
-# 이 파일을 고치면 다음 세션 시작 때 자동으로 재컴파일된다.
+# 엔진 기본값. 설치/업데이트 때마다 .claude/ai-bouncer/engine/default.yaml 로 덮어쓴다 — 레포에서 고치지 않는다.
+# 레포별로 바꾸거나 덧붙일 것만 .claude/ai-bouncer/workflow.yaml 에 적는다(병합 규칙: engine/compile.py).
 # 스키마: docs/SCHEMA.md
 
 version: 1
@@ -31,18 +32,16 @@ workflows:
 stages:
 
   # ── 계획 ──────────────────────────────────────────────────
-  # 유일하게 Claude Code의 실제 승인 UI(plan mode)를 쓰는 스테이지.
+  # 유일하게 Claude Code의 실제 승인 UI(plan mode)를 쓰는 스테이지. 수정 차단은 plan mode 가 한다.
   plan:
     steps:
       - label: 계획 수립과 승인
-        blocking: plan_approved
         inject_file: prompts/plan.md
         # 승인된 계획의 목록 항목이 그대로 구현 단계 체크리스트가 된다.
         # (post-tool 이 ExitPlanMode 를 관찰해 옮긴다)
     forbid:
-      edit_files: true
       push: true
-      reason: 계획 승인 전에는 코드를 수정할 수 없다.
+      reason: 계획 단계에서는 push할 수 없다.
 
   # ── 구현 ──────────────────────────────────────────────────
   implement:

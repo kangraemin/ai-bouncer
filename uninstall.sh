@@ -120,7 +120,7 @@ if [ -f "$DIR/manifest.json" ]; then
   while IFS= read -r f; do
     [ -n "$f" ] || continue
     case "$f" in */CLAUDE.md|CLAUDE.md) continue ;; esac   # 사용자 파일 — 블록만 위에서 제거했다
-    [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/prompts/*) continue ;; esac
+    [ "$PURGE" = 0 ] && case "$f" in */workflow.yaml|*/ai-bouncer/prompts/*) continue ;; esac
     # manifest는 프로젝트 기준 상대경로다 (구버전 매니페스트는 절대경로일 수 있다)
     case "$f" in /*) t="$f" ;; *) t="$PWD/$f" ;; esac
     if [ -e "$t" ]; then
@@ -138,7 +138,7 @@ if [ -f "$DIR/manifest.json" ]; then
 fi
 rm -f "$DIR/workflow.compiled.json" "$DIR/installed.json" "$DIR/manifest.json" \
       "$DIR/.update-check" "$DIR/.gitignore" "$DIR/bin/bouncer"
-rmdir "$DIR"/bin "$DIR"/hooks "$DIR"/scripts "$DIR"/engine/lib "$DIR"/engine 2>/dev/null
+rmdir "$DIR"/bin "$DIR"/hooks "$DIR"/scripts "$DIR"/engine/lib "$DIR"/engine/prompts "$DIR"/engine 2>/dev/null
 rmdir "$ROOT/skills/dev-bounce" 2>/dev/null
 
 if [ "$PURGE" = 1 ]; then

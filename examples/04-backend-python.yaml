@@ -5,6 +5,7 @@
 # stages에 정의를 하나 추가하면 그게 전부다. 엔진 코드는 건드리지 않는다.
 # ─────────────────────────────────────────────────────────────
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 
 workflows:
   plan:
@@ -25,10 +26,9 @@ stages:
         inject: |
           계획 단계다. EnterPlanMode 먼저.
           DB 스키마가 바뀌면 마이그레이션을 되돌리는 방법까지 계획에 적어라.
-        blocking: plan_approved
     forbid:
-      edit_files: true
-      reason: 계획 승인 전 코드 수정 금지.
+      push: true
+      reason: 계획 단계에서는 push할 수 없다.
 
   implement:
     steps:
@@ -36,9 +36,7 @@ stages:
         inject: 계획대로 구현해라.
     forbid:
       push: true
-      # 내장 어휘로 표현 안 되는 것은 정규식으로 직접 막는다.
-      bash: ['(^|\s)alembic\s+upgrade\s+head']
-      reason: 검증 전에는 push와 프로덕션 마이그레이션이 금지된다.
+      reason: 검증 전에는 push할 수 없다.
 
   verify:
     on_fail: implement

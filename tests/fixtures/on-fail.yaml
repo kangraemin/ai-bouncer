@@ -1,4 +1,5 @@
 version: 1
+base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
 workflows:
   plan:
     label: 테스트용
@@ -16,8 +17,8 @@ stages:
         by: engine
         blocking: true
     forbid:
-      edit_files: true
-      reason: 검증 단계에서는 수정 금지. 구현 단계로 돌아가라.
+      push: true
+      reason: 검증이 끝나기 전에는 push할 수 없다.
   done:
     steps:
       - label: 완료
