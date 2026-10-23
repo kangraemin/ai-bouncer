@@ -59,5 +59,6 @@ printf '%s' "$esc" | grep -qE '작업 트리가 그대로|왕복했다' && ok "�
 echo "change" >> app.js
 hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\"}" >/dev/null
 [ "$(stage)" = verify ] && ok "고치면 다시 검증으로 전진" || no "전진" "$(stage)"
-printf '%s' "$esc" | grep -q 'AskUserQuestion' && ok "사용자에게 선택지를 제시하도록 안내" || no "선택지 안내"
+# 턴을 다시 열어 모델이 묻게 하든(AskUserQuestion), 출구 안전장치가 사용자에게 바로 보이든 선택지는 가야 한다.
+printf '%s' "$esc" | grep -qE 'AskUserQuestion|작업을 중단한다' && ok "사용자에게 선택지를 제시하도록 안내" || no "선택지 안내" "${esc:0:120}"
 finish
