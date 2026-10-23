@@ -104,8 +104,10 @@ mkdir -p "$DIR"/{engine/lib,engine/prompts,hooks,bin} "$ROOT/skills/dev-bounce" 
 # 세션 시작 업데이트 알림은 모델 문맥에 들어가는 노이즈였다(약 100줄, 모델이 할 일 없음). 갱신은 update-all 로 한다.
 rm -f "$DIR/scripts/update-check.sh" "$DIR/.update-check"; rmdir "$DIR/scripts" 2>/dev/null || true
 MANIFEST="[]"
-for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py \
-         engine/bouncer.sh engine/lib/common.sh engine/lib/guard.py \
+# engine/lib 는 통째로 옮긴다 — 목록을 손으로 적었다가 새 파일(match_run.py)이 빠져
+# 설치본에서 조용히 안 돌았다.
+for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py engine/bouncer.sh \
+         $(cd "$SRC" && ls engine/lib/*.sh engine/lib/*.py) \
          hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
          hooks/stop.sh hooks/session-end.sh; do
   mkdir -p "$DIR/$(dirname "$f")"

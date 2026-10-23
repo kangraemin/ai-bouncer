@@ -79,6 +79,11 @@ grep -q 'ai-bouncer:start' CLAUDE.md 2>/dev/null && ok "CLAUDE.md에 블록 추�
 [ -f .claude/ai-bouncer/.version-checked ] && no "구 .version-checked 정리" "남음" || ok "구 .version-checked 정리"
 grep -q '기존 내용' CLAUDE.md && ok "기존 내용 보존" || no "기존 내용 보존"
 
+miss=""; for f in $(cd "$R" && find engine hooks -type f \( -name '*.sh' -o -name '*.py' \) -not -path '*__pycache__*'); do
+  [ -f ".claude/ai-bouncer/$f" ] || miss="$miss $f"
+done
+[ -z "$miss" ] && ok "엔진·훅 소스 파일이 빠짐없이 설치된다" || no "설치 누락" "$miss"
+
 echo "── 재설치(멱등성) ──"
 python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=99
 printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
