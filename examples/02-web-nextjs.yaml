@@ -1,91 +1,33 @@
-# ─────────────────────────────────────────────────────────────
-# 웹 프론트엔드 (Next.js) — 자동 검증을 최대한 엔진에 맡기는 형태.
-#
-# 핵심: `run` + `blocking: true` 는 실제 종료코드로 판정하므로
-#       모델이 "테스트 통과했습니다"라고 말해도 넘어가지 못한다.
-# ─────────────────────────────────────────────────────────────
-version: 1
-base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
+# 웹 프론트엔드 (Next.js) — 검사를 run 에 맡기는 형태.
+# run 은 실제 종료코드로 판정하므로 "통과했습니다"라고 말해도 넘어가지 못한다.
+# 무거운 e2e 는 items 로 빼고, 시작할 때 사용자에게 할지 묻는다(choosable: ask).
 
 workflows:
   plan:
     label: 계획을 세우고 승인받은 뒤 구현
-    stages: [plan, implement, verify, finalize, done]
-
-  simple:
-    label: 계획 없이 바로 구현 (오타·문구 수정용)
-    stages: [implement, verify, finalize, done]
+    stages: [plan, implement, verify, finalize]
+  quick:
+    label: 오타·문구 수정 — e2e 는 AI 가 판단
+    stages: [implement, verify, finalize]
+    choosable: {verify: auto}
 
 stages:
-
   plan:
-    steps:
-      - label: 계획 승인
-        # 긴 프롬프트는 파일로 뺀다. 컴파일 시점에 내용이 json에 박히므로
-        # 런타임 파일 I/O는 없고, 이 파일만 고쳐도 재컴파일된다.
-        inject_file: prompts/plan.md
-    forbid:
-      push: true
-      reason: 계획 단계에서는 push할 수 없다.
-
+    prompt_file: prompts/plan.md
   implement:
-    steps:
-      - label: 구현
-        inject: |
-          승인된 계획의 After 코드를 그대로 구현해라.
-          범위를 임의로 넓히거나 줄이지 않는다. 끝나도 멈추지 말고 검증까지 간다.
-
-      # 타입이 깨진 채로 검증 단계에 넘어가지 못하게 한다.
-      # by 기본값은 model — 모델이 `bouncer run`으로 실행하고 출력이 스트리밍된다.
-      - label: 타입 체크
-        run: "npx tsc --noEmit"
-        timeout: 180
-        blocking: true
-    forbid:
-      push: true
-      reason: 검증 전에는 push할 수 없다.
-
+    prompt: 계획대로 구현한다.
   verify:
-    # 여기서 막히면 구현 단계로 되돌아간다.
-    on_fail: implement
-    steps:
-      - label: 린트
-        run: "npm run lint"
-        timeout: 120
-        blocking: true
-
-      - label: 유닛 테스트
-        run: "npm test -- --run"
-        timeout: 900
-        blocking: true
-
-      - label: 프로덕션 빌드
-        run: "npm run build"
-        timeout: 900
-        blocking: true
-
-      # optional: 시작할 때 "이번 작업에서 할까요?"를 묻고 답을 state.json에 기록한다.
-      # 이후에는 다시 묻지 않는다. 질문 문구는 label에서 자동 생성된다.
-      - label: e2e
-        run: "npx playwright test"
-        timeout: 1800
-        blocking: true
-        optional: true
-    forbid:
-      push: true
-      reason: 검증이 끝나기 전에는 push할 수 없다.
-
+    prompt: 타입·린트·유닛 테스트·빌드를 통과시킨다.
+    run:
+      - npx tsc --noEmit
+      - npm run lint
+      - npm test -- --run
+      - npm run build
+    choosable: ask
+    items:
+      e2e:
+        label: Playwright e2e
+        prompt: 화면 흐름이 바뀌었으면 e2e 를 돌린다.
+        run: npx playwright test
   finalize:
-    steps:
-      - label: 커밋과 푸시
-        inject: |
-          변경 파일을 개별 git add 한다 (`git add .` / `-A` 금지).
-          커밋(type 영어 + 설명 한글, 50자 이내) 후 push한다.
-
-
-  done:
-    steps:
-      - label: 완료 보고
-        inject: |
-          무엇을 바꿨는지 한 번 요약해 보고하고 멈춰라.
-          사용자 지시 없이 새 작업을 시작하지 않는다.
+    prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

@@ -1,0 +1,22 @@
+# 흐름 케이스용 — 모드 셋, 고르는 방식 셋(ask·auto·all)
+workflows:
+  main:  {label: 기본, stages: [a, b, c]}
+  auto:  {label: AI 선택, stages: [a, b, c], choosable: {b: auto}}
+  whole: {label: 전부, stages: [a, b, c], choosable: {b: all}}
+  pickc: {label: 단계 고르기, stages: [a, c, d]}
+stages:
+  a:
+    prompt_file: prompts/a.md
+    run: test -f a.done
+  b:
+    prompt: "[b] 검증"
+    choosable: ask
+    items:
+      x: {label: 엑스, prompt: "[b/x] 엑스 지시", run: test -f x.done}
+      y: {label: 와이, prompt: "[b/y] 와이 지시", run: test -f y.done}
+  c:
+    prompt: "[c] 마무리"
+    run: 'printf "%s|%s" "$BOUNCER_STAGE" "$(basename "$BOUNCER_TASK_DIR")" > env.out'
+  d:
+    prompt: "[d] 고를 수 있는 단계"
+    choosable: ask

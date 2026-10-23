@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# 전체 테스트 실행. 인자로 케이스 파일을 주면 그것만 돈다
-# (workflow.yaml 의 `run: bash tests/run-all.sh {scope}` 가 `bouncer scope` 로 적은 범위를 넘긴다).
+# 전체 테스트 실행. 인자로 케이스 파일을 주면 그것만 돈다.
+# 끝나면 .ai-bouncer/test-result 에 `fail: N` 을 남긴다 — verify run 이 이 리포트를 확인한다.
 ARGS=()
 for a in "$@"; do ARGS+=("$(cd "$(dirname "$a")" 2>/dev/null && pwd)/$(basename "$a")"); done
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# 테스트는 실제 홈을 건드리면 안 된다. worktree 는 $HOME/.ai-bouncer/ 에,
-# 런처는 $HOME/.local/bin 에 만들어진다 — 격리 없이 돌리면 매 실행마다
-# 실제 홈에 쌓인다 (감사 시점에 459개 6.6MB가 누적돼 있었다).
+# 테스트는 실제 홈을 건드리면 안 된다. 설치 e2e 는 $HOME/.claude 와 $HOME/.local/bin 에 쓴다.
 unset CLAUDE_CONFIG_DIR XDG_STATE_HOME BOUNCER_REGISTRY_DIR
 if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
   BOUNCER_TEST_HOME="$(mktemp -d)"
@@ -16,7 +14,7 @@ if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
 fi
 
 # 케이스끼리는 독립이라 병렬로 돈다 (순차로 10분 넘게 걸렸다).
-# 케이스마다 HOME 을 따로 줘서 설치 목록·worktree·런처가 서로 섞이지 않게 한다.
+# 케이스마다 HOME 을 따로 줘서 설치 목록·런처가 서로 섞이지 않게 한다.
 # 출력은 다 끝난 뒤 원래 순서대로 찍는다. 동시 실행 수는 BOUNCER_TEST_FILE_JOBS(기본 6).
 OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"; [ -n "${OWN_HOME:-}" ] && rm -rf "$BOUNCER_TEST_HOME"' EXIT
@@ -58,5 +56,9 @@ for t in $ALL; do
   [ "$rc" -eq 0 ] || failed="$failed $name"
 done
 printf '\n════════════════════════════\n총 %d 통과 / %d 실패\n' "$total_p" "$total_f"
+# 전체를 돌렸을 때만 리포트를 남긴다 — 일부만 돌린 결과로 verify 를 통과하면 안 된다.
+if [ "${#ARGS[@]}" -eq 0 ]; then
+  mkdir -p .ai-bouncer && printf 'fail: %d\npass: %d\n' "$([ -z "$failed" ] && echo "$total_f" || echo $((total_f>0?total_f:1)))" "$total_p" > .ai-bouncer/test-result
+fi
 [ -z "$failed" ] && { printf '전부 통과 ✅\n'; exit 0; }
 printf '실패한 테스트:%s\n' "$failed"; exit 1

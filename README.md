@@ -2,20 +2,45 @@
 
 # ai-bouncer
 
-**Claude Code가 개발 작업을 건너뛰지 못하게 막는 hook 엔진**
-
-계획 승인 · 검증 통과 · 커밋 — 워크플로우를 프롬프트가 아니라 **실행 결과로** 강제한다.
+**Claude Code가 개발 작업의 단계를 건너뛰지 못하게 하는 hook 엔진**
 
 </div>
+
+## 이 하네스가 하는 일
+
+1. config 안에 **모드**를 여러 개 둘 수 있다.
+2. 모드에는 plan 단계가 있는 모드도 있고, 없는 모드도 있다.
+3. 모드의 **마지막 단계까지 오지 않았으면 Stop hook에서 멈출 수 없다.**
+4. 단계마다 할 일(md 파일로도 줄 수 있다)을 수행하고, 다 끝나면 다음 단계로 넘어간다.
+5. 단계에는 **역할(prompt)과 조건(run)** 을 준다.
+
+### 고르기 (choosable)
+
+단계의 세부 항목(items)을 고르는 방식이다.
+
+| 값 | 동작 |
+|---|---|
+| `ask` | 작업을 시작할 때 **항상 사용자에게 묻는다** |
+| `auto` | **AI가** 작업 내용을 보고 고른다 |
+| `all` | 고르지 않고 **전부 넣는다** (기본) |
+
+- 고른 결과는 state.json에 적는다.
+- 고른 항목의 prompt만 주입하고, 고른 항목의 run만 검사한다.
+- items가 없는 단계를 고르게 하면, 그 단계를 할지 말지를 고른다.
+- 아무것도 고르지 않은 단계는 건너뛴다.
+- 모드마다 방식을 덮어쓸 수 있다. 같은 verify를 simple에선 묻고, supersimple에선 AI가 고르게 할 수 있다.
+
+이것 말고는 없다.
+
+<br>
+
+## 설치
 
 ```bash
 # 설치 — 엔진은 전역 한 벌, 지금 레포에도 켠다
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash
 
-# 다른 레포에 켜기 — 설정이 없는 레포는 새 세션을 시작할 때 켤지 묻는다. 직접 켜려면:
-bouncer init            # 켜지 않으려면 bouncer init --decline
-
-# 업데이트 (설정은 보존)
+# 업데이트 (레포 설정은 보존)
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s update
 
 # 삭제 — 이 레포에서 끄기 / 전역 엔진까지
@@ -23,208 +48,121 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s uninstall --global
 ```
 
-<br>
+설정이 없는 레포
+- 새 세션을 시작할 때 켤지 묻는다.
+- 켜면(`bouncer init`) 기본값을 채운 `.claude/ai-bouncer/workflow.yaml`이 생긴다.
+- 켜지 않으려면 `bouncer init --decline`을 쓴다.
 
-## 왜
-
-Claude에게 "테스트 돌려봐"라고 하면 돌린다. 대개는.
-
-문제는 **안 돌렸을 때도 돌렸다고 말한다는 것**이다. 프롬프트로 쓴 규칙은
-지켜졌는지 확인할 방법이 없고, 확인할 수 없는 규칙은 규칙이 아니다.
-
-ai-bouncer는 규칙을 **엔진이 관찰할 수 있는 사실**로 바꾼다.
-
-| 자기 보고 | ai-bouncer |
-|---|---|
-| "테스트 통과했습니다" | 엔진이 명령을 실행하고 **종료코드**를 본다 |
-| "계획을 승인받았습니다" | hook이 **ExitPlanMode 승인**을 관찰한다 |
-| "다음 단계로 넘어갑니다" | **hook만** 단계를 넘긴다. 모델은 못 넘긴다 |
+설정 파일은 있는데 단계 설정이 없는 레포
+- 새 세션을 시작할 때 기본값을 쓸지 직접 정할지 묻는다.
+- 기본값을 쓰려면 `bouncer init --defaults`를 쓴다.
 
 <br>
 
-## 어떻게 쓰나
-
-설치하면 `/dev-bounce`가 생긴다. 그냥 평소처럼 말하면 된다.
-
-```
-당신:  결제 금액 반올림이 안 돼. 고쳐줘.
-
-Claude: ❓ 어떤 모드로 진행할까요?
-           ○ plan   — 계획을 세우고 승인받은 뒤 구현
-           ○ simple — 계획 없이 바로 구현
-```
-
-이후는 엔진이 단계마다 지시를 주입한다. 조건을 못 채우면 다음 단계로 못 간다.
-
-```
-plan ──▶ implement ──▶ verify ──▶ finalize ──▶ done
- │            │           │  ▲         │
- │            │           └──┘         └── 워킹트리가 깨끗해야 통과
- │            └── push 차단        on_fail: 구현으로 반송
- └── 파일 수정 차단 · plan mode 승인 필요
-```
-
-`bouncer` 명령은 **모델이 부르는 것**이다. 사람은 대개 칠 일이 없다.
-
-막혔을 때 사람이 쓰는 것은 이 셋뿐이다:
-
-| 명령 | 언제 |
-|---|---|
-| `bouncer status` | 지금 무슨 조건에 막혀 있는지 |
-| `bouncer release [--force]` | 세션이 죽어 잠금이 남았을 때. `--force` 가 회수하고, `bouncer resume <task-id>` 로 이어받는다 |
-| `bouncer cancel` | 이 작업을 그만둔다 (기록은 남는다) |
-
-엔진이 조건을 포기하고 "이번 작업에서만 건너뛴다"를 제안하면 `bouncer skip <step-id>` 가
-열린다. 제안 전에는 거부된다 — 게이트를 처음부터 우회하는 수단이 되지 않도록.
-`bouncer workflows` 는 정의된 모드를, `bouncer check` 는 고친 yaml의 유효성을 본다.
-
-<br>
-
-## 워크플로우는 데이터다
-
-단계를 바꾸고 싶으면 `.claude/ai-bouncer/workflow.yaml` 한 파일만 고친다.
-엔진 코드는 건드리지 않는다.
+## 설정 (`.claude/ai-bouncer/workflow.yaml`)
 
 ```yaml
-workflows:
+workflows:                         # 모드. 이름·개수는 마음대로 정한다
   plan:
     label: 계획을 세우고 승인받은 뒤 구현
-    stages: [plan, implement, verify, finalize, done]
+    stages: [plan, implement, verify, finalize]
+  simple:
+    stages: [implement, verify, finalize]
+  supersimple:
+    stages: [implement, verify, finalize]
+    choosable: {verify: auto}      # 이 모드에서만 고르는 방식을 덮어쓴다
 
 stages:
+  plan:
+    prompt_file: prompts/plan.md   # 할 일을 md 파일로
+  implement:
+    prompt: 계획대로 구현한다.
   verify:
-    on_fail: implement            # 막히면 구현 단계로 되돌아간다
-    steps:
-      - label: 유닛 테스트
-        run: "npm test -- --run"
-        blocking: true            # 종료코드 0이어야 통과. 말로는 못 넘어간다
-
-      - label: e2e
-        run: "npx playwright test"
-        blocking: true
-        optional: true            # 시작할 때 할지 말지 물어본다
-
-      - label: 실기기 확인
-        inject: 시뮬레이터로 못 잡는 것을 실기기에서 확인해라.
-        blocking: true            # 실제 사용자 턴이 있어야 통과
-    forbid:
-      edit_files: true            # 수정은 구현 단계에서만
-      push: true
-      reason: 검증 단계에서는 코드를 고칠 수 없다.
+    prompt: 실제로 실행해서 확인한다.
+    run: npm run lint              # 끝내려 할 때 돈다. 전부 exit 0 이어야 다음 단계로 간다
+    choosable: ask
+    items:
+      test:   {label: 유닛 테스트, run: npm test}
+      e2e:    {label: e2e,        run: npx playwright test}
+      review: {label: 변경분 리뷰, prompt: git diff 를 끝까지 읽고 고친다.}
+  finalize:
+    prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.
 ```
 
-스테이지 키는 `steps` / `forbid` / `on_fail` 셋뿐이다.
-새 단계를 만들고 싶으면 `stages:`에 정의를 쓰고 체인 배열에 이름을 끼워넣으면 된다.
+엔진 기본값(`config/default.yaml`) 위에 덧붙는다.
+- `workflows`를 적으면 기본 모드 목록을 통째로 대신한다.
+- `stages`는 이름 단위로 교체하거나 추가한다.
+- 단계 안에서는 키 단위로, items는 id 단위로 교체한다.
 
-📖 [스키마 전체](docs/SCHEMA.md) · 🧩 [실사용 예시 6종](examples/) — 최소 · 웹 · 앱 · 백엔드 · 모노레포 · 스킬연동
-
-<br>
-
-## 통과 조건 4가지
-
-| 형태 | 판정 주체 | 모델이 위조 가능? |
-|---|---|:---:|
-| `run` + `blocking: true` | 실제 종료코드 | ❌ |
-| `inject` + `blocking: true` | 실제 사용자 턴 발생 | ❌ |
-| `blocking: plan_approved` | hook이 ExitPlanMode 승인 관찰 | ❌ |
-| `blocking: skill:<이름>` | hook이 스킬 호출 관찰 | ❌ |
-
-무엇이 "성공"인지는 셸이 정한다 — `run: "! grep -rn TODO src/"` 처럼.
-스키마에 `exit`·`stdout_matches` 같은 키를 두지 않은 이유다.
+자세한 형식은 [docs/SCHEMA.md](docs/SCHEMA.md), 예시는 [examples/](examples/)에 있다.
 
 <br>
 
-## 병렬 작업
-
-다른 세션이 이미 작업 중이면 시작이 거부된다. 같은 트리에서 둘이 돌면 충돌하니까.
-
-```bash
-bouncer start plan "hotfix" --parallel
-```
-
-별도 브랜치와 **레포 밖** worktree가 만들어지고, base 브랜치가 그 시점에 기록된다.
-끝나면 `bouncer worktree finalize`가 base로 rebase → FF 머지 → 정리한다.
-
-<br>
-
-## 옛 버전(레포별 설치)에서 올라오기
-
-`bash -s update` 한 번이면 된다. 전역 엔진을 깔고, 켠 레포마다 레포 안 엔진·훅·스킬과
-프로젝트 `settings.json`의 ai-bouncer hook을 걷어내고 `workflow.yaml`만 남긴다.
-이미 열려 있는 세션은 시작할 때 읽은 옛 hook 경로를 계속 부르므로, 그 자리에는 전역 hook으로
-넘기는 얇은 파일을 둔다(커밋 대상 아님). 정리된 파일은 레포에서 커밋하면 된다.
-
-<br>
-
-## 설계 원칙
-
-1. **워크플로우는 데이터다.** 단계 추가·삭제·순서변경은 yaml 편집으로 끝난다.
-2. **`current_stage`는 hook만 쓴다.** 모델의 `state.json` 수정은 차단된다.
-3. **자기 보고는 게이트가 아니다.** 통과 판정은 위 4가지로만 한다.
-4. **설정 파일은 하나다.** 기본값은 코드에 있어 새 설정이 생겨도 yaml을 안 고쳐도 된다.
-5. **런타임 의존성은 `jq`뿐이다.** yaml은 설치·변경 시점에 json으로 컴파일된다.
-6. **fail-open 금지.** 오타난 스테이지 이름, 없는 프롬프트 파일, 중복된 키(가드가
-   조용히 덮어써진다), 뒤로 못 가는 `on_fail` 등을 컴파일 단계에서 거부한다.
-   YAML 앵커는 pyyaml이 없는 환경에서 해석이 갈리므로 **내장 파서를 쓸 때** 거부한다.
-
-<br>
-
-## 설치되는 것
+## 흐름
 
 ```
-~/.claude/
-├── ai-bouncer/                    ← 엔진 + hook + 기본값 (전역 한 벌, 업데이트 때 통째로 교체)
-├── settings.json                  ← hook 5개 등록 (남의 hook은 건드리지 않는다)
-└── skills/dev-bounce/
-
-<레포>/
-├── .claude/ai-bouncer/
-│   ├── workflow.yaml              ← 레포 설정 (기본값과 다른 것만). 이게 있는 레포에서만 hook이 일한다
-│   └── workflow.compiled.json     ← 자동 생성 (gitignore)
-├── .ai-bouncer/                   ← 런타임 상태 (gitignore)
-└── CLAUDE.md                      ← 규칙 블록 (마커 밖 내용은 보존)
+/dev-bounce
+  └ bouncer scan            모드 목록과 고를 항목(CHOICE)
+  └ (ask 항목은 사용자에게 묻고, auto 항목은 AI가 고른다)
+  └ bouncer start <모드> <slug> --pick verify=test,review
+       → 첫 단계 prompt 주입
+  …작업…
+  Stop ─┬ 이 단계 prompt 를 아직 안 줬으면 → 주고 막는다
+        ├ run 을 돌린다. 실패하면 → 출력과 함께 막는다
+        ├ 통과하고 다음 단계가 있으면 → 넘어가고 다음 prompt 를 주며 막는다
+        └ 마지막 단계까지 통과했으면 → 끝. 이제야 멈출 수 있다
 ```
 
-그 밖에:
+무한 반복은 막는다.
+- 같은 사유로 막혔는데 그 사이 도구를 하나도 안 썼으면 놓아준다. 기다리는 중이라는 뜻이다.
+- 연속으로 `BOUNCER_MAX_CONTINUE`번(기본 10) 막으면 사용자에게 넘긴다.
 
-- `~/.local/bin/bouncer` — 셸에서 부르는 실행 파일. 전역 엔진을 실행한다.
-- `~/.local/state/ai-bouncer/` — 켠 레포 목록(`installs`)과 켜지 않기로 한 레포 목록(`declined`).
-- `~/.ai-bouncer/worktrees/<repo>/<branch>/` — 병렬 작업용 worktree.
-  레포 밖에 두는 이유는 빌드 도구가 긁지 않고 권한 프롬프트도 뜨지 않게 하기 위해서다.
+모델이 스스로 단계를 넘길 수는 없다.
+- 단계는 Stop hook만 넘긴다.
+- 상태·설정 파일(`.ai-bouncer/`, `.claude/ai-bouncer/`, `.claude/settings.json`)은 Edit·Write로 고칠 수 없다.
 
-설정이 없는 레포에서는 hook이 아무것도 하지 않는다. 새 세션을 시작할 때만 켤지 한 번 묻고,
-거절하면 그 레포에서는 다시 묻지 않는다.
+### 오래 걸리는 검사
 
-| hook | 역할 |
+run은 Stop hook 안에서 돈다. 합계 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다. 수 분 걸리는 검사는 이렇게 나눈다.
+- 모델이 직접 돌린다. 테스트가 결과 파일을 남기게 한다.
+- run에서는 결과 파일만 확인한다.
+
+```yaml
+run: "bouncer fresh .ai-bouncer/test-result && grep -qx 'fail: 0' .ai-bouncer/test-result"
+```
+
+`bouncer fresh <파일>`
+- 그 파일이 없으면 exit 2로 실패한다.
+- 작업 시작 뒤 바뀐 파일보다 오래됐어도 exit 2로 실패한다.
+- 그래서 고친 뒤 다시 돌리지 않은 옛 결과로는 통과하지 못한다.
+
+<br>
+
+## 명령
+
+| 명령 | 용도 |
 |---|---|
-| `SessionStart` | 재컴파일, 방치된 잠금 정리, 진행 중 작업 복원 |
-| `PreToolUse` | `forbid` 강제 — 타임아웃되면 차단이 안 되므로 극단적으로 가볍다 |
-| `PostToolUse` | ExitPlanMode·Skill 관찰, 읽기 전용 단계에서 Bash 가 작업 트리를 바꿨는지 감시 |
-| `PostToolUseFailure` | 실패한 Bash 도 같은 기준으로 작업 트리 감시 |
-| `UserPromptSubmit` | 사용자가 실제로 답했다는 사실만 기록 (내용은 읽지 않는다) |
-| `Stop` | **엔진 본체** — step 수행, 통과 판정, 단계 전이 |
-| `SessionEnd` | 자기 잠금만 해제 (Claude Code 기본 예산이 1.5초라 이 일만 한다) |
+| `bouncer scan` | 이 세션의 작업, 모드, 고를 항목 |
+| `bouncer start <모드> <slug> [--pick 단계=id,…]` | 작업 시작. 고르는 단계(ask·auto)는 전부 답해야 한다 |
+| `bouncer status` | 현재 단계의 지시와 검사 |
+| `bouncer cancel` | 작업 취소 |
+| `bouncer workflows` | 모드 목록 |
+| `bouncer check` | workflow.yaml 검사 |
+| `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 |
+| `bouncer init [--defaults\|--decline]` | 레포에 켜기 / 빈 설정에 기본값 채우기 / 켜지 않기 |
 
 <br>
 
-## 테스트
+## 구조
 
-```bash
-bash tests/run-all.sh
+```
+~/.claude/ai-bouncer/        전역 엔진 한 벌 (설치·업데이트가 통째로 바꾼다)
+  engine/  bouncer.sh  compile.py  init.sh  default.yaml  prompts/
+  hooks/   session-start.sh  pre-tool.sh  stop.sh  session-end.sh
+<레포>/.claude/ai-bouncer/
+  workflow.yaml              레포 설정 (커밋 대상)
+  workflow.compiled.json     기본값과 합친 결과 (세션 시작 때 다시 만든다)
+<레포>/.ai-bouncer/tasks/    작업 상태 (gitignore)
 ```
 
-케이스별로 나뉘어 있다 — plan/simple 전 구간, `on_fail` 반송, optional 건너뛰기,
-`skill:` 게이트, 무한루프 상한, 다중 세션 격리, worktree 병렬·FF 머지, `forbid` 경로
-스코프, 컴파일 거부 15종, 파서 동등성, 방치 잠금 정리, `bouncer run`, abort·재시도,
-재컴파일, Stop 재진입 가드, `on_fail` 무한 왕복 가드, 설치·제거.
-
-<br>
-
-## 요구사항
-
-`git` · `jq` · `python3` · Claude Code
-
-<div align="center">
-<br>
-<sub>MIT</sub>
-</div>
+테스트: `bash tests/run-all.sh`

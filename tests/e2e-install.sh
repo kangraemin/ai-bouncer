@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 설치 → 동작 → 제거 e2e (엔진·훅은 전역, 레포엔 설정만)
-set -uo pipefail
+set -u   # pipefail 은 끈다 — `명령 | grep -q` 가 SIGPIPE 로 오판된다
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # 실제 홈을 건드리지 않는다 (install 이 $HOME/.claude 와 $HOME/.local/bin 에 쓴다)
 unset CLAUDE_CONFIG_DIR XDG_STATE_HOME
@@ -63,7 +63,7 @@ done
 [ -z "$miss" ] && ok "엔진·훅 소스 파일이 빠짐없이 설치된다" || no "설치 누락" "$miss"
 [ -f "$HOME/.claude/skills/dev-bounce/SKILL.md" ] && ok "전역 스킬 설치" || no "전역 스킬 설치"
 [ "$(jq -r .branch "$G/installed.json")" = dev ] && ok "--branch dev 기록" || no "--branch"
-[ "$(nhooks "$GS")" = 5 ] && ok "전역 hook 5개 등록" || no "전역 hook 등록" "$(nhooks "$GS")개"
+[ "$(nhooks "$GS")" = 4 ] && ok "전역 hook 4개 등록" || no "전역 hook 등록" "$(nhooks "$GS")개"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/global.sh")] | length == 1' "$GS" >/dev/null \
   && ok "전역 settings 남의 hook 보존" || no "전역 남의 hook"
 DANGLING=0
@@ -100,7 +100,7 @@ echo "── 이중 실행 방지 ──"
 D="$(mktemp -d)"; ( cd "$D" && git init -q . && mkdir -p .claude/ai-bouncer/hooks && printf 'version: 1\n' > .claude/ai-bouncer/workflow.yaml \
   && printf 'exit 0\n' > .claude/ai-bouncer/hooks/stop.sh \
   && printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer/hooks/stop.sh"}]}]}}' > .claude/settings.json )
-. "$G/engine/lib/common.sh"
+. "$G/engine/lib/common.sh"; set +o pipefail   # common.sh 가 다시 켠다
 bouncer_defer_to_local "$D" "$G/hooks/stop.sh" && ok "옛 로컬 hook 이 등록돼 있으면 전역 hook 은 맡긴다" || no "이중 실행"
 BOUNCER_FORWARDED=1 bouncer_defer_to_local "$D" "$G/hooks/stop.sh" && no "포워딩된 호출까지 빠짐" || ok "로컬이 넘겨준 호출은 처리한다"
 rm "$D/.claude/settings.json"
@@ -108,46 +108,71 @@ bouncer_defer_to_local "$D" "$G/hooks/stop.sh" && no "등록 없는데 빠짐" |
 rm -rf "$D"
 
 echo "── 재설치(멱등성) ──"
-python3 "$R/tests/set-settings.py" $A/workflow.yaml max_continue=99
-printf '# 사용자 수정\n' >> $A/workflow.yaml
+printf 'stages:\n  verify:\n    run: make check\n# 사용자 수정\n' >> $A/workflow.yaml
 bash "$R/install.sh" --ci >/dev/null 2>&1
-[ "$(nhooks "$GS")" = 5 ] && ok "hook 중복 안 생김" || no "hook 중복" "$(nhooks "$GS")개"
+[ "$(nhooks "$GS")" = 4 ] && ok "hook 중복 안 생김" || no "hook 중복" "$(nhooks "$GS")개"
 [ -z "$(find "$G" $A -name '__pycache__' -o -name '*.pyc' | head -1)" ] \
   && ok "바이트코드를 남기지 않는다" || no "바이트코드 잔존" "$(find "$G" $A -name '*.pyc' | head -2)"
-[ "$(jq -r '.settings.max_continue' $A/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
+[ "$(jq -r '.stages.verify.run|join(",")' $A/workflow.compiled.json)" = "make check" ] && ok "사용자 설정(run) 보존" || no "설정 보존"
 grep -q '사용자 수정' $A/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"
 [ "$(grep -c 'ai-bouncer:start' CLAUDE.md)" = 1 ] && ok "CLAUDE.md 블록 중복 안 생김" || no "블록 중복"
 [ -z "$(ls -d "$HOME/.claude/ai-bouncer".* 2>/dev/null)" ] && ok "교체용 임시 디렉토리를 남기지 않는다" || no "임시 디렉토리" "$(ls -d "$HOME/.claude/ai-bouncer".*)"
+[ -f "$G/engine/prompts/plan.md" ] && ok "기본 프롬프트 설치" || no "프롬프트 설치"
 
 echo "── 전역 설치본으로 실제 동작 ──"
 export CLAUDE_CODE_SESSION_ID=S1
-"$HOME/.local/bin/bouncer" start plan test >/dev/null 2>&1
+"$HOME/.local/bin/bouncer" start plan test >/dev/null 2>&1 && no "--pick 없이 시작됨" || ok "고르는 단계 답 없으면 거부"
+"$HOME/.local/bin/bouncer" start plan test --pick verify=test >/dev/null 2>&1
 [ "$(jq -r .current_stage .ai-bouncer/tasks/*/state.json)" = plan ] && ok "작업 시작" || no "작업 시작"
-r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$T" \
+r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Write","tool_input":{"file_path":".claude/ai-bouncer/workflow.yaml"}}' "$T" \
     | bash "$G/hooks/pre-tool.sh")
-[ -n "$r" ] && ok "전역 hook 이 차단" || no "전역 hook 차단"
-r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Bash","tool_input":{"command":"%s/engine/bouncer.sh status"}}' "$T" "$G" \
-    | bash "$G/hooks/pre-tool.sh")
-[ -z "$r" ] && ok "전역 엔진 경로로 부르는 bouncer 는 통과" || no "전역 엔진 호출 차단" "${r:0:80}"
-r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$T" \
+[ -n "$r" ] && ok "전역 hook 이 엔진 파일 편집 차단" || no "전역 hook 차단"
+r=$(printf '{"session_id":"S1","cwd":"%s","tool_name":"Write","tool_input":{"file_path":".claude/ai-bouncer/workflow.yaml"}}' "$T" \
     | bash $A/hooks/pre-tool.sh)
 [ -n "$r" ] && ok "옛 hook 자리로 불러도 전역 hook 이 차단" || no "포워더 차단"
+r=$(printf '{"session_id":"S1","cwd":"%s"}' "$T" | bash "$G/hooks/stop.sh")
+printf '%s' "$r" | jq -e '.decision == "block"' >/dev/null && ok "끝단 전에는 Stop 을 막는다" || no "Stop 차단" "${r:0:80}"
 "$HOME/.local/bin/bouncer" cancel >/dev/null 2>&1
+
+echo "── 단계 설정 없는 레포 설정: 기본값 쓸지 묻는다 ──"
+E="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$E" && git init -q . && mkdir -p .claude/ai-bouncer && printf '# 비어 있음\n' > .claude/ai-bouncer/workflow.yaml )
+printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$E" | bash "$G/hooks/session-start.sh" | grep -q 'init --defaults' \
+  && ok "단계 설정이 없으면 묻는다" || no "단계 설정 질문"
+( cd "$E" && "$HOME/.local/bin/bouncer" init --defaults --no-claude-md >/dev/null 2>&1 )
+grep -q '^workflows:' "$E/.claude/ai-bouncer/workflow.yaml" && [ -f "$E/.claude/ai-bouncer/prompts/plan.md" ] \
+  && ok "설치본 init --defaults 가 기본값·프롬프트를 채운다" || no "설치본 defaults"
+( cd "$E" && "$HOME/.local/bin/bouncer" check >/dev/null 2>&1 ) && ok "채운 기본값이 유효" || no "채운 기본값 check"
+rm -rf "$E"
+
+echo "── 옛 형식 설정은 켤 때 변환한다 ──"
+O="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$O" && git init -q . && mkdir -p .claude/ai-bouncer && cat > .claude/ai-bouncer/workflow.yaml <<'Y'
+version: 1
+settings: {max_continue: 5}
+stages:
+  verify:
+    steps:
+      - {label: 테스트, run: "npm test {scope}"}
+Y
+)
+( cd "$O" && "$HOME/.local/bin/bouncer" init --no-claude-md >/dev/null 2>&1 )
+[ "$(jq -c '.stages.verify.run' "$O/.claude/ai-bouncer/workflow.compiled.json" 2>/dev/null)" = '["npm test"]' ] \
+  && ok "옛 run 은 살리고 변환" || no "옛 형식 변환" "$(cat "$O/.claude/ai-bouncer/workflow.yaml")"
+rm -rf "$O"
 
 echo "── 설정 없는 레포: 세션 시작 때 켤지 묻는다 ──"
 N="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$N" && git init -q . )
 ss(){ printf '{"session_id":"S9","cwd":"%s","source":"%s"}' "$N" "$1" | bash "$G/hooks/session-start.sh"; }
 ss startup | grep -q 'bouncer init' && ok "새 세션 시작 때 묻는다" || no "질문 없음"
 [ -z "$(ss resume)$(ss compact)$(ss clear)" ] && ok "resume·compact·clear 때는 묻지 않는다" || no "반복 질문"
-r=$(printf '{"session_id":"S9","cwd":"%s","tool_name":"Bash","tool_input":{"command":"git push origin main"}}' "$N" | bash "$G/hooks/pre-tool.sh")
+r=$(printf '{"session_id":"S9","cwd":"%s","tool_name":"Write","tool_input":{"file_path":".claude/ai-bouncer/x"}}' "$N" | bash "$G/hooks/pre-tool.sh")
 [ -z "$r" ] && ok "설정 없는 레포에선 hook 이 아무것도 안 한다" || no "설정 없는데 차단" "${r:0:80}"
 ( cd "$N" && "$HOME/.local/bin/bouncer" scan ) | grep -q 'bouncer init' && ok "scan 이 설정 없음을 알린다" || no "scan 안내 없음"
 ( cd "$N" && "$HOME/.local/bin/bouncer" init --decline >/dev/null 2>&1 )
 [ -z "$(ss startup)" ] && ok "거절하면 다시 묻지 않는다" || no "거절 후 또 물음"
 [ -e "$N/.claude" ] && no "거절인데 파일 생김" || ok "거절은 레포에 아무것도 만들지 않는다"
 ( cd "$N" && "$HOME/.local/bin/bouncer" init >/dev/null 2>&1 )
-[ -f "$N/.claude/ai-bouncer/workflow.yaml" ] && [ -f "$N/.claude/ai-bouncer/workflow.compiled.json" ] \
-  && ok "bouncer init 으로 켠다" || no "init"
+[ -f "$N/.claude/ai-bouncer/workflow.compiled.json" ] && grep -q '^workflows:' "$N/.claude/ai-bouncer/workflow.yaml" \
+  && ok "bouncer init 으로 켠다 (기본값을 채운 설정)" || no "init"
 grep -qx "$N" "$HOME/.local/state/ai-bouncer/declined" && no "켠 뒤에도 거절 목록에 남음" || ok "켜면 거절 목록에서 뺀다"
 printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$N" | bash "$G/hooks/session-start.sh" | grep -q '/dev-bounce' \
   && ok "켠 레포에선 평소 안내" || no "켠 뒤 안내"

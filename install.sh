@@ -40,17 +40,14 @@ printf 'ai-bouncer 설치 → %s\n' "$G"
 # 통째로 갈아끼운다 — 지난 버전에만 있던 파일이 남아 돌면 안 된다.
 NEW="$G.new.$$"; rm -rf "$NEW"
 mkdir -p "$NEW/engine/lib" "$NEW/engine/prompts" "$NEW/hooks" || die "디렉토리 생성 실패"
-# engine/lib 는 통째로 옮긴다 — 목록을 손으로 적었다가 새 파일(match_run.py)이 빠져
-# 설치본에서 조용히 안 돌았다.
-for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py engine/bouncer.sh engine/init.sh \
+# engine/lib 는 통째로 옮긴다 — 목록을 손으로 적었다가 새 파일이 빠져 설치본에서 조용히 안 돈 적이 있다.
+for f in engine/compile.py engine/migrate-workflow.py engine/bouncer.sh engine/init.sh \
          $(cd "$SRC" && ls engine/lib/*.sh engine/lib/*.py) \
-         hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
-         hooks/stop.sh hooks/session-end.sh; do
+         hooks/session-start.sh hooks/pre-tool.sh hooks/stop.sh hooks/session-end.sh; do
   install -m 755 "$SRC/$f" "$NEW/$f" || { rm -rf "$NEW"; die "복사 실패: $f"; }
 done
 # 기본값은 엔진 소유 — 업데이트 때마다 덮어쓴다. 레포 workflow.yaml 은 이 위에 덧붙이는 override 만 담는다.
 install -m 644 "$SRC/config/default.yaml" "$NEW/engine/default.yaml" || die "복사 실패: default.yaml"
-install -m 644 "$SRC/config/legacy-defaults.json" "$NEW/engine/legacy-defaults.json" || die "복사 실패: legacy-defaults.json"
 for p in "$SRC"/config/prompts/*.md; do
   [ -f "$p" ] && { install -m 644 "$p" "$NEW/engine/prompts/$(basename "$p")" || die "복사 실패: $p"; }
 done
@@ -88,7 +85,6 @@ settings_path, d = sys.argv[1], sys.argv[2]
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
-    ("PostToolUse",  "ExitPlanMode|Bash",        f"{d}/hooks/post-tool.sh", 30),
     ("Stop",         None,                       f"{d}/hooks/stop.sh", 1800),
     ("SessionEnd",   None,                       f"{d}/hooks/session-end.sh", 5),
 ]

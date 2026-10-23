@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """workflow.yaml -> workflow.compiled.json
 
-기본값(엔진 소유 default.yaml) + 레포 workflow.yaml(덧붙이거나 바꾼 것만)을 병합해 컴파일한다.
-병합 규칙은 merge_raw() 위의 주석을 본다.
+기본값(엔진 소유 default.yaml) + 레포 workflow.yaml 을 병합해 컴파일한다. 둘은 같은 형식이다.
+단계는 prompt(진입 때 주입)와 run(Stop 때 실행, exit 0 이면 통과)만 가진다.
 
 hook은 컴파일 결과(json)만 읽는다. yaml 파싱은 여기서 한 번만 일어난다.
 pyyaml이 있으면 쓰고, 없으면 내장 파서로 폴백한다 (macOS 기본 python3엔 pyyaml이 없다).
@@ -122,8 +122,8 @@ def _scalar(v):
             if sep:
                 key = _scalar(k.strip())
                 if key in out:
-                    # 블록 스타일과 같은 이유로 거부한다 — forbid 를 두 번 쓰면
-                    # 뒤엣것이 이겨서 가드가 에러 없이 사라진다.
+                    # 블록 스타일과 같은 이유로 거부한다 — run 을 두 번 쓰면
+                    # 뒤엣것이 이겨서 검사가 에러 없이 사라진다.
                     raise ConfigError('중복된 키: `%s` — 같은 매핑에 두 번 있다. '
                                       '뒤엣것이 앞엣것을 조용히 덮어쓰므로 거부한다.' % key)
                 out[key] = _scalar(val)
@@ -229,7 +229,7 @@ def mini_yaml(text):
             pos[0] += 1
             key = _scalar(key.strip())
             if key in out:
-                # YAML은 중복 키를 조용히 덮어쓴다. 그러면 forbid 같은 가드가
+                # YAML은 중복 키를 조용히 덮어쓴다. 그러면 run 같은 검사가
                 # 에러 없이 사라진다. 이 도구에서는 그게 최악의 실패 모드다.
                 raise ConfigError('중복된 키: `%s` — 같은 블록에 두 번 있다. '
                                   '뒤엣것이 앞엣것을 조용히 덮어쓰므로 거부한다.' % key)
@@ -283,27 +283,31 @@ def load_yaml(path, force_mini=False):
 
 
 # ─────────────────────────────────────────────────────────────
-# 스키마
+# 스키마 — 기본값(default.yaml)과 레포 workflow.yaml 이 같은 형식이다.
+#
+#   workflows:                       # 모드. 여럿 둘 수 있다
+#     <모드>: {label, stages: [단계, ...], choosable: {<단계>: ask|auto|all}}   # choosable 은 이 모드에서만 덮어쓴다
+#   stages:
+#     <단계>:
+#       prompt | prompt_file         # 이 단계에 들어오면 주입한다
+#       run: "cmd" | [cmd, ...]      # 끝내려 할 때 돈다. 전부 exit 0 이면 다음 단계
+#       items:                       # 세부 항목 (각각 label, prompt|prompt_file, run)
+#         <id>: {label, prompt, run}
+#       choosable: ask | auto | all  # 고르는 방식. items 가 있으면 항목을, 없으면 이 단계를 할지를 고른다
+#                                    #   ask  시작할 때 항상 사용자에게 묻는다
+#                                    #   auto AI 가 작업을 보고 고른다
+#                                    #   all  고르지 않고 전부 적용한다 (기본)
+#
+# 병합: 레포가 workflows 를 적으면 기본 모드 목록을 통째로 대신한다(모드 이름은 사용자가 정한다).
+#       stages 는 이름으로 교체하거나 추가하고, 단계 안에서는 키와 item 을 이름으로 교체한다.
+# 마지막 단계의 run 까지 통과하면 작업이 끝난다. 그 전에는 Stop 에서 멈출 수 없다.
 # ─────────────────────────────────────────────────────────────
 
-STAGE_KEYS = {'steps', 'forbid', 'on_fail'}
-STEP_KEYS = {'label', 'inject', 'inject_file', 'run', 'by', 'timeout', 'blocking', 'optional'}
-ENGINE_TIMEOUT_MAX = 60   # Stop hook 예산을 먹지 않게. 넘으면 by: model을 써야 한다.
-FORBID_KEYS = {'push', 'reason'}
-# 폐기된 입력. 만나면 오류 없이 버린다(예전 yaml이 계속 컴파일되도록).
-#   forbid.edit_files — plan 은 Claude Code plan mode 가 막는다.
-#   forbid.bash — 셸 명령 정규식 차단. 실사용 차단은 push 뿐이었다.
-#   blocking: plan_approved — 계획 승인은 Claude Code plan mode 가 맡는다.
-#   blocking: done — true 와 같은 뜻이 됐다(옛 이름). true 로 읽는다.
-RETIRED_FORBID = {'edit_files', 'bash'}
-RETIRED_BLOCKING = ('plan_approved',)
-
-
-def _valid_blocking(v):
-    # 파이썬에서 1 == True 라 정수 1이 조용히 통과한다. 타입을 정확히 본다.
-    if isinstance(v, bool):
-        return v is True
-    return v == 'checklist'
+ROOT_KEYS = {'version', 'workflows', 'stages'}
+STAGE_KEYS = {'prompt', 'prompt_file', 'run', 'items', 'choosable'}
+CHOOSE = ('ask', 'auto', 'all')
+ITEM_KEYS = {'label', 'prompt', 'prompt_file', 'run'}
+ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
 class ConfigError(Exception):
@@ -314,244 +318,126 @@ def _err(where, msg):
     raise ConfigError('%s: %s' % (where, msg))
 
 
-def _compile_steps(stage, items, base_dir, sources):
-    if items is None:
+def _map(where, v):
+    if v is None:
+        return {}
+    if not isinstance(v, dict):
+        _err(where, '매핑이어야 한다')
+    return v
+
+
+def _runs(where, v):
+    if v is None:
         return []
-    if not isinstance(items, list):
-        _err('stages.%s.steps' % stage, '리스트여야 한다')
+    if isinstance(v, str):
+        v = [v]
+    if not isinstance(v, list) or not all(isinstance(c, str) and c.strip() for c in v):
+        _err(where, '비어 있지 않은 명령 문자열 또는 그 리스트여야 한다')
+    return [c.strip() for c in v]
 
-    out, seen = [], set()
-    for i, item in enumerate(items):
-        where = 'stages.%s.steps[%d]' % (stage, i)
-        if not isinstance(item, dict):
-            _err(where, '매핑이어야 한다')
-        item_dir = item.get('_dir', base_dir)
-        unknown = set(item) - STEP_KEYS - {'_dir'}
+
+def _prompt(where, body, sources):
+    parts = []
+    if body.get('prompt') is not None:
+        if not isinstance(body['prompt'], str):
+            _err(where + '.prompt', '문자열이어야 한다')
+        parts.append(body['prompt'])
+    if body.get('prompt_file'):
+        path = os.path.join(body['_dir'], body['prompt_file'])
+        if not os.path.isfile(path):
+            _err(where + '.prompt_file', '프롬프트 파일이 없다: %s' % path)
+        with open(path, encoding='utf-8') as fh:
+            parts.append(fh.read())
+        sources.append(path)
+    return '\n\n'.join(p.strip() for p in parts if p and p.strip())
+
+
+def _with_dir(where, body, d):
+    """prompt_file 은 그 키를 적은 파일 기준 상대경로다. 병합 전에 출처 디렉토리를 붙여 둔다."""
+    body = dict(_map(where, body))
+    if 'prompt' in body or 'prompt_file' in body:
+        body['_dir'] = d
+    if 'items' in body:
+        body['items'] = {i: _with_dir('%s.items.%s' % (where, i), b, d)
+                         for i, b in _map(where + '.items', body['items']).items()}
+    return body
+
+
+def merge(base, base_dir, ov, ov_dir):
+    out = {'workflows': {}, 'stages': {}}
+    for raw, d, who in ((base, base_dir, '기본값'), (ov, ov_dir, 'workflow.yaml')):
+        raw = _map(who, raw)
+        unknown = set(raw) - ROOT_KEYS
         if unknown:
-            _err(where, '알 수 없는 키: %s' % ', '.join(sorted(unknown)))
-
-        kinds = [k for k in ('inject', 'inject_file', 'run') if k in item]
-        if len(kinds) != 1:
-            _err(where, 'inject / inject_file / run 중 정확히 하나여야 한다 (현재: %s)'
-                 % (', '.join(kinds) or '없음'))
-        kind = kinds[0]
-
-        blocking = item.get('blocking')
-        if isinstance(blocking, str) and blocking in RETIRED_BLOCKING:
-            blocking = None
-        elif blocking == 'done':
-            blocking = True
-        if blocking is not None and not _valid_blocking(blocking):
-            _err(where, 'blocking 값은 true / checklist 만 가능하다 (현재: %r)' % blocking)
-        if blocking != True and blocking is not None and kind == 'run':
-            _err(where, '%r는 inject 전용이다 — 도구 사용을 hook이 관찰하는 방식이라 '
-                        '셸 명령에는 적용할 수 없다' % blocking)
-
-        optional = item.get('optional', False)
-        if not isinstance(optional, bool):
-            _err(where, 'optional은 true/false여야 한다 — 질문 문구는 label에서 자동 생성된다')
-
-        label = item.get('label')
-        if optional and not label:
-            _err(where, 'optional이면 label이 필수다 — 시작 시 선택지에 표시되는 이름이다')
-        if blocking is not None and not label:
-            _err(where, 'blocking이 있으면 label이 필수다 '
-                        '(진행 상태를 위치가 아닌 이름으로 추적하므로, '
-                        'yaml을 편집해도 진행 중 작업이 깨지지 않는다)')
-        if label:
-            if label in seen:
-                _err(where, '같은 스테이지 안에 중복된 label: %r' % label)
-            seen.add(label)
-
-        step = {'id': '%s/%s' % (stage, label or i),
-                'label': label or '',
-                'blocking': blocking,
-                'optional': optional}
-
-        if kind == 'run':
-            by = item.get('by', 'model')
-            if by not in ('model', 'engine'):
-                _err(where, "by는 model 또는 engine이어야 한다 (현재: %r)" % by)
-            timeout = int(item.get('timeout', 30 if by == 'engine' else 600))
-            if by == 'engine' and timeout > ENGINE_TIMEOUT_MAX:
-                _err(where,
-                     'by: engine의 timeout은 %d초를 넘을 수 없다 (현재 %d). '
-                     '엔진은 Stop hook 안에서 실행하므로 오래 걸리면 hook이 타임아웃되고 '
-                     '판정 없이 워크플로우가 멈춘다 — `by: model`을 써라.'
-                     % (ENGINE_TIMEOUT_MAX, timeout))
-            step['kind'] = 'run'
-            step['run'] = item['run']
-            step['by'] = by
-            step['timeout'] = timeout
-        else:
-            step['kind'] = 'inject'
-            if kind == 'inject':
-                text = item['inject']
-                if not isinstance(text, str) or not text.strip():
-                    _err(where, 'inject는 비어 있지 않은 문자열이어야 한다')
-            else:
-                path = os.path.join(item_dir, item['inject_file'])
-                if not os.path.isfile(path):
-                    _err(where, '프롬프트 파일이 없다: %s' % path)
-                with open(path, encoding='utf-8') as fh:
-                    text = fh.read()
-                sources.append(path)
-                step['source'] = os.path.relpath(path, base_dir)
-            step['text'] = text.rstrip()
-            for k in ('timeout', 'by'):
-                if k in item:
-                    _err(where, '%s는 run 전용이다' % k)
-        out.append(step)
+            _err(who, '알 수 없는 최상위 키: %s (가능: workflows, stages) — 옛 형식이면 `bouncer init` 으로 변환한다'
+                 % ', '.join(sorted(unknown)))
+        # 모드 이름은 사용자가 정한다. 레포가 workflows 를 적으면 기본 모드 목록을 통째로 대신한다.
+        if raw.get('workflows') is not None:
+            out['workflows'] = dict(_map('workflows', raw['workflows']))
+        for name, body in _map('stages', raw.get('stages')).items():
+            body = _with_dir('stages.%s' % name, body, d)
+            st = out['stages'].setdefault(name, {})
+            items = dict(st.get('items') or {})
+            for i, ib in (body.pop('items', None) or {}).items():
+                items[i] = dict(items.get(i) or {}, **ib)
+            # prompt 와 prompt_file 은 한 쌍이다. 하나만 바꿔도 다른 하나가 남아 이어 붙지 않게 같이 교체한다.
+            if 'prompt' in body or 'prompt_file' in body:
+                st.pop('prompt', None); st.pop('prompt_file', None)
+            st.update(body)
+            if items:
+                st['items'] = items
     return out
 
 
-def _compile_forbid(stage, forbid):
-    empty = {'push': False, 'reason': ''}
-    if forbid is None:
-        return empty
-    if not isinstance(forbid, dict):
-        _err('stages.%s.forbid' % stage, '매핑이어야 한다')
-    unknown = set(forbid) - FORBID_KEYS - RETIRED_FORBID
-    if unknown:
-        _err('stages.%s.forbid' % stage, '알 수 없는 키: %s' % ', '.join(sorted(unknown)))
-
-    if forbid.get('push') and not forbid.get('reason'):
-        _err('stages.%s.forbid' % stage,
-             'reason이 필요하다 — 차단당한 모델에게 이유를 알려주지 않으면 헤맨다')
-
-    return {'push': bool(forbid.get('push', False)), 'reason': forbid.get('reason', '')}
-
-
-ROOT_KEYS = {'version', 'base', 'settings', 'workflows', 'stages'}
-
-# 기본값은 코드에 둔다. yaml은 덮어쓰기만 한다 —
-# 그래야 새 설정이 생겨도 기존 yaml을 고칠 필요가 없다.
-SETTINGS = {
-    'max_attempts': 3,
-    'max_continue': 10,
-    'max_loops': 3,
-    'stale_lock_hours': 12,
-}
-# 예전 yaml 에 남은 키는 오류 없이 무시한다(bouncer init 이 걷어낸다).
-#   update_check* — 세션 시작 업데이트 알림을 없앴다.
-#   update_branch / repo — 어디서도 읽지 않았다(2026-10-24 확인).
-RETIRED_SETTINGS = {'update_check', 'update_check_interval_hours', 'update_branch', 'repo'}
-
-
-# ─────────────────────────────────────────────────────────────
-# 기본값 + 레포 override 병합
-#
-# 기본값(default.yaml)은 엔진과 함께 설치되고 업데이트 때마다 덮어쓴다.
-# 레포 workflow.yaml 에는 덧붙이거나 바꾼 것만 적는다. 파일이 없거나 비어도 된다.
-#
-#   settings       키 단위로 덮는다.
-#   workflows      이름별로 병합한다. 같은 이름이면 label / stages 키 단위로 덮고, 새 이름이면 추가.
-#   stages         이름별로 병합한다. 새 이름이면 통째로 추가.
-#     steps        override 의 step 을 순서대로 적용한다:
-#                    · label 이 기본값 step 과 같으면 그 step 을 교체한다(자리 유지)
-#                    · 새 label(또는 label 없음)이면 기본값 step 들 뒤에 붙인다
-#                  `remove: [label…]` 은 기본값 step 을 지운다(교체·추가보다 먼저 적용, 없는 label 은 무시).
-#     forbid       키 단위로 덮는다(push: false 로 기본 금지를 끌 수 있다).
-#     on_fail      override 에 적혀 있으면 덮는다.
-#   루트 `base: none` 이면 기본값 없이 이 파일 하나만 쓴다(완전히 독립된 워크플로우).
-#
-# 기본값 step 의 inject_file 은 default.yaml 이 있는 디렉토리 기준, override step 은 workflow.yaml 기준이다.
-# ─────────────────────────────────────────────────────────────
-
-def _tag(steps, d):
-    out = []
-    for st in steps or []:
-        if isinstance(st, dict):
-            st = dict(st)
-            st['_dir'] = d
-        out.append(st)
-    return out
-
-
-def merge_raw(base, base_dir, ov, ov_dir):
-    """base(None 가능)와 override 를 병합한 raw 를 돌려준다. step 에는 '_dir' 가 붙는다."""
-    ov = ov or {}
-    if not isinstance(ov, dict):
-        _err('root', '최상위는 매핑이어야 한다')
-    unknown = set(ov) - ROOT_KEYS
-    if unknown:
-        _err('root', '알 수 없는 최상위 키: %s (가능: %s)'
-             % (', '.join(sorted(unknown)), ', '.join(sorted(ROOT_KEYS))))
-    if ov.get('version', 1) != 1:
-        _err('version', '지원하지 않는 버전 %r (1이어야 한다)' % ov.get('version'))
-    if base is None:
-        out = {k: v for k, v in ov.items() if k != 'base'}
-        stages = ov.get('stages')
-        if isinstance(stages, dict):
-            out['stages'] = {n: (dict(b, steps=_tag(b.get('steps'), ov_dir)) if isinstance(b, dict) else b)
-                             for n, b in stages.items()}
-        return out
-
-    out = {'version': 1}
-    for key in ('settings',):
-        given = ov.get(key) or {}
-        if not isinstance(given, dict):
-            _err(key, '매핑이어야 한다')
-        out[key] = dict(base.get(key) or {}, **given)
-
-    wfs = {n: dict(b or {}) for n, b in (base.get('workflows') or {}).items()}
-    given = ov.get('workflows') or {}
-    if not isinstance(given, dict):
-        _err('workflows', '매핑이어야 한다')
-    for n, b in given.items():
-        if b is not None and not isinstance(b, dict):
-            _err('workflows.%s' % n, '매핑이어야 한다')
-        wfs[n] = dict(wfs.get(n) or {}, **(b or {}))
-    out['workflows'] = wfs
-
+def compile_config(raw, sources):
     stages = {}
-    for n, b in (base.get('stages') or {}).items():
-        b = dict(b or {})
-        b['steps'] = _tag(b.get('steps'), base_dir)
-        stages[n] = b
-    given = ov.get('stages') or {}
-    if not isinstance(given, dict):
-        _err('stages', '매핑이어야 한다')
-    for n, o in given.items():
-        o = o or {}
-        if not isinstance(o, dict):
-            _err('stages.%s' % n, '매핑이어야 한다')
-        unknown = set(o) - STAGE_KEYS - {'remove'}
+    for name, body in raw['stages'].items():
+        where = 'stages.%s' % name
+        unknown = set(body) - STAGE_KEYS - {'_dir'}
         if unknown:
-            _err('stages.%s' % n, '알 수 없는 키: %s' % ', '.join(sorted(unknown)))
-        if n not in stages:
-            stages[n] = dict(o, steps=_tag(o.get('steps'), ov_dir))
-            stages[n].pop('remove', None)
-            continue
-        cur = stages[n]
-        steps = list(cur['steps'])
-        remove = o.get('remove') or []
-        if not isinstance(remove, list):
-            _err('stages.%s.remove' % n, 'label 배열이어야 한다')
-        steps = [st for st in steps if st.get('label') not in remove]
-        add = o.get('steps')
-        if add is not None and not isinstance(add, list):
-            _err('stages.%s.steps' % n, '리스트여야 한다')
-        for st in _tag(add, ov_dir):
-            if not isinstance(st, dict):
-                steps.append(st)
-                continue
-            label = st.get('label')
-            idx = next((i for i, x in enumerate(steps) if label and x.get('label') == label), None)
-            if idx is None:
-                steps.append(st)
-            else:
-                steps[idx] = st
-        cur['steps'] = steps
-        if 'forbid' in o:
-            f = o['forbid'] or {}
-            if not isinstance(f, dict):
-                _err('stages.%s.forbid' % n, '매핑이어야 한다')
-            cur['forbid'] = dict(cur.get('forbid') or {}, **f)
-        if 'on_fail' in o:
-            cur['on_fail'] = o['on_fail']
-    out['stages'] = stages
-    return out
+            _err(where, '알 수 없는 키: %s (가능: %s)' % (', '.join(sorted(unknown)), ', '.join(sorted(STAGE_KEYS))))
+        if body.get('choosable') not in (None,) + CHOOSE:
+            _err(where + '.choosable', '%s 중 하나여야 한다' % ' / '.join(CHOOSE))
+        items = []
+        for iid, ib in (body.get('items') or {}).items():
+            iw = '%s.items.%s' % (where, iid)
+            if not ID_RE.match(str(iid)):
+                _err(iw, 'id 는 영문·숫자·-·_ 만 쓴다 (bouncer start --pick 에 그대로 적는다)')
+            unknown = set(ib) - ITEM_KEYS - {'_dir'}
+            if unknown:
+                _err(iw, '알 수 없는 키: %s (가능: %s)' % (', '.join(sorted(unknown)), ', '.join(sorted(ITEM_KEYS))))
+            items.append({'id': str(iid), 'label': str(ib.get('label') or iid),
+                          'prompt': _prompt(iw, ib, sources), 'run': _runs(iw + '.run', ib.get('run'))})
+        stages[name] = {'prompt': _prompt(where, body, sources), 'run': _runs(where + '.run', body.get('run')),
+                        'choosable': body.get('choosable') or 'all', 'items': items}
+
+    if not raw['workflows']:
+        _err('workflows', '최소 1개 모드를 정의해야 한다')
+    workflows = {}
+    for wname, body in raw['workflows'].items():
+        where = 'workflows.%s' % wname
+        body = _map(where, body)
+        unknown = set(body) - {'label', 'stages', 'choosable'}
+        if unknown:
+            _err(where, '알 수 없는 키: %s (가능: label, stages, choosable)' % ', '.join(sorted(unknown)))
+        chain = body.get('stages')
+        if not isinstance(chain, list) or not chain:
+            _err(where + '.stages', '비어 있지 않은 리스트여야 한다')
+        if len(set(chain)) != len(chain):
+            _err(where + '.stages', '중복된 단계가 있다')
+        for s in chain:
+            if s not in stages:
+                _err(where + '.stages', '정의되지 않은 단계 `%s` — 오타로 단계가 조용히 사라지는 것을 막는다' % s)
+        # 모드마다 고르는 방식을 덮어쓸 수 있다 (같은 verify 도 한 모드는 묻고 다른 모드는 AI 가 고른다).
+        over = _map(where + '.choosable', body.get('choosable') or {})
+        for s, m in over.items():
+            if s not in chain:
+                _err(where + '.choosable', '`%s` 는 이 모드의 단계가 아니다' % s)
+            if m not in CHOOSE:
+                _err(where + '.choosable.' + s, '%s 중 하나여야 한다' % ' / '.join(CHOOSE))
+        workflows[wname] = {'label': str(body.get('label') or ' → '.join(chain)), 'stages': chain,
+                            'choosable': {s: over.get(s, stages[s]['choosable']) for s in chain}}
+    return {'version': 1, 'workflows': workflows, 'stages': stages}
 
 
 def find_base(engine_dir):
@@ -561,103 +447,6 @@ def find_base(engine_dir):
         if os.path.isfile(c):
             return os.path.abspath(c)
     return None
-
-
-def compile_config(raw, base_dir, sources):
-    if not isinstance(raw, dict):
-        _err('root', '최상위는 매핑이어야 한다')
-    unknown = set(raw) - ROOT_KEYS
-    if unknown:
-        _err('root', '알 수 없는 최상위 키: %s (가능: %s)'
-             % (', '.join(sorted(unknown)), ', '.join(sorted(ROOT_KEYS))))
-    if raw.get('version', 1) != 1:
-        _err('version', '지원하지 않는 버전 %r (1이어야 한다)' % raw.get('version'))
-
-    settings = dict(SETTINGS)
-    given = raw.get('settings') or {}
-    if not isinstance(given, dict):
-        _err('settings', '매핑이어야 한다')
-    given = {k: v for k, v in given.items() if k not in RETIRED_SETTINGS}
-    unknown = set(given) - set(SETTINGS)
-    if unknown:
-        _err('settings', '알 수 없는 설정: %s (가능: %s)'
-             % (', '.join(sorted(unknown)), ', '.join(sorted(SETTINGS))))
-    settings.update(given)
-
-    stages_raw = raw.get('stages')
-    if not isinstance(stages_raw, dict) or not stages_raw:
-        _err('stages', '최소 1개 스테이지를 정의해야 한다')
-
-    stages = {}
-    for name, body in stages_raw.items():
-        body = body or {}
-        if not isinstance(body, dict):
-            _err('stages.%s' % name, '매핑이어야 한다')
-        unknown = set(body) - STAGE_KEYS
-        if unknown:
-            _err('stages.%s' % name, '알 수 없는 키: %s' % ', '.join(sorted(unknown)))
-        stages[name] = {
-            'name': name,
-            'steps': _compile_steps(name, body.get('steps'), base_dir, sources),
-            'forbid': _compile_forbid(name, body.get('forbid')),
-            'on_fail': body.get('on_fail'),
-        }
-
-    workflows_raw = raw.get('workflows')
-    if not isinstance(workflows_raw, dict) or not workflows_raw:
-        _err('workflows', '최소 1개 워크플로우를 정의해야 한다')
-
-    workflows = {}
-    for wname, body in workflows_raw.items():
-        body = body or {}
-        unknown = set(body) - {'label', 'stages'}
-        if unknown:
-            _err('workflows.%s' % wname, '알 수 없는 키: %s' % ', '.join(sorted(unknown)))
-        chain = body.get('stages')
-        if not isinstance(chain, list) or not chain:
-            _err('workflows.%s.stages' % wname, '비어 있지 않은 리스트여야 한다')
-        if len(set(chain)) != len(chain):
-            _err('workflows.%s.stages' % wname, '중복된 스테이지가 있다')
-        for s in chain:
-            if s not in stages:
-                _err('workflows.%s.stages' % wname,
-                     '정의되지 않은 스테이지 `%s` — 오타로 단계가 조용히 사라지는 것을 막는다' % s)
-        if not body.get('label'):
-            _err('workflows.%s' % wname, 'label이 필요하다 — 모드 선택지에 표시된다')
-        workflows[wname] = {'label': body['label'], 'stages': chain}
-
-    # on_fail은 같은 체인의 "앞선" 스테이지만 가리킬 수 있다 (무한 전진 방지)
-    for wname, wf in workflows.items():
-        chain = wf['stages']
-        for idx, sname in enumerate(chain):
-            target = stages[sname]['on_fail']
-            if target in (None, 'abort'):
-                continue
-            if target not in chain:
-                _err('stages.%s.on_fail' % sname,
-                     '`%s`는 워크플로우 `%s`의 체인에 없다' % (target, wname))
-            if chain.index(target) >= idx:
-                _err('stages.%s.on_fail' % sname,
-                     '`%s`는 앞선 스테이지가 아니다 — 되돌아가기만 허용된다' % target)
-
-    # 종단 스테이지에 통과 조건을 걸면 작업이 영원히 안 끝나고 잠금이 남는다.
-    # 넘어갈 다음 단계가 없으므로 조건을 충족해도 갈 곳이 없기 때문이다.
-    for wname, wf in workflows.items():
-        last = wf['stages'][-1]
-        blocking = [st['label'] for st in stages[last]['steps'] if st.get('blocking')]
-        if blocking:
-            _err('stages.%s' % last,
-                 '워크플로우 `%s`의 마지막 스테이지인데 통과 조건이 걸려 있다: %s\n'
-                 '  마지막 스테이지는 넘어갈 곳이 없어서, 조건을 걸면 작업이 끝나지 않고\n'
-                 '  잠금이 남는다. 조건이 필요하면 그 앞에 스테이지를 하나 두고 거기에 걸어라.'
-                 % (wname, ', '.join(blocking)))
-
-    used = {s for w in workflows.values() for s in w['stages']}
-    orphans = sorted(set(stages) - used)
-    if orphans:
-        _err('stages', '어떤 워크플로우에도 쓰이지 않는 스테이지: %s' % ', '.join(orphans))
-
-    return {'version': 1, 'settings': settings, 'workflows': workflows, 'stages': stages}
 
 
 def main(argv):
@@ -671,25 +460,14 @@ def main(argv):
     base_dir = os.path.dirname(os.path.abspath(src))
     sources = [os.path.abspath(src)]
     try:
-        # 레포 yaml 이 없거나 비어 있으면 빈 override 다(기본값만 쓴다).
-        if os.path.isfile(src):
-            ov, parser = load_yaml(src, force_mini)
-        else:
-            ov, parser = {}, 'none'
-        ov = ov or {}
-        if not isinstance(ov, dict):
-            raise ConfigError('최상위는 매핑이어야 한다')
-        base_raw = base_path = None
-        if ov.get('base') not in (None, 'none'):
-            raise ConfigError("base 는 `none` 만 쓸 수 있다 (현재: %r)" % ov.get('base'))
-        if ov.get('base') != 'none':
-            base_path = find_base(os.path.dirname(os.path.abspath(__file__)))
-            if base_path is None:
-                raise ConfigError('엔진 기본값(default.yaml)을 찾을 수 없다 — 다시 설치하라')
-            base_raw, parser = load_yaml(base_path, force_mini)
-            sources.append(base_path)
-        merged = merge_raw(base_raw, os.path.dirname(base_path) if base_path else None, ov, base_dir)
-        compiled = compile_config(merged, base_dir, sources)
+        # 레포 yaml 이 없거나 비어 있으면 기본값만 쓴다.
+        ov, parser = load_yaml(src, force_mini) if os.path.isfile(src) else ({}, 'none')
+        base_path = find_base(os.path.dirname(os.path.abspath(__file__)))
+        if base_path is None:
+            raise ConfigError('엔진 기본값(default.yaml)을 찾을 수 없다 — 다시 설치하라')
+        base_raw, parser = load_yaml(base_path, force_mini)
+        sources.append(base_path)
+        compiled = compile_config(merge(base_raw, os.path.dirname(base_path), ov or {}, base_dir), sources)
     except ConfigError as exc:
         sys.stderr.write('ai-bouncer: workflow.yaml 오류 — %s\n' % exc)
         return 1

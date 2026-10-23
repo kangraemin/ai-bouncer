@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # bouncer init — 이 레포에 ai-bouncer 를 켠다 (레포 설정만 만든다. 엔진·훅은 전역).
 #   bouncer init                  .claude/ai-bouncer/workflow.yaml, .gitignore, CLAUDE.md 규칙 블록
+#   bouncer init --defaults       단계 설정이 없는 workflow.yaml 에 기본값(모드·단계·프롬프트)을 그대로 써 넣는다
 #   bouncer init --decline        이 레포에서는 켜지 않는다 (세션 시작 때 다시 묻지 않는다)
 #   bouncer init --no-claude-md   CLAUDE.md 는 건드리지 않는다
 #
@@ -11,13 +12,14 @@ set -uo pipefail
 _D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_D/lib/common.sh"
 
-DECLINE=0; CLAUDE_MD=1; QUIET=0
+DECLINE=0; CLAUDE_MD=1; QUIET=0; DEFAULTS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --decline)      DECLINE=1; shift ;;
+    --defaults)     DEFAULTS=1; shift ;;
     --no-claude-md) CLAUDE_MD=0; shift ;;
     --quiet)        QUIET=1; shift ;;
-    -h|--help) sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -135,34 +137,45 @@ fi
 [ "$CLEANED" -gt 0 ] && say '  옛 로컬 설치본 %d개 정리 (엔진·훅은 이제 전역)\n' "$CLEANED"
 
 # ── 2. workflow.yaml ─────────────────────────────────────────
-# 사용자 자산이다 — 기본값과 다른 것만 담는 override. 없으면 빈 것을 만든다.
-# 옛 버전이 복사해 둔 "기본값 전체 사본"은 기본값과 같은 부분을 걷어낸다(원본은 .bak).
+# 사용자 자산이다 — 기본값과 다른 것만 담는다. 없으면 주석만 있는 것을 만든다.
+# 옛 형식이면 지금 형식으로 바꾼다(원본은 .bak).
 CREATED=0
-if [ -f "$DIR/workflow.yaml" ]; then
-  # -B: compile·legacy 를 import 하므로 바이트코드를 남기지 않는다 (설치본에 .pyc 가 커밋됐다)
-  python3 -B "$_D/migrate-workflow.py" "$DIR/workflow.yaml" >/dev/null || true
-else
-  cat > "$DIR/workflow.yaml" <<'YML'
-# ai-bouncer 레포 설정 — 이 레포에서 "작업 끝"이라고 하려면 통과해야 할 검사를 적는다.
-# 단계 순서(구현 → 검증 → 마무리)와 기본 규칙은 전역 엔진에 있다. 여기엔 이 레포만 다른 것만 적는다.
-#
-# 보통은 verify 단계에 검사 명령 하나면 된다. 엔진이 직접 돌려 통과해야 끝난다:
-# stages:
-#   verify:
-#     steps:
-#       - label: 테스트
-#         run: "npm test"
-#         blocking: true
-#
-# 그 밖의 키(시작할 때 끌 수 있는 검사, 지시문 덧붙이기, 기본 step 빼기): docs/SCHEMA.md
+# 기본값을 레포 설정에 그대로 써 넣는다. 사용자가 보고 고칠 수 있게 프롬프트 md 도 옆에 복사한다.
+write_defaults() {
+  local src pdir f
+  for src in "$_D/default.yaml" "$_D/../config/default.yaml"; do [ -f "$src" ] && break; done
+  for pdir in "$_D/prompts" "$_D/../config/prompts"; do [ -d "$pdir" ] && break; done
+  [ -f "$src" ] || die "기본값(default.yaml)을 찾을 수 없다 — 다시 설치하라"
+  [ -f "$DIR/workflow.yaml" ] && cp "$DIR/workflow.yaml" "$DIR/workflow.yaml.bak"
+  { cat <<'YML'
+# ai-bouncer 레포 설정 — 기본값으로 채웠다. 이 레포에 맞게 고치면 된다.
+#   workflows.<모드>.stages   단계 순서. 모드는 여럿 둘 수 있고 이름은 마음대로 정한다
+#   stages.<단계>.prompt      그 단계에서 할 일 (prompt_file 로 md 파일도 된다)
+#   stages.<단계>.run         끝내려 할 때 도는 검사. 전부 exit 0 이어야 다음 단계로 간다
+#   stages.<단계>.items       세부 항목 {id: {label, prompt, run}}
+#   stages.<단계>.choosable   항목(없으면 단계 자체)을 고르는 방식: ask 사용자에게 묻는다 / auto AI 가 고른다 / all 전부(기본)
+# 마지막 단계까지 마치기 전에는 멈출 수 없다. 형식: docs/SCHEMA.md
 
-version: 1
 YML
+    sed -n '/^workflows:/,$p' "$src"; } > "$DIR/workflow.yaml.tmp" && mv "$DIR/workflow.yaml.tmp" "$DIR/workflow.yaml"
+  mkdir -p "$DIR/prompts"
+  for f in "$pdir"/*.md; do [ -f "$f" ] && [ ! -f "$DIR/prompts/$(basename "$f")" ] && cp "$f" "$DIR/prompts/"; done
+}
+if [ -f "$DIR/workflow.yaml" ]; then
+  # -B: compile 을 import 하므로 바이트코드를 남기지 않는다 (설치본에 .pyc 가 커밋됐다)
+  python3 -B "$_D/migrate-workflow.py" "$DIR/workflow.yaml" >/dev/null || true
+  if [ "$DEFAULTS" = 1 ]; then
+    grep -Eq '^(workflows|stages):' "$DIR/workflow.yaml" \
+      && die "이미 단계 설정이 있다: $DIR/workflow.yaml (덮어쓰지 않는다)"
+    write_defaults; say '  workflow.yaml 에 기본값을 써 넣었다\n'
+  fi
+else
+  write_defaults
   CREATED=1
 fi
 
 # ── 3. 런타임 상태를 gitignore ───────────────────────────────
-# 이게 없으면 워킹트리가 항상 더러워서 finalize 게이트가 안 열린다.
+# 이게 없으면 런타임 파일이 매번 변경분으로 뜬다.
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
   if ! grep -qxF '.ai-bouncer/' "$PROJECT/.gitignore" 2>/dev/null; then
     printf '\n# ai-bouncer 런타임 상태\n.ai-bouncer/\n' >> "$PROJECT/.gitignore"
@@ -187,10 +200,10 @@ block = """<!-- ai-bouncer:start -->
 코드 수정·기능 구현·버그 수정·리팩터링 등 **개발 작업은 `/dev-bounce`로 시작한다.**
 스킬을 거치지 않고 Edit / Write / Bash로 소스를 고치지 않는다.
 
-- 작업이 시작되면 hook이 단계별 규칙을 강제한다. 시작 전에는 아무것도 막지 않는다.
+- 작업이 시작되면 단계마다 할 일이 주입되고, 마지막 단계를 마치기 전에는 멈출 수 없다.
 - 진행 중인 작업이 있는지 `bouncer status`로 먼저 확인하고, 있으면 이어서 한다.
 - 질문·설명 요청은 해당 없다. 그냥 답하면 된다.
-- hook이 차단하면 우회하지 말고 차단 사유에 적힌 조건을 충족시켜라.
+- 막히면 우회하지 말고 사유에 적힌 검사를 통과시켜라.
 <!-- ai-bouncer:end -->"""
 s = open(p).read() if os.path.exists(p) else ""
 if "<!-- ai-bouncer:start -->" in s:
@@ -217,13 +230,13 @@ if mkdir -p "$REG_DIR" 2>/dev/null; then
 fi
 
 if [ "$CREATED" = 1 ]; then
-  say 'ai-bouncer를 켰다: %s\n  설정: %s (기본값과 다른 것만 적는다)\n' "$PROJECT" "$DIR/workflow.yaml"
+  say 'ai-bouncer를 켰다: %s\n  설정: %s (기본값으로 채웠다 — 이 레포에 맞게 고치면 된다)\n' "$PROJECT" "$DIR/workflow.yaml"
 else
   say 'ai-bouncer 설정 갱신: %s\n' "$PROJECT"
 fi
 if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1 \
    && [ -n "$(git -C "$PROJECT" status --porcelain -- .claude .gitignore CLAUDE.md 2>/dev/null)" ]; then
-  say '  커밋하라 (안 하면 첫 작업이 finalize의 "워킹트리 정리 확인"에서 막힌다):\n'
+  say '  커밋하라:\n'
   say '     git add .claude .gitignore CLAUDE.md && git commit -m "chore: ai-bouncer 설정"\n'
 fi
 exit 0

@@ -46,7 +46,7 @@ while IFS= read -r d; do
   fi
   if o="$(cd "$d" && bash "$G/engine/init.sh" --no-claude-md 2>&1)"; then
     ok=$((ok+1)); printf '  ✅ %s\n' "$d"
-    printf '%s' "$o" | grep -q '커밋하라' && { dirty=$((dirty+1)); printf '     ⚠️ 설정 변경 미커밋 — 다음 작업 finalize 전에 커밋 필요\n'; }
+    printf '%s' "$o" | grep -q '커밋하라' && { dirty=$((dirty+1)); printf '     ⚠️ 설정이 바뀌었다 — 그 레포에서 커밋하라\n'; }
   else
     fail=$((fail+1)); printf '  ❌ %s — %s\n' "$d" "$(printf '%s' "$o" | tail -1)"
   fi

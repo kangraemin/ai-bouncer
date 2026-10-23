@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse — 엔진 파일 보호, worktree 경계, 현재 스테이지의 push 금지를 강제한다.
+# PreToolUse — 엔진 파일(상태·설정·hook 등록) 직접 수정을 막고, 도구 호출 수를 센다.
 #
 # ⚠️ 매 도구 호출마다 돈다. 그리고 이 hook이 타임아웃되면 차단이 **아예 안 된다**
 #    (공식 문서: "don't count on a stalled hook to act as a gate").
@@ -73,69 +73,17 @@ if [ -z "$STAGE" ]; then
   bouncer_block "⛔ [ai-bouncer] 현재 단계를 알 수 없다. \`bouncer cancel\` 로 정리하고 다시 시작하라."
 fi
 
-# ── 엔진 전용 파일 보호 (스테이지와 무관하게 항상) ────────────
-# 이 파일들을 고치면 단계 건너뛰기나 가드 무력화가 가능해진다.
+# ── 엔진 전용 파일 보호 ───────────────────────────────────────
+# 이 파일들을 고치면 단계 건너뛰기나 hook 무력화가 가능해진다.
+case "$TOOL" in Edit|Write|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 FILE_PATH="$(jq -r '.tool_input.file_path // .tool_input.notebook_path // .tool_input.path // empty' <<<"$INPUT")"
-
-STAGE_JSON="$(bouncer_stage "$CWD" "$STAGE")"
-if [ -z "$STAGE_JSON" ]; then
-  bouncer_block "⛔ [ai-bouncer] 진행 중인 단계 '$STAGE' 가 workflow.yaml에 없다.
-작업 도중 삭제되었거나 이름이 바뀐 것으로 보인다.
-무슨 규칙을 적용해야 할지 알 수 없어 진행할 수 없다.
-
-  · workflow.yaml에서 '$STAGE' 를 되돌린다
-  · 이 작업을 포기한다: bouncer cancel"
-fi
-FORBID="$(jq -c '.forbid // {}' <<<"$STAGE_JSON")"
-REASON="$(jq -r '.reason // ""' <<<"$FORBID")"
-[ -n "$REASON" ] || REASON="현재 단계에서 허용되지 않는 동작이다."
-deny() {
-  # 판정기가 낸 사유와 yaml의 reason 이 같은 말이면 두 번 보여주지 않는다.
-  if [ "$1" = "$REASON" ] || printf '%s' "$1" | grep -qF "$REASON"; then
-    bouncer_block "⛔ [ai-bouncer / $STAGE] $1"
-  else
-    bouncer_block "⛔ [ai-bouncer / $STAGE] $1
-
-$REASON"
-  fi
-}
-
-PUSH="$(jq -r '.push' <<<"$FORBID")"
-
-# `python3 -S` 로 site 초기화를 건너뛴다 — 표준 라이브러리만 쓰는데
-# Homebrew python 은 site 처리에 기동 시간 대부분(약 230ms → 50ms)을 썼다.
+[ -n "$FILE_PATH" ] || exit 0
+# `python3 -S` 로 site 초기화를 건너뛴다 — Homebrew python 은 기동 시간 대부분(약 230ms → 50ms)을 썼다.
 GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
-# 상대화 기준은 세션 cwd가 아니라 프로젝트 루트다.
-ROOT="$(bouncer_project_root "$CWD")"
-WT="$(bouncer_state "$TASK" '.worktree.path')"
-[ "$(bouncer_state "$TASK" '.work_root')" = "$WT" ] || WT=""
-
-# 단계별 파일 수정 금지(edit_files)·명령 패턴 금지는 지웠다 — plan 은 Claude Code plan 모드가,
-# 검증 단계 쓰기는 증거 무효화(코드 지문)가 맡는다. 남은 것은 엔진 파일 직접 수정,
-# worktree 밖 수정, push 다.
-case "$TOOL" in
-  Edit|Write|MultiEdit|NotebookEdit)
-    [ -n "$FILE_PATH" ] || exit 0
-    if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
-      deny "경로 판정기를 사용할 수 없다 ($GUARD). 설치가 손상됐을 수 있다 — 다시 설치하라."
-    fi
-    R="$(python3 -S "$GUARD" --check-path "$ROOT" "$FILE_PATH" "$CWD" "$WT" 2>/dev/null)" \
-      || deny "경로 판정 중 오류가 발생했다. 안전을 위해 차단한다."
-    [ -n "$R" ] && deny "$R"
-    exit 0 ;;
-
-  Bash)
-    CMD="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
-    [ -n "$CMD" ] || exit 0
-    [ "$PUSH" = "true" ] || [ -n "$WT" ] || exit 0
-    # 정규식으로는 `bouncer status && git push` 같은 체인을 못 본다 —
-    # 명령을 세그먼트로 쪼개고 실행 파일 이름을 정규화해서 판정한다.
-    if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
-      deny "명령 판정기를 사용할 수 없다 ($GUARD). 설치가 손상됐을 수 있다 — 다시 설치하라."
-    fi
-    VERDICT="$(printf '%s' "$CMD" | python3 -S "$GUARD" "$PUSH" "$ROOT" "$WT" "$CWD" 2>/dev/null)" \
-      || deny "명령 판정 중 오류가 발생했다. 안전을 위해 차단한다."
-    [ -n "$VERDICT" ] && deny "$VERDICT"
-    exit 0 ;;
-esac
+if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
+  bouncer_block "⛔ [ai-bouncer / $STAGE] 경로 판정기를 사용할 수 없다 ($GUARD). 설치가 손상됐을 수 있다 — 다시 설치하라."
+fi
+R="$(python3 -S "$GUARD" --check-path "$(bouncer_project_root "$CWD")" "$FILE_PATH" "$CWD" 2>/dev/null)" \
+  || bouncer_block "⛔ [ai-bouncer / $STAGE] 경로 판정 중 오류가 발생했다. 안전을 위해 차단한다."
+[ -n "$R" ] && bouncer_block "⛔ [ai-bouncer / $STAGE] $R"
 exit 0

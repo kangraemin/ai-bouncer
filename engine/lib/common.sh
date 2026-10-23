@@ -12,41 +12,10 @@ set -uo pipefail
 #   ~/.claude/ai-bouncer/            엔진 + 훅 (전역)
 #   <프로젝트>/.claude/ai-bouncer/   설정 (workflow.yaml)
 #   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
-# 설치 지점을 현재 위치에서 위로 올라가며 찾는다.
-# 하위 디렉토리나 worktree에서 실행하면 작업이 사라진 것처럼 보이던 원인이다.
-# 병렬 작업용 worktree 안에서도 **메인 레포**를 프로젝트로 본다.
-# worktree에는 .claude/ai-bouncer/ 가 git으로 딸려오므로, 위로 올라가는 탐색만 하면
-# worktree 자신을 프로젝트로 판정하고 거기 .ai-bouncer/tasks 가 비어 있어
-# 모든 hook이 조용히 무관여가 된다 (push 통과, Stop 무출력).
-# git-common-dir 은 worktree에서도 메인 레포의 .git 을 가리킨다.
-bouncer_main_root() {
-  local d="${1:-$PWD}" gcd up
-  # 가장 가까운 `.git` 이 디렉토리면 그 부모가 메인 레포다 — git 을 부를 필요가 없다.
-  # hook 한 번에 이 함수가 5번 불리는데, macOS 의 /usr/bin/git 은 xcrun 래퍼라
-  # 한 번에 수십~백 ms 가 들었다. `.git` 이 파일(worktree·서브모듈)일 때만 git 에 묻는다.
-  if [ -z "${GIT_DIR:-}" ]; then
-    up="$(cd "$d" 2>/dev/null && pwd)" || return 1
-    while :; do
-      if [ -d "$up/.git" ]; then printf '%s' "$up"; return 0; fi
-      [ -e "$up/.git" ] && break
-      [ "$up" = "/" ] && return 1
-      up="$(dirname "$up")"
-    done
-  fi
-  gcd="$(git -C "$d" rev-parse --git-common-dir 2>/dev/null)" || return 1
-  [ -n "$gcd" ] || return 1
-  case "$gcd" in /*) ;; *) gcd="$(cd "$d" && cd "$gcd" 2>/dev/null && pwd)" || return 1 ;; esac
-  [ -d "$gcd" ] || return 1
-  printf '%s' "$(dirname "$gcd")"
-}
+# 설정 지점을 현재 위치에서 위로 올라가며 찾는다. 하위 디렉토리에서 실행해도 같은 작업을 본다.
 bouncer_project_root() {
-  local d="${1:-$PWD}" main
+  local d="${1:-$PWD}"
   d="$(cd "$d" 2>/dev/null && pwd)" || { printf '%s' "${1:-$PWD}"; return; }
-  # worktree라면 메인 레포로 건너뛴다. 설치가 거기 있어야 상태를 공유한다.
-  if main="$(bouncer_main_root "$d")" && [ "$main" != "$d" ] \
-     && [ -f "$main/.claude/ai-bouncer/workflow.yaml" ]; then
-    printf '%s' "$main"; return
-  fi
   while [ "$d" != "/" ]; do
     [ -f "$d/.claude/ai-bouncer/workflow.yaml" ] && { printf '%s' "$d"; return; }
     d="$(dirname "$d")"
@@ -56,7 +25,6 @@ bouncer_project_root() {
     && { printf '%s' "$d"; return; }
   printf '%s' "${1:-$PWD}"
 }
-bouncer_data_dir()      { printf '%s/.claude/ai-bouncer'                    "$(bouncer_project_root "${1:-$PWD}")"; }
 bouncer_workflow_yaml() { printf '%s/.claude/ai-bouncer/workflow.yaml'      "$(bouncer_project_root "${1:-$PWD}")"; }
 bouncer_compiled_file() { printf '%s/.claude/ai-bouncer/workflow.compiled.json' "$(bouncer_project_root "${1:-$PWD}")"; }
 bouncer_tasks_dir()     { printf '%s/.ai-bouncer/tasks'                     "$(bouncer_project_root "${1:-$PWD}")"; }
@@ -78,19 +46,6 @@ bouncer_defer_to_local() {
   grep -qs '/\.claude/ai-bouncer/hooks/' "$root/.claude/settings.json" "$root/.claude/settings.local.json"
 }
 
-# 설정은 workflow.yaml의 settings 섹션에 있고, 컴파일되어 compiled.json에 들어간다.
-# 별도 config 파일은 없다.
-bouncer_config() {
-  local key="$1" default="${2:-}" project="${3:-$PWD}" f val
-  f="$(bouncer_compiled_file "$project")"
-  [ -f "$f" ] || { printf '%s' "$default"; return; }
-  # jq 의 `//` 는 false 를 "없음" 으로 본다 — `false` 설정값이 조용히
-  # 무시됐다. choices 에서 같은 함정을 이미 고쳤는데 여기만 남아 있었다.
-  val="$(jq -r --arg k "$key" \
-    'if (.settings | has($k)) then .settings[$k] else empty end' "$f" 2>/dev/null)"
-  [ -n "${val:-}" ] && printf '%s' "$val" || printf '%s' "$default"
-}
-
 # ── 활성 태스크 ──────────────────────────────────────────────
 # 이 세션이 소유한 .active만 찾는다. 남의 것은 읽지도 건드리지도 않는다.
 bouncer_my_task() {
@@ -104,57 +59,6 @@ bouncer_my_task() {
     if [ "$owner" = "$session" ]; then dirname "$active"; return 0; fi
   done
   return 1
-}
-
-# lock의 나이(초). 하트비트는 Stop hook이 갱신한다.
-# CLI는 곧바로 종료되므로 pid로 생존을 판정할 수 없다 — 그래서 시간 기반이다.
-# 시각을 읽을 수 없는 락은 "방금 갱신됨"이 아니라 "손상됨"이다.
-# 0을 돌려주면 12시간 정리에 영원히 안 걸려 좀비 락이 된다.
-# 파일 수정 시각으로 대체하고, 그것도 안 되면 아주 오래된 것으로 취급한다.
-bouncer_lock_age() {
-  local seen now t
-  now=$(date -u +%s)
-  seen="$(jq -r '.seen_at // .claimed_at // empty' "$1" 2>/dev/null)"
-  if [ -n "$seen" ]; then
-    t=$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$seen" +%s 2>/dev/null) \
-      || t=$(date -u -d "$seen" +%s 2>/dev/null) || t=""
-  fi
-  if [ -z "${t:-}" ]; then
-    t=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null) || t=0
-  fi
-  # 미래 시각이면 시계가 어긋난 것 — 음수 대신 0으로 눕힌다
-  local age=$(( now - t )); [ "$age" -lt 0 ] && age=0
-  printf '%s' "$age"
-}
-
-# 읽을 수 없는(손상된) 락인지 — 소유자 판별이 안 되면 아무도 해제할 수 없다.
-# 이런 락은 시간과 무관하게 회수 대상이다. 안 그러면 영구 데드락이 된다.
-bouncer_lock_broken() {
-  [ -f "$1" ] || return 0
-  jq -e 'type == "object" and (.session_id | type == "string") and (.session_id | length > 0)' \
-     "$1" >/dev/null 2>&1 && return 1 || return 0
-}
-
-bouncer_touch_lock() {
-  # tmp 이름을 공유하면 동시에 도는 프로세스끼리 서로의 임시 파일을 mv 해
-  # 원본이 빈 파일로 바뀐다. 프로세스별로 다른 이름을 쓴다.
-  local f="$1/.active" tmp="$1/.active.$$.tmp"
-  [ -f "$f" ] || return 0
-  if jq --arg t "$(date -u +%FT%TZ)" '.seen_at = $t' "$f" > "$tmp" 2>/dev/null && [ -s "$tmp" ]; then
-    mv "$tmp" "$f"
-  else
-    rm -f "$tmp"
-  fi
-}
-
-# 세션 무관하게 존재하는 모든 lock (충돌 안내용).
-bouncer_live_locks() {
-  local tasks active
-  tasks="$(bouncer_tasks_dir "${1:-$PWD}")"
-  [ -d "$tasks" ] || return 0
-  for active in "$tasks"/*/.active; do
-    [ -f "$active" ] && dirname "$active"
-  done
 }
 
 # ── state.json ───────────────────────────────────────────────
@@ -192,146 +96,38 @@ bouncer_state_update() {
   return $rc
 }
 
-# 죽은 프로세스가 남긴 임시 파일을 걷어낸다. 누적되면 디렉토리가 지저분해진다.
-bouncer_sweep_tmp() {
-  local d="$1" f pid
-  for f in "$d"/.state.*.tmp "$d"/.active.*.tmp; do
-    [ -f "$f" ] || continue
-    pid="${f##*.state.}"; pid="${pid##*.active.}"; pid="${pid%%.tmp}"
-    case "$pid" in ''|*[!0-9]*) rm -f "$f"; continue ;; esac
-    kill -0 "$pid" 2>/dev/null || rm -f "$f"
-  done
-}
-
 # ── 워크플로우 정의 ──────────────────────────────────────────
-bouncer_stage()  { jq -c --arg s "$2" '.stages[$s] // empty' "$(bouncer_compiled_file "$1")" 2>/dev/null; }
 bouncer_chain()  { jq -r --arg w "$2" '.workflows[$w].stages[]? // empty' "$(bouncer_compiled_file "$1")" 2>/dev/null; }
+# 이 작업의 체인 — 시작할 때 아무것도 고르지 않은 단계는 빠져 있다.
+bouncer_task_chain() { jq -r '.chain[]? // empty' "$1/state.json" 2>/dev/null; }
 bouncer_next_stage() {
-  jq -r --arg w "$2" --arg c "$3" '
-    (.workflows[$w].stages // []) as $st
-    | ($st | index($c)) as $i
-    | if $i == null then "" else ($st[$i+1] // "") end
-  ' "$(bouncer_compiled_file "$1")" 2>/dev/null
+  jq -r --arg c "$2" '(.chain // []) as $st | ($st | index($c)) as $i
+    | if $i == null then "" else ($st[$i+1] // "") end' "$1/state.json" 2>/dev/null
 }
 bouncer_is_last_stage() {
-  jq -e --arg w "$2" --arg c "$3" '
-    (.workflows[$w].stages // []) | (index($c) != null and index($c) == (length - 1))
-  ' "$(bouncer_compiled_file "$1")" >/dev/null 2>&1
+  jq -e --arg c "$2" '(.chain // []) | (index($c) != null and index($c) == (length - 1))' "$1/state.json" >/dev/null 2>&1
+}
+# 이 작업에서 실제로 적용할 단계 내용 {prompt, run}. 시작할 때 고른 단계(state.choices 에 있는 단계)면 고른 항목만 넣는다.
+bouncer_stage_view() {
+  jq -c --arg s "$3" --slurpfile st "$2/state.json" '
+    .stages[$s] // empty | . as $x
+    | ($x.items | if ($st[0].choices // {} | has($s)) then map(select(.id as $i | $st[0].choices[$s] | index($i))) else . end) as $it
+    | {prompt: ([$x.prompt] + ($it | map(.prompt)) | map(select(. != "")) | join("\n\n")),
+       run: ($x.run + ([$it[].run[]]))}' "$(bouncer_compiled_file "$1")" 2>/dev/null
 }
 
-# 작업 트리의 "내용" 지문. status --porcelain 은 경로와 상태 문자만 주므로
-# 이미 수정된 파일을 다시 고쳐도 값이 같다 — 그걸로 비교하면 영원히 "안 바뀜"이 된다.
-# git 을 쓸 수 없으면 빈 값을 돌려준다. 호출부는 그때 비교를 건너뛴다.
-bouncer_tree_hash() {
-  local w="${1:-$PWD}"
-  git -C "$w" rev-parse --git-dir >/dev/null 2>&1 || { printf ''; return; }
-  {
-    git -C "$w" rev-parse HEAD 2>/dev/null
-    git -C "$w" diff HEAD 2>/dev/null
-    git -C "$w" ls-files -o --exclude-standard -z 2>/dev/null \
-      | xargs -0 shasum -a 256 2>/dev/null
-  } | shasum -a 256 | cut -d' ' -f1
-}
-
-# 검증 결과가 가리키는 코드 내용. 커밋해도 값이 같다(HEAD 가 아니라 tree 내용이다).
-# 검증 통과 뒤 코드를 고치고 그대로 넘어간 경우가 291번 중 5번 있었다 —
-# 통과 기록에 이 값을 같이 남기고, 달라지면 다시 돌리게 한다.
-# 추적 파일만 본다 — 추적 안 되는 테스트 산출물(리포트·스냅샷)까지 넣으면 step 둘이
-# 서로의 산출물로 서로를 무효로 만들며 끝없이 다시 돈다.
-bouncer_evidence_tree() {
-  # "<추적 파일 트리> <추적+미추적 트리>" 두 개를 남긴다. 미추적 새 파일을 커밋하면
-  # 추적 트리만으로는 "코드가 바뀌었다"가 되어 통과한 검사를 다시 돌렸다 (커밋할 때마다).
-  local task="$1" w="$2" gi idx="$1/.ev.index" u a
-  gi="$(git -C "$w" rev-parse --path-format=absolute --git-path index 2>/dev/null)" || return 0
-  [ -f "$gi" ] && cp "$gi" "$idx" 2>/dev/null || return 0
-  GIT_INDEX_FILE="$idx" git -C "$w" add -u -- ':(top)' >/dev/null 2>&1 || return 0
-  GIT_INDEX_FILE="$idx" git -C "$w" rm -r -q --cached --ignore-unmatch -- \
-    ':(top).claude' ':(top).ai-bouncer' >/dev/null 2>&1 || return 0
-  u="$(GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null)" || return 0
-  # 무시된 경로를 exclude 로 적으면 git add 가 "ignored" 오류로 실패한다 — 넣은 뒤 뺀다.
-  GIT_INDEX_FILE="$idx" git -C "$w" add -A -- ':(top)' >/dev/null 2>&1 \
-    && GIT_INDEX_FILE="$idx" git -C "$w" rm -r -q --cached --ignore-unmatch -- \
-         ':(top).claude' ':(top).ai-bouncer' >/dev/null 2>&1 \
-    && a="$(GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null)"
-  printf '%s%s' "$u" "${a:+ $a}"
-}
-
-# 통과 때 지문(EV)과 지금 지문(NOW) 사이에 내용이 바뀐 파일을 찍는다. 없으면 빈 출력.
-# 지금 추적 중인 파일이 그때(미추적 포함) 내용과 다르거나, 그때 추적하던 파일이 사라졌으면 바뀐 것이다.
-bouncer_evidence_changed() {
-  local w="$1" ev="$2" now="$3" evu eva nu
-  [ "$ev" = "$now" ] && return 0
-  evu="${ev%% *}"; eva="${ev#* }"; nu="${now%% *}"
-  if [ "$eva" = "$ev" ]; then             # 옛 기록(트리 하나)
-    git -C "$w" diff-tree -r --name-only "$evu" "$nu" 2>/dev/null || echo /
-    return 0
-  fi
-  { git -C "$w" diff-tree -r --name-only --diff-filter=ACMRTU "$eva" "$nu" 2>/dev/null || echo /
-    git -C "$w" diff-tree -r --name-only --diff-filter=D "$evu" "$nu" 2>/dev/null || echo /; } | sort -u
-}
-
-# ── 테스트만 바뀐 경우 ──────────────────────────────────────
-# 빌드·타입 검사가 통과한 뒤 테스트 파일만 고쳤는데 "코드가 바뀌었다"며 빌드를 다시
-# 돌리게 했다 (먹맵 2026-10-23). 테스트 파일만 바뀌었으면 테스트를 돌리는 step만 무효로 한다.
-bouncer_is_test_path() {
-  printf '%s' "$1" | grep -Eq '(^|/)(tests?|__tests__|e2e|spec)/|\.(test|spec)\.[A-Za-z0-9]+$|_test\.(go|py)$|(^|/)test_[^/]*\.py$'
-}
-bouncer_is_test_cmd() {
-  printf '%s' "$1" | grep -Eq 'playwright|jest|vitest|pytest|mocha|cypress|(^|[ /:])(test|e2e)([ :]|$)'
-}
-# 바뀐 파일 목록(줄 단위)이 전부 테스트 파일이면 참.
-bouncer_test_only_diff() {
-  local f any=""
-  while IFS= read -r f; do
-    [ -z "$f" ] && continue
-    any=1
-    bouncer_is_test_path "$f" || return 1
-  done <<<"$1"
-  [ -n "$any" ]
-}
-
-# ── 사용자 원문 확인 ─────────────────────────────────────────
-# 사용자가 채팅에서 직접 한 말인지 transcript 에서 확인한다. 다른 세션 메시지·훅 피드백·
-# 도구 결과는 사용자 말이 아니다 — 그걸로 게이트를 풀 수 있으면 대리 승인이 된다.
-bouncer_user_said() {
-  local sid="$1" quote="$2" tr
-  [ -n "$sid" ] && [ "${#quote}" -ge 4 ] || return 1
-  tr="$(ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
-  [ -f "$tr" ] || return 1
-  # 메시지 단위로 거른다 — 줄 단위로 거르면 다른 세션 메시지의 나머지 줄이 사용자 말로 남는다.
-  jq -r 'select(.type == "user" and (.isMeta // false | not))
-    | .message.content
-    | if type == "string" then . else (map(select(.type == "text") | .text) | join(" ")) end
-    | select(test("<cross-session-message|<system-reminder|<task-notification|<command-|^Stop hook feedback") | not)
-    | gsub("\\s+"; " ")' "$tr" 2>/dev/null \
-  | tail -200 | grep -qF -- "$(printf '%s' "$quote" | tr -s '[:space:]' ' ')"
-}
-
-# ── 실행 범위 ────────────────────────────────────────────────
-# 범위를 좁힐 수 있는 명령인가. {scope} 자리가 있거나, 연결 연산자가 없는 단일 명령이면
-# 끝에 경로를 붙일 수 있다. 먹맵 e2e(`npx playwright test --workers=1`)는 자리가 없어
-# `bouncer scope` 가 거부됐고, 무관한 기존 실패 6건 때문에 전체 e2e 를 계속 돌렸다.
-# `a && b` 처럼 이어진 명령은 끝에 붙이면 마지막 명령에만 들어가므로 자리를 요구한다.
-bouncer_scopable() {
-  case "$1" in
-    *'{scope}'*) return 0 ;;
-    *'&'*|*'|'*|*';'*|*'<'*|*'>'*|*'`'*|*'$('*|*$'\n'*) return 1 ;;
-  esac
-  [ -n "$1" ]
-}
-
-# run 명령의 {scope} 자리(없으면 끝)를 `bouncer scope` 로 적어 둔 경로로 채운다.
-# 적은 게 없으면 빈칸이 되어 전체를 돌린다. 경로는 하나씩 따옴표로 감싼다.
-bouncer_scoped_cmd() {
-  local task="$1" id="$2" cmd="$3" args="" p
-  bouncer_scopable "$cmd" || { printf '%s' "$cmd"; return 0; }
-  while IFS= read -r p; do
-    [ -n "$p" ] && args="$args $(printf '%q' "$p")"
-  done < <(jq -r --arg k "$id" '(.scope[$k] // [])[]' "$task/state.json" 2>/dev/null)
-  case "$cmd" in
-    *'{scope}'*) printf '%s' "${cmd//\{scope\}/${args# }}" ;;
-    *) printf '%s%s' "$cmd" "$args" ;;
-  esac
+# timeout 명령이 없는 맥에서도 쓸 수 있게 직접 감시한다. 시간을 넘기면 124.
+bouncer_run_timeout() {
+  local secs="$1"; shift
+  "$@" & local pid=$! waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$((secs * 5))" ]; then
+      pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null; return 124
+    fi
+    sleep 0.2; waited=$((waited + 1))
+  done
+  wait "$pid"
 }
 
 # ── hook 출력 ────────────────────────────────────────────────

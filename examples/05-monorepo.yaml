@@ -1,75 +1,29 @@
-# ─────────────────────────────────────────────────────────────
 # 모노레포 — 어느 패키지를 검증할지 시작할 때 고르는 형태.
-#
-# `${패키지}` 같은 변수 치환은 일부러 없다. 모델이 제어하는 문자열이
-# 셸 명령이 되면 강제 도구가 자기 게이트에 인젝션 구멍을 내는 셈이라,
-# 명령은 전부 yaml에 고정하고 optional로 켜고 끈다.
-# ─────────────────────────────────────────────────────────────
-version: 1
-base: none        # 기본값 없이 이 파일 하나로 완결된 워크플로우
+# 패키지 이름을 명령에 끼워 넣는 변수 치환은 없다. 모델이 정한 문자열이 셸 명령이 되면 안 된다.
+# 명령은 전부 yaml 에 고정하고 items 로 고른다.
+#   plan 모드: 사용자에게 묻는다 / quick 모드: AI 가 바뀐 패키지를 보고 고른다
 
 workflows:
   plan:
     label: 계획을 세우고 승인받은 뒤 구현
-    stages: [plan, implement, verify, finalize, done]
+    stages: [plan, implement, verify, finalize]
+  quick:
+    label: 계획 없이 — 검증할 패키지는 AI 가 고른다
+    stages: [implement, verify, finalize]
+    choosable: {verify: auto}
 
 stages:
-
   plan:
-    steps:
-      - label: 계획 승인
-        inject: |
-          계획 단계다. EnterPlanMode 먼저.
-          어느 패키지가 영향을 받는지, 패키지 간 의존이 있는지 명시해라.
-    forbid:
-      push: true
-      reason: 계획 단계에서는 push할 수 없다.
-
+    prompt_file: prompts/plan.md
   implement:
-    steps:
-      - label: 구현
-        inject: 계획대로 구현해라.
-    forbid:
-      push: true
-      reason: 검증 전 push 금지.
-
+    prompt: 계획대로 구현한다.
   verify:
-    on_fail: implement
-    steps:
-      # 루트 검증은 항상 실행
-      - label: 전체 타입 체크
-        run: "pnpm -r typecheck"
-        timeout: 600
-        blocking: true
-
-      # 패키지별 검증은 시작할 때 골라서 켠다
-      - label: api 패키지
-        run: "pnpm --filter @app/api test"
-        timeout: 600
-        blocking: true
-        optional: true
-
-      - label: web 패키지
-        run: "pnpm --filter @app/web test"
-        timeout: 600
-        blocking: true
-        optional: true
-
-      - label: shared 패키지
-        run: "pnpm --filter @app/shared test"
-        timeout: 600
-        blocking: true
-        optional: true
-    forbid:
-      push: true
-      reason: 검증 전 push 금지.
-
+    prompt: 전체 타입 체크를 통과시킨다.
+    run: pnpm -r typecheck
+    choosable: ask
+    items:
+      api:    {label: api 패키지,    run: pnpm --filter @app/api test}
+      web:    {label: web 패키지,    run: pnpm --filter @app/web test}
+      shared: {label: shared 패키지, run: pnpm --filter @app/shared test}
   finalize:
-    steps:
-      - label: 커밋과 푸시
-        inject: 변경 파일을 개별 add → 커밋 → push.
-
-  done:
-    steps:
-      - label: 완료 보고
-        inject: 요약해 보고하고 멈춰라.
+    prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

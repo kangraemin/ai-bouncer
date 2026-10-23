@@ -138,15 +138,4 @@ done
 [ -f "$SETTINGS" ] && [ "$(jq -c . "$SETTINGS" 2>/dev/null)" = "{}" ] && rm -f "$SETTINGS"
 rmdir "$ROOT/skills" "$ROOT" 2>/dev/null
 
-# 이 레포용 worktree 디렉토리 잔재 정리. 살아 있는 worktree는 건드리지 않는다.
-WT_DIR="$HOME/.ai-bouncer/worktrees/$(basename "$PWD")"
-if [ -d "$WT_DIR" ]; then
-  if rmdir "$WT_DIR" 2>/dev/null; then
-    printf '  빈 worktree 디렉토리 제거\n'
-    rmdir "$HOME/.ai-bouncer/worktrees" "$HOME/.ai-bouncer" 2>/dev/null
-  else
-    printf '  ⚠️ 아직 남아 있는 병렬 작업 worktree: %s\n' "$WT_DIR"
-    printf '     정리하려면: git worktree list 로 확인 후 git worktree remove\n'
-  fi
-fi
 printf '\n제거 완료. (전역 엔진은 다른 레포가 쓴다 — 지우려면 --global)\n'

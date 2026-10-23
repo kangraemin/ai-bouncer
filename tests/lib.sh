@@ -1,5 +1,7 @@
 # 케이스 e2e 공용 헬퍼
-set -uo pipefail
+# pipefail 은 켜지 않는다 — `명령 | grep -q` 에서 grep 이 먼저 끝나면 앞 명령이 SIGPIPE 로 죽어
+# 맞는 결과도 실패로 잡힌다.
+set -u
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PASS=0; FAIL=0
 ok(){ printf '  ✅ %s\n' "$1"; PASS=$((PASS+1)); }
@@ -46,42 +48,38 @@ group(){
 }
 
 # setup <workflow.yaml 경로> [프롬프트디렉토리]
+# 레포 설정을 깔고 커밋한 임시 git 레포로 들어간다. 엔진 기본값(config/default.yaml)과 합쳐 컴파일된다.
 setup() {
   # 케이스를 단독 실행할 때도 실제 홈을 건드리지 않는다
   if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
     BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"
   fi
+  export BOUNCER_MAX_CONTINUE=3
+  unset CLAUDE_CODE_SESSION_ID
   T="$(mktemp -d)"; cd "$T"
   git init -q .; git config user.email t@t; git config user.name t
   echo hello > app.js; git add app.js; git commit -qm init
   printf '.ai-bouncer/\n' > .gitignore
   mkdir -p .claude/ai-bouncer/prompts
   cp "$1" .claude/ai-bouncer/workflow.yaml
-  # 픽스처는 기본값과 합치지 않는 독립 워크플로우다 (기본값 사본인 config/default.yaml 만 예외)
-  case "$(basename "$1")" in default.yaml) ;; *)
-    /usr/bin/grep -q '^base:' .claude/ai-bouncer/workflow.yaml \
-      || sed -i '' 's/^version: 1$/version: 1\nbase: none/' .claude/ai-bouncer/workflow.yaml ;; esac
   [ -n "${2:-}" ] && cp "$2"/*.md .claude/ai-bouncer/prompts/ 2>/dev/null
-  # 설정은 yaml의 settings 섹션에 넣는다 (별도 config 파일 없음)
-  python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=3 max_attempts=2
   printf 'workflow.compiled.json\n' > .claude/ai-bouncer/.gitignore
-  python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml \
-          .claude/ai-bouncer/workflow.compiled.json >/dev/null || return 1
+  compile || return 1
   git add .gitignore .claude && git commit -qm cfg
 }
+compile(){ python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null; }
 cleanup(){ cd /; rm -rf "$T"; }
 
 bouncer(){ bash "$R/engine/bouncer.sh" "$@"; }
-# 실패로 끝나는 명령의 출력을 검사할 때 쓴다 (pipefail 때문에 파이프로 못 씀)
-says(){ local pat="$1"; shift; local o; o="$("$@" 2>&1 || true)"; printf '%s' "$o" | grep -q "$pat"; }
+# 세션 S1 으로 부른다 (start·cancel 은 세션이 있어야 한다)
+b1(){ CLAUDE_CODE_SESSION_ID="${SID:-S1}" bash "$R/engine/bouncer.sh" "$@"; }
+# 실패로 끝나는 명령의 출력을 검사할 때 쓴다
+says(){ local pat="$1"; shift; local o; o="$("$@" 2>&1 || true)"; printf '%s' "$o" | grep -q -- "$pat"; }
 hook(){ local h="$1"; shift; printf '%s' "$1" | bash "$R/hooks/$h.sh"; }
-stop(){ hook stop "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\"}"; }
-# implement 를 넘긴다. 할 일 목록을 안 세웠으면 완료 대조는 통과한다(빈 목록 = 통과).
-pass_implement(){
-  stop >/dev/null
-}
-# 기본 verify 의 "검증 보고"는 지시만 한다 — 넘길 조건이 없다. 다음 stop 이 판정한다.
-pass_verify(){ :; }
+# stop [세션] [재진입]
+stop(){ hook stop "{\"session_id\":\"${1:-S1}\",\"cwd\":\"$T\",\"stop_hook_active\":${2:-false}}"; }
+blocked(){ printf '%s' "$1" | jq -e '.decision == "block"' >/dev/null 2>&1; }
+reason(){ printf '%s' "$1" | jq -r '.reason // .hookSpecificOutput.additionalContext // empty' 2>/dev/null; }
 # 사용자가 실제로 입력한 상황을 흉내낸다.
 pre(){ hook pre-tool "{\"session_id\":\"${3:-S1}\",\"cwd\":\"$T\",\"tool_name\":\"$1\",\"tool_input\":$2}"; }
 # 가장 최근 작업 하나만 본다. 글롭으로 전부 읽으면 케이스가 쌓일수록
