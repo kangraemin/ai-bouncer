@@ -48,7 +48,7 @@ done
 grep -qxF '.ai-bouncer/' .gitignore && ok ".gitignore에 런타임 상태 추가" || no ".gitignore"
 # 설정 디렉토리 안 런타임 파일이 커밋되면 세션마다 가짜 diff가 뜬다
 BAD=0
-for f in workflow.compiled.json .update-check; do
+for f in workflow.compiled.json .update-check __pycache__/; do
   grep -qxF "$f" .claude/ai-bouncer/.gitignore || { BAD=1; printf '     ↳ %s 누락\n' "$f"; }
 done
 [ "$BAD" = 0 ] && ok "설정 디렉토리 런타임 파일 제외" || no "설정 디렉토리 gitignore" "위 항목 누락"
@@ -85,6 +85,9 @@ printf '# 사용자 수정\n' >> .claude/ai-bouncer/workflow.yaml
 bash "$R/install.sh" --ci >/dev/null 2>&1
 n=$(jq '[.hooks | to_entries[] | .value[] | .hooks[] | select(.command | contains("ai-bouncer"))] | length' .claude/settings.json)
 [ "$n" = 5 ] && ok "hook 중복 안 생김" || no "hook 중복" "$n개"
+# 재설치는 workflow.yaml 마이그레이션(compile·legacy import)을 거친다 — 바이트코드가 커밋되면 안 된다
+[ -z "$(find .claude/ai-bouncer -name '__pycache__' -o -name '*.pyc' | head -1)" ] \
+  && ok "설치본에 바이트코드를 남기지 않는다" || no "바이트코드 잔존" "$(find .claude/ai-bouncer -name '*.pyc' | head -2)"
 python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null 2>&1
 [ "$(jq -r '.settings.max_continue' .claude/ai-bouncer/workflow.compiled.json)" = 99 ] && ok "사용자 설정 보존" || no "설정 보존"
 grep -q '사용자 수정' .claude/ai-bouncer/workflow.yaml && ok "workflow.yaml 보존" || no "workflow.yaml 보존"

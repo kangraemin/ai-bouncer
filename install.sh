@@ -123,13 +123,15 @@ for p in "$SRC"/config/prompts/*.md; do
 done
 # 더는 쓰지 않는 hook(UserPromptSubmit) — 파일은 지운다. settings.json 등록은 아래 4단계가 전부 걷어내고 다시 쓴다.
 rm -f "$DIR/hooks/user-prompt.sh"
+rm -rf "$DIR/engine/__pycache__"
 install -m 644 "$SRC/skills/dev-bounce/SKILL.md" "$ROOT/skills/dev-bounce/SKILL.md" || die "스킬 복사 실패"
 MANIFEST="$(jq --arg p "$ROOT/skills/dev-bounce/SKILL.md" '. + [$p]' <<<"$MANIFEST")"
 
 # workflow.yaml 은 사용자 자산이다 — 기본값과 다른 것만 담는 override. 없으면 빈 것을 만든다.
 # 옛 버전이 복사해 둔 "기본값 전체 사본"은 기본값과 같은 부분을 걷어내 override 만 남긴다(원본은 .bak).
 if [ -f "$DIR/workflow.yaml" ]; then
-  python3 "$DIR/engine/migrate-workflow.py" "$DIR/workflow.yaml" || true
+  # -B: compile·legacy 를 import 하므로 바이트코드를 남기지 않는다 (설치본에 .pyc 가 커밋됐다)
+  python3 -B "$DIR/engine/migrate-workflow.py" "$DIR/workflow.yaml" || true
   printf '  workflow.yaml 유지 (레포별 override)\n'
 else
   cat > "$DIR/workflow.yaml" <<'YML'
@@ -273,7 +275,7 @@ if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
     printf '  .gitignore에 .ai-bouncer/ 추가\n'
   fi
   # 설정 디렉토리 안에 섞여 있는 런타임 파일들. 커밋되면 세션마다 가짜 diff가 뜬다.
-  printf 'workflow.compiled.json\n.update-check\nworkflow.yaml.bak*\n' > "$DIR/.gitignore"
+  printf 'workflow.compiled.json\n.update-check\nworkflow.yaml.bak*\n__pycache__/\n' > "$DIR/.gitignore"
 fi
 
 # ── 6. CLAUDE.md 규칙 블록 ───────────────────────────────────
