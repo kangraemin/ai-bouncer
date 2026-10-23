@@ -20,6 +20,8 @@ stages:
 Y
 setup "$FIXTURE_DIR/_ev.yaml" || exit 1
 trap 'cleanup; rm -rf "$FIXTURE_DIR"' EXIT
+python3 "$R/tests/set-settings.py" .claude/ai-bouncer/workflow.yaml max_continue=10 >/dev/null
+python3 "$R/engine/compile.py" .claude/ai-bouncer/workflow.yaml .claude/ai-bouncer/workflow.compiled.json >/dev/null
 export CLAUDE_CODE_SESSION_ID=S1
 echo ok > app.js; git add app.js; git commit -qm app
 bouncer start plan "증거" >/dev/null
@@ -32,6 +34,17 @@ echo r > report.html
 git add app.js; git commit -qm same --allow-empty
 stop >/dev/null
 [ "$(state '.evidence["verify/검사"]')" = true ] && ok "산출물·커밋으로는 무효가 안 된다" || no "오탐 무효"
+
+# 새 파일을 만들어 통과시킨 뒤 커밋해도 내용은 그대로다 (커밋마다 검사를 다시 돌렸다)
+echo new > lib.js
+bouncer run "verify/검사" >/dev/null
+git add lib.js; git commit -qm lib
+stop >/dev/null
+[ "$(state '.evidence["verify/검사"]')" = true ] && ok "새 파일을 커밋해도 무효가 안 된다" || no "커밋으로 무효"
+echo changed > lib.js
+stop >/dev/null
+[ "$(state '.evidence["verify/검사"]')" = false ] && ok "그 파일을 고치면 무효" || no "수정 놓침"
+bouncer run "verify/검사" >/dev/null
 
 # 통과 뒤 코드를 고친다
 echo 'ok // fix' > app.js

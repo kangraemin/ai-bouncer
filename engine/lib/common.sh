@@ -221,13 +221,35 @@ bouncer_tree_hash() {
 # 추적 파일만 본다 — 추적 안 되는 테스트 산출물(리포트·스냅샷)까지 넣으면 step 둘이
 # 서로의 산출물로 서로를 무효로 만들며 끝없이 다시 돈다.
 bouncer_evidence_tree() {
-  local task="$1" w="$2" gi idx="$1/.ev.index"
+  # "<추적 파일 트리> <추적+미추적 트리>" 두 개를 남긴다. 미추적 새 파일을 커밋하면
+  # 추적 트리만으로는 "코드가 바뀌었다"가 되어 통과한 검사를 다시 돌렸다 (커밋할 때마다).
+  local task="$1" w="$2" gi idx="$1/.ev.index" u a
   gi="$(git -C "$w" rev-parse --path-format=absolute --git-path index 2>/dev/null)" || return 0
   [ -f "$gi" ] && cp "$gi" "$idx" 2>/dev/null || return 0
   GIT_INDEX_FILE="$idx" git -C "$w" add -u -- ':(top)' >/dev/null 2>&1 || return 0
   GIT_INDEX_FILE="$idx" git -C "$w" rm -r -q --cached --ignore-unmatch -- \
     ':(top).claude' ':(top).ai-bouncer' >/dev/null 2>&1 || return 0
-  GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null || true
+  u="$(GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null)" || return 0
+  # 무시된 경로를 exclude 로 적으면 git add 가 "ignored" 오류로 실패한다 — 넣은 뒤 뺀다.
+  GIT_INDEX_FILE="$idx" git -C "$w" add -A -- ':(top)' >/dev/null 2>&1 \
+    && GIT_INDEX_FILE="$idx" git -C "$w" rm -r -q --cached --ignore-unmatch -- \
+         ':(top).claude' ':(top).ai-bouncer' >/dev/null 2>&1 \
+    && a="$(GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null)"
+  printf '%s%s' "$u" "${a:+ $a}"
+}
+
+# 통과 때 지문(EV)과 지금 지문(NOW) 사이에 내용이 바뀐 파일을 찍는다. 없으면 빈 출력.
+# 지금 추적 중인 파일이 그때(미추적 포함) 내용과 다르거나, 그때 추적하던 파일이 사라졌으면 바뀐 것이다.
+bouncer_evidence_changed() {
+  local w="$1" ev="$2" now="$3" evu eva nu
+  [ "$ev" = "$now" ] && return 0
+  evu="${ev%% *}"; eva="${ev#* }"; nu="${now%% *}"
+  if [ "$eva" = "$ev" ]; then             # 옛 기록(트리 하나)
+    git -C "$w" diff-tree -r --name-only "$evu" "$nu" 2>/dev/null || echo /
+    return 0
+  fi
+  { git -C "$w" diff-tree -r --name-only --diff-filter=ACMRTU "$eva" "$nu" 2>/dev/null || echo /
+    git -C "$w" diff-tree -r --name-only --diff-filter=D "$evu" "$nu" 2>/dev/null || echo /; } | sort -u
 }
 
 # ── 테스트만 바뀐 경우 ──────────────────────────────────────
@@ -239,14 +261,14 @@ bouncer_is_test_path() {
 bouncer_is_test_cmd() {
   printf '%s' "$1" | grep -Eq 'playwright|jest|vitest|pytest|mocha|cypress|(^|[ /:])(test|e2e)([ :]|$)'
 }
-# 두 트리 사이에 바뀐 파일이 전부 테스트 파일이면 참.
+# 바뀐 파일 목록(줄 단위)이 전부 테스트 파일이면 참.
 bouncer_test_only_diff() {
-  local w="$1" a="$2" b="$3" f any=""
+  local f any=""
   while IFS= read -r f; do
     [ -z "$f" ] && continue
     any=1
     bouncer_is_test_path "$f" || return 1
-  done < <(git -C "$w" diff-tree -r --name-only "$a" "$b" 2>/dev/null || echo '/')
+  done <<<"$1"
   [ -n "$any" ]
 }
 

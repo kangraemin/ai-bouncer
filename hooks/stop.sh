@@ -229,9 +229,10 @@ while IFS= read -r step; do
     EV_TREE="$(jq -r --arg k "$ID" '.evidence_tree[$k] // ""' "$TASK/state.json" 2>/dev/null)"
     if [ -n "$EV_TREE" ]; then
       [ -n "${NOW_EV_TREE+x}" ] || NOW_EV_TREE="$(bouncer_evidence_tree "$TASK" "$WORK_ROOT")"
-      if [ -n "$NOW_EV_TREE" ] && [ "$NOW_EV_TREE" != "$EV_TREE" ] \
+      EV_CHANGED=""; [ -n "$NOW_EV_TREE" ] && EV_CHANGED="$(bouncer_evidence_changed "$WORK_ROOT" "$EV_TREE" "$NOW_EV_TREE")"
+      if [ -n "$EV_CHANGED" ] \
          && { bouncer_is_test_cmd "$(jq -r '.run' <<<"$step")" \
-              || ! bouncer_test_only_diff "$WORK_ROOT" "$EV_TREE" "$NOW_EV_TREE"; }; then
+              || ! bouncer_test_only_diff "$EV_CHANGED"; }; then
         # 테스트 파일만 바뀌었으면 테스트를 돌리지 않는 step(빌드·타입·린트)의 통과는 그대로 둔다.
         bouncer_state_update "$TASK" --arg k "$ID" '.evidence[$k] = false | del(.evidence_tree[$k])'
         DONE=false
@@ -297,7 +298,7 @@ while IFS= read -r step; do
       case "$RUN_FAILS" in ''|*[!0-9]*) RUN_FAILS=0 ;; esac
       FAIL_TREE="$(jq -r --arg k "$ID" '.fail_tree[$k] // ""' "$TASK/state.json" 2>/dev/null)"
       if [ "$RUN_FAILS" -gt 0 ] && [ -n "$FAIL_TREE" ] \
-         && [ "$FAIL_TREE" != "${NOW_EV_TREE:=$(bouncer_evidence_tree "$TASK" "$WORK_ROOT")}" ]; then
+         && [ -n "$(bouncer_evidence_changed "$WORK_ROOT" "$FAIL_TREE" "${NOW_EV_TREE:=$(bouncer_evidence_tree "$TASK" "$WORK_ROOT")}")" ]; then
         # 실패 뒤 이미 고쳤다. 구현 단계로 되돌리면 고칠 게 없어 헛돈다 — 다시 돌리게만 한다.
         add_failure "$LABEL — 실패 뒤 코드가 바뀌었다. 다시 실행: bouncer run '$ID' (실패한 것만: --failed)"
         add_blocking_id "$ID"
