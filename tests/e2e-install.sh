@@ -153,6 +153,14 @@ printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$N" | bash "$G/hooks
   && ok "켠 레포에선 평소 안내" || no "켠 뒤 안내"
 rm -rf "$N"
 
+echo "── 하위 프로젝트 (모노레포) ──"
+M="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$M" && git init -q . && mkdir -p web/.claude/ai-bouncer/engine \
+  && printf 'version: 1\n' > web/.claude/ai-bouncer/workflow.yaml && printf 'old\n' > web/.claude/ai-bouncer/engine/bouncer.sh )
+( cd "$M/web" && "$HOME/.local/bin/bouncer" init >/dev/null 2>&1 )
+[ -e "$M/web/.claude/ai-bouncer/engine" ] && no "하위 프로젝트 정리" "옛 엔진 남음" || ok "하위 프로젝트의 설정을 그 자리에서 정리한다"
+[ -e "$M/.claude" ] && no "루트에 설정이 새로 생김" "$(ls "$M/.claude")" || ok "루트로 건너뛰지 않는다"
+rm -rf "$M"
+
 echo "── 제거 ──"
 bash "$R/uninstall.sh" >/dev/null 2>&1 || no "제거 실행"
 jq -e '[.hooks.Stop[].hooks[] | select(.command == "/other/tool.sh")] | length == 1' .claude/settings.json >/dev/null \

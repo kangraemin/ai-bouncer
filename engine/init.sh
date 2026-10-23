@@ -25,8 +25,16 @@ die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
 say() { [ "$QUIET" = 1 ] || printf "$@"; }
 
 # git 레포 안이면 루트에 둔다. 서브디렉토리에 두면 하위에서만 켜진다.
-PROJECT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
-PROJECT="$(cd "$PROJECT" && pwd -P)"
+# 단 루트까지 올라가는 사이에 이미 설정이 있으면 그 하위 프로젝트다 (모노레포의 frontend/ 등).
+# 엔진도 가장 가까운 workflow.yaml 을 프로젝트로 보므로, 루트로 건너뛰면 그 설정은 정리되지 않는다.
+TOP="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
+TOP="$(cd "$TOP" && pwd -P)"
+PROJECT="$TOP"; d="$(pwd -P)"
+while :; do
+  [ -f "$d/.claude/ai-bouncer/workflow.yaml" ] && { PROJECT="$d"; break; }
+  [ "$d" = "$TOP" ] || [ "$d" = "/" ] && break
+  d="$(dirname "$d")"
+done
 REG_DIR="$(bouncer_registry_dir)"
 
 if [ "$DECLINE" = 1 ]; then
