@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 # ai-bouncer 부트스트랩 — 저장소를 받아 요청한 동작을 실행한다.
 #
-#   curl -fsSL <이 파일 URL> | bash              현재 프로젝트에 설치
-#   curl -fsSL <이 파일 URL> | bash -s update    이 컴퓨터에 깔린 곳 전부를 최신으로 갱신 (설정은 보존)
-#   curl -fsSL <이 파일 URL> | bash -s update --here   현재 프로젝트만 갱신
-#   curl -fsSL <이 파일 URL> | bash -s uninstall  제거
-#   curl -fsSL <이 파일 URL> | bash -s migrate    구버전(전역 설치)에서 이관
+#   curl -fsSL <이 파일 URL> | bash              전역 설치 + 현재 레포에 켜기
+#   curl -fsSL <이 파일 URL> | bash -s update    전역 엔진 갱신 + 켠 레포 전부의 설정 정리 (설정은 보존)
+#   curl -fsSL <이 파일 URL> | bash -s uninstall  현재 레포에서 끄기 (--global: 전역 엔진 제거)
 
 set -euo pipefail
 REPO="${BOUNCER_REPO:-kangraemin/ai-bouncer}"
@@ -28,13 +26,8 @@ case "$ACTION" in
   # main으로 조용히 되돌아간다.
   install) bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$? ;;
   update)
-    if [ "${1:-}" = "--here" ]; then
-      shift; bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$?
-    else
-      bash "$TMP/src/update-all.sh" --branch "$BRANCH" "$@" || rc=$?
-    fi ;;
+    bash "$TMP/src/update-all.sh" --branch "$BRANCH" "$@" || rc=$? ;;
   uninstall)      bash "$TMP/src/uninstall.sh" "$@" || rc=$? ;;
-  migrate)        bash "$TMP/src/migrate.sh" "$@" || rc=$? ;;
-  *) printf 'ai-bouncer: 알 수 없는 동작: %s (install|update|uninstall|migrate)\n' "$ACTION" >&2; rc=1 ;;
+  *) printf 'ai-bouncer: 알 수 없는 동작: %s (install|update|uninstall)\n' "$ACTION" >&2; rc=1 ;;
 esac
 exit "$rc"

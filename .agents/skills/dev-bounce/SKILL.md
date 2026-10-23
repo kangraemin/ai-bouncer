@@ -54,10 +54,13 @@ OPTION   <워크플로우> <단계> <id> <이름>       시작할 때 물어볼 
 
 **`bouncer: command not found`가 나오면** 두 가지 경우다. 먼저 구분해라:
 
-- `.claude/ai-bouncer/engine/bouncer.sh` 가 **있다** → 설치는 됐고 `~/.local/bin` 이
+- `~/.claude/ai-bouncer/engine/bouncer.sh` 가 **있다** → 설치는 됐고 `~/.local/bin` 이
   PATH에 없는 것뿐이다. 그 경로로 직접 부르고, 사용자에게 PATH 추가를 알린다.
-- **없다** → 이 프로젝트에 설치되지 않았다. 스킬을 쓰지 말고 사용자에게 알린 뒤
+- **없다** → 이 컴퓨터에 설치되지 않았다. 스킬을 쓰지 말고 사용자에게 알린 뒤
   평소대로 작업한다. 설치를 임의로 진행하지 않는다.
+
+`bouncer scan` 이 이 레포에 설정이 없다고 하면(`.claude/ai-bouncer/workflow.yaml` 없음)
+켤지 사용자에게 묻고, 켜면 `bouncer init` 뒤에 Step 1부터 다시 한다.
 
 설치돼 있는데 "설치 안 됨"으로 오진하면 워크플로우 없이 작업하게 된다.
 
@@ -172,6 +175,7 @@ Step 1에 `OTHER`가 있었으면 그냥 `start`하면 거부된다. 사용자�
 
 | 명령 | 용도 |
 |---|---|
+| `bouncer init [--decline]` | 이 레포에 켠다 (`workflow.yaml` 생성) / 켜지 않는다 (다시 묻지 않음) |
 | `bouncer scan` | 상태·모드·선택항목 (시작 전 1회) |
 | `bouncer start <모드> "<슬러그>"` | 작업 시작 |
 | `bouncer todo` | 할 일 목록 보기 (plan 모드면 승인된 계획에서 자동으로 채워진다) |

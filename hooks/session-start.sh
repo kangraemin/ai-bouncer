@@ -11,10 +11,27 @@ command -v jq >/dev/null 2>&1 || exit 0
 SESSION="$(jq -r '.session_id // empty' <<<"$INPUT" 2>/dev/null)"
 CWD="$(jq -r '.cwd // empty'            <<<"$INPUT" 2>/dev/null)"
 [ -n "$CWD" ] || CWD="$PWD"
+bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 
 YAML="$(bouncer_workflow_yaml "$CWD")"
 COMPILED="$(bouncer_compiled_file "$CWD")"
-[ -f "$YAML" ] || exit 0
+# 설정이 없는 레포 — 훅은 전역이라 모든 세션에서 뜬다. 켤지는 사용자가 정한다.
+# 묻는 건 새 세션을 시작할 때뿐이다 (resume·clear·compact 때마다 물으면 같은 질문이 반복된다).
+if [ ! -f "$YAML" ]; then
+  [ "$(jq -r '.source // empty' <<<"$INPUT" 2>/dev/null)" = startup ] || exit 0
+  TOP="$(git -C "$CWD" rev-parse --show-toplevel 2>/dev/null)" || exit 0
+  case "$TOP" in "$HOME/.ai-bouncer/"*) exit 0 ;; esac     # 병렬 작업 worktree
+  bouncer_init_declined "$TOP" && exit 0
+  cat <<EOF
+
+[ai-bouncer] 이 레포($TOP)에는 워크플로우 설정이 없어 ai-bouncer가 꺼져 있다.
+사용자의 첫 요청을 처리하기 전에 AskUserQuestion으로 한 번 물어라: "이 레포에 ai-bouncer를 켤까요?"
+- 켠다 → \`bouncer init\` (.claude/ai-bouncer/workflow.yaml 을 만든다. 커밋 대상이다)
+- 안 켠다 → \`bouncer init --decline\` (이 레포에서는 다시 묻지 않는다)
+AskUserQuestion 도구가 없는 세션(claude -p, 위임 실행)이면 묻지 말고 이 안내를 무시한다.
+EOF
+  exit 0
+fi
 
 # ── 1. 필요할 때만 재컴파일 ──────────────────────────────────
 # yaml + 참조된 프롬프트 파일 전체의 해시를 비교한다. 프롬프트만 고쳐도 반영된다.

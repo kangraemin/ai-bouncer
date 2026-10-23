@@ -5,11 +5,12 @@
 set -uo pipefail
 
 # ── 경로 ─────────────────────────────────────────────────────
-# 설치는 프로젝트별로만 한다. 전역 설치는 없다 —
-# 레포마다 워크플로우가 다른 게 정상이고, 전역을 두면 "어느 설정이 이겼나"를
-# 매번 따져야 한다. 필요해지면 그때 더한다.
+# 엔진·훅은 이 컴퓨터에 한 벌(~/.claude/ai-bouncer)이고, 레포에는 설정만 둔다.
+# 레포마다 워크플로우가 다른 건 workflow.yaml(기본값 위 override)로 표현한다.
+# workflow.yaml 이 없는 레포에서는 훅이 아무것도 하지 않는다.
 #
-#   <프로젝트>/.claude/ai-bouncer/   설정 + 엔진 (workflow.yaml, hooks, engine)
+#   ~/.claude/ai-bouncer/            엔진 + 훅 (전역)
+#   <프로젝트>/.claude/ai-bouncer/   설정 (workflow.yaml)
 #   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
 # 설치 지점을 현재 위치에서 위로 올라가며 찾는다.
 # 하위 디렉토리나 worktree에서 실행하면 작업이 사라진 것처럼 보이던 원인이다.
@@ -59,6 +60,23 @@ bouncer_data_dir()      { printf '%s/.claude/ai-bouncer'                    "$(b
 bouncer_workflow_yaml() { printf '%s/.claude/ai-bouncer/workflow.yaml'      "$(bouncer_project_root "${1:-$PWD}")"; }
 bouncer_compiled_file() { printf '%s/.claude/ai-bouncer/workflow.compiled.json' "$(bouncer_project_root "${1:-$PWD}")"; }
 bouncer_tasks_dir()     { printf '%s/.ai-bouncer/tasks'                     "$(bouncer_project_root "${1:-$PWD}")"; }
+
+# 설치 목록·거절 목록이 사는 곳.
+bouncer_registry_dir() { printf '%s' "${BOUNCER_REGISTRY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ai-bouncer}"; }
+# 사용자가 "이 레포엔 켜지 않는다"고 답했는가. 답한 레포는 세션 시작 때 다시 묻지 않는다.
+bouncer_init_declined() {
+  local f; f="$(bouncer_registry_dir)/declined"
+  [ -f "$f" ] && grep -qxF "$1" "$f"
+}
+# 이 세션이 프로젝트 settings 의 옛 로컬 훅도 같이 부르고 있으면(전역 설치 뒤, bouncer init 전) 그쪽에 맡긴다.
+# 둘 다 돌면 차단 문구·도구 카운트가 두 번씩 난다. 로컬 훅이 전역으로 넘겨준 호출(BOUNCER_FORWARDED)은 처리한다.
+bouncer_defer_to_local() {
+  [ -n "${BOUNCER_FORWARDED:-}" ] && return 1
+  local root lh; root="$(bouncer_project_root "$1")"; lh="$root/.claude/ai-bouncer/hooks"
+  [ -f "$lh/$(basename "$2")" ] || return 1
+  [ "$(cd "$lh" && pwd -P)" != "$(cd "$(dirname "$2")" && pwd -P)" ] || return 1
+  grep -qs '/\.claude/ai-bouncer/hooks/' "$root/.claude/settings.json" "$root/.claude/settings.local.json"
+}
 
 # 설정은 workflow.yaml의 settings 섹션에 있고, 컴파일되어 compiled.json에 들어간다.
 # 별도 config 파일은 없다.

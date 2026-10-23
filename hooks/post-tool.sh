@@ -17,6 +17,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 case "$TOOL" in ExitPlanMode|Bash) ;; *) exit 0 ;; esac
 
 [ -n "$CWD" ] || CWD="$PWD"
+bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 [ -n "$SESSION" ] || exit 0
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0

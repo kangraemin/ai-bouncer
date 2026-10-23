@@ -17,6 +17,7 @@ CWD="$(jq -r '.cwd // empty'        <<<"$INPUT")"
 # 이 Stop이 직전 Stop hook의 차단 때문에 재진입한 것이면 true다.
 REENTRY="$(jq -r '.stop_hook_active // false' <<<"$INPUT")"
 [ -n "$CWD" ] || CWD="$PWD"
+bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 [ -n "$SESSION" ] || exit 0
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0      # 내 작업 없으면 관여 안 함

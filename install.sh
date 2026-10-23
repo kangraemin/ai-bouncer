@@ -1,27 +1,28 @@
 #!/usr/bin/env bash
-# ai-bouncer 설치.
-#   ./install.sh                이 프로젝트에 설치 (.claude/ai-bouncer/)
+# ai-bouncer 설치 — 엔진·훅·스킬을 이 컴퓨터에 한 벌 깐다 (~/.claude/ai-bouncer).
+#   ./install.sh                전역 설치 + 지금 레포가 git 레포면 거기도 켠다 (bouncer init)
+#   ./install.sh --no-init      전역 설치만
 #   ./install.sh --ci           비대화 모드 (사실 물어보는 게 없다)
-#   ./install.sh --branch dev   업데이트 기준 브랜치 지정
-#   ./install.sh --no-claude-md CLAUDE.md에 규칙 블록을 넣지 않음
+#   ./install.sh --branch dev   업데이트 기준 브랜치 기록
+#   ./install.sh --no-claude-md bouncer init 이 CLAUDE.md 에 규칙 블록을 넣지 않음
 #
-# 설치는 프로젝트별로만 한다. 전역 설치는 지원하지 않는다.
+# 레포에는 설정(.claude/ai-bouncer/workflow.yaml)만 둔다. 설정이 없는 레포에선 훅이 아무것도 안 하고,
+# 새 세션을 시작할 때 켤지 한 번 묻는다.
 
 set -uo pipefail
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-CI=0; BRANCH=main; CLAUDE_MD=1
+CI=0; BRANCH=main; INIT=1; INIT_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --no-claude-md) CLAUDE_MD=0; shift ;;
-    --global|--local)
-      printf 'ai-bouncer: %s 는 더 이상 지원하지 않는다. 설치는 프로젝트별로만 한다.\n' "$1" >&2
-      exit 1 ;;
-    --ci)     CI=1; shift ;;
+    --no-claude-md) INIT_ARGS+=(--no-claude-md); shift ;;
+    --no-init)      INIT=0; shift ;;
+    --global)       INIT=0; shift ;;
+    --ci)           CI=1; shift ;;
     --branch)
       [ $# -ge 2 ] || { printf 'ai-bouncer: --branch 에 값이 필요합니다.\n' >&2; exit 1; }
       BRANCH="$2"; shift 2 ;;
-    -h|--help) sed -n '2,7p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -30,195 +31,60 @@ die() { printf 'ai-bouncer: %s\n' "$1" >&2; exit 1; }
 command -v jq      >/dev/null 2>&1 || die "jq가 필요하다. brew install jq"
 command -v python3 >/dev/null 2>&1 || die "python3가 필요하다."
 
-# git 레포 안이면 루트에 설치한다. 서브디렉토리에 설치하면 Claude Code가 읽지 않는다.
-PROJECT="$(git rev-parse --show-toplevel 2>/dev/null || printf '%s' "$PWD")"
-[ "$(cd "$PROJECT" && pwd -P)" = "$(pwd -P)" ] || printf 'ai-bouncer: git 루트에 설치합니다 → %s\n' "$PROJECT"
-ROOT="$PROJECT/.claude"; DIR="$ROOT/ai-bouncer"
-SETTINGS="$ROOT/settings.json"
-
-printf 'ai-bouncer 설치 → %s\n' "$DIR"
-
-# ── 0. 구버전 마이그레이션 ───────────────────────────────────
-# 구버전은 hook 7개와 문서 트리(.ai-bouncer-tasks/)를 쓴다. 신규와 구조가 달라
-# 남겨두면 구 hook이 계속 돌면서 신규 워크플로우를 차단한다.
-OLD_FILES="hooks/bash-gate.sh hooks/plan-gate.sh hooks/completion-gate.sh
-hooks/subagent-track.sh hooks/subagent-cleanup.sh hooks/stop-active-cleanup.sh
-hooks/stop-bouncer-compat.sh hooks/doc-reminder.sh
-hooks/lib/resolve-task.sh hooks/lib/gate-checks.sh hooks/lib/block-logger.sh
-scripts/bouncer-update-check.sh scripts/claim-active.sh scripts/worktree-helper.sh
-scripts/bouncer-config.sh config.json
-hooks/hooks.json .version-checked"
-MIGRATED=0
-for f in $OLD_FILES; do
-  [ -f "$DIR/$f" ] && { rm -f "$DIR/$f"; MIGRATED=$((MIGRATED+1)); }
-done
-rmdir "$DIR/hooks/lib" 2>/dev/null
-# 구버전이 깔던 위임 에이전트 정의 — 신규엔 위임 구조가 없어 참조 대상이 사라진 파일이다
-for ag in dev.md e2e-writer.md intent.md lead.md qa.md guides/tc-guide.md; do
-  [ -f "$ROOT/agents/$ag" ] && { rm -f "$ROOT/agents/$ag"; MIGRATED=$((MIGRATED+1)); }
-done
-rmdir "$ROOT/agents/guides" "$ROOT/agents" 2>/dev/null
-# 구버전이 프로젝트 루트에 복사해두던 제거 스크립트
-if [ -f "$PROJECT/uninstall.sh" ] && grep -q 'ai-bouncer uninstall' "$PROJECT/uninstall.sh" 2>/dev/null; then
-  rm -f "$PROJECT/uninstall.sh"; MIGRATED=$((MIGRATED+1))
-fi
-# 구버전 전용 스킬
-for sk in bouncer-status update-bouncer; do
-  [ -d "$ROOT/skills/$sk" ] && { rm -rf "$ROOT/skills/$sk"; MIGRATED=$((MIGRATED+1)); }
-done
-[ "$MIGRATED" -gt 0 ] && printf '  구버전 파일 %d개 정리 (설정은 workflow.yaml의 settings로 옮겼다)\n' "$MIGRATED"
-
-# 구버전은 프로젝트 .claude/CLAUDE.md 에도 규칙 블록을 넣었다.
-# 신규는 프로젝트 루트 CLAUDE.md를 쓰므로, 그대로 두면 같은 지시가 두 군데 남아
-# 서로 다른 버전의 규칙을 가리키게 된다.
-OLD_CMD="$ROOT/CLAUDE.md"
-if [ -f "$OLD_CMD" ] && grep -q 'ai-bouncer-rule start' "$OLD_CMD"; then
-  python3 - "$OLD_CMD" <<'PYC'
-import re, sys
-p = sys.argv[1]
-s = open(p).read()
-s = re.sub(r'\n*# --- ai-bouncer-rule start ---.*?# --- ai-bouncer-rule end ---\n*', '\n', s, flags=re.S)
-open(p, 'w').write(s)
-PYC
-  if [ -n "$(tr -d '[:space:]' < "$OLD_CMD" 2>/dev/null)" ]; then
-    printf '  .claude/CLAUDE.md 의 구 규칙 블록 제거 (나머지 내용은 유지)\n'
-  else
-    rm -f "$OLD_CMD"
-    printf '  .claude/CLAUDE.md 제거 (구 규칙 블록뿐이었다)\n'
-  fi
-fi
-
-# 구버전은 전역 ~/.claude/CLAUDE.md에도 규칙을 넣었다. 전역 파일은 건드리지 않고 알리기만 한다.
-OLD_GLOBAL_RULE=0
-grep -q 'ai-bouncer-rule start' "$HOME/.claude/CLAUDE.md" 2>/dev/null && OLD_GLOBAL_RULE=1
-
-# 구버전 진행 중 작업은 신규 엔진이 읽지 못한다. 지우지 않고 알리기만 한다.
-OLD_TASKS=0
-if [ -d "$PROJECT/.ai-bouncer-tasks" ]; then
-  OLD_TASKS=$(find "$PROJECT/.ai-bouncer-tasks" -name state.json 2>/dev/null \
-    | xargs -I{} jq -r 'select(.workflow_phase and (.workflow_phase|IN("done","cancelled")|not)) | "x"' {} 2>/dev/null | wc -l | tr -d ' ')
-fi
+CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+G="$CLAUDE_HOME/ai-bouncer"
+SETTINGS="$CLAUDE_HOME/settings.json"
+printf 'ai-bouncer 설치 → %s\n' "$G"
 
 # ── 1. 파일 배치 ─────────────────────────────────────────────
-mkdir -p "$DIR"/{engine/lib,engine/prompts,hooks,bin} "$ROOT/skills/dev-bounce" || die "디렉토리 생성 실패"
-# 세션 시작 업데이트 알림은 모델 문맥에 들어가는 노이즈였다(약 100줄, 모델이 할 일 없음). 갱신은 update-all 로 한다.
-rm -f "$DIR/scripts/update-check.sh" "$DIR/.update-check"; rmdir "$DIR/scripts" 2>/dev/null || true
-MANIFEST="[]"
+# 통째로 갈아끼운다 — 지난 버전에만 있던 파일이 남아 돌면 안 된다.
+NEW="$G.new.$$"; rm -rf "$NEW"
+mkdir -p "$NEW/engine/lib" "$NEW/engine/prompts" "$NEW/hooks" || die "디렉토리 생성 실패"
 # engine/lib 는 통째로 옮긴다 — 목록을 손으로 적었다가 새 파일(match_run.py)이 빠져
 # 설치본에서 조용히 안 돌았다.
-for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py engine/bouncer.sh \
+for f in engine/compile.py engine/legacy.py engine/migrate-workflow.py engine/bouncer.sh engine/init.sh \
          $(cd "$SRC" && ls engine/lib/*.sh engine/lib/*.py) \
          hooks/session-start.sh hooks/pre-tool.sh hooks/post-tool.sh \
          hooks/stop.sh hooks/session-end.sh; do
-  mkdir -p "$DIR/$(dirname "$f")"
-  install -m 755 "$SRC/$f" "$DIR/$f" || die "복사 실패: $f"
-  MANIFEST="$(jq --arg p "$DIR/$f" '. + [$p]' <<<"$MANIFEST")"
+  install -m 755 "$SRC/$f" "$NEW/$f" || { rm -rf "$NEW"; die "복사 실패: $f"; }
 done
 # 기본값은 엔진 소유 — 업데이트 때마다 덮어쓴다. 레포 workflow.yaml 은 이 위에 덧붙이는 override 만 담는다.
-install -m 644 "$SRC/config/default.yaml" "$DIR/engine/default.yaml" || die "복사 실패: default.yaml"
-install -m 644 "$SRC/config/legacy-defaults.json" "$DIR/engine/legacy-defaults.json" || die "복사 실패: legacy-defaults.json"
-MANIFEST="$(jq --arg a "$DIR/engine/default.yaml" --arg b "$DIR/engine/legacy-defaults.json" '. + [$a, $b]' <<<"$MANIFEST")"
+install -m 644 "$SRC/config/default.yaml" "$NEW/engine/default.yaml" || die "복사 실패: default.yaml"
+install -m 644 "$SRC/config/legacy-defaults.json" "$NEW/engine/legacy-defaults.json" || die "복사 실패: legacy-defaults.json"
 for p in "$SRC"/config/prompts/*.md; do
-  [ -f "$p" ] || continue
-  install -m 644 "$p" "$DIR/engine/prompts/$(basename "$p")" || die "복사 실패: $p"
-  MANIFEST="$(jq --arg p "$DIR/engine/prompts/$(basename "$p")" '. + [$p]' <<<"$MANIFEST")"
+  [ -f "$p" ] && { install -m 644 "$p" "$NEW/engine/prompts/$(basename "$p")" || die "복사 실패: $p"; }
 done
-# 더는 쓰지 않는 hook(UserPromptSubmit) — 파일은 지운다. settings.json 등록은 아래 4단계가 전부 걷어내고 다시 쓴다.
-rm -f "$DIR/hooks/user-prompt.sh"
-rm -rf "$DIR/engine/__pycache__"
-install -m 644 "$SRC/skills/dev-bounce/SKILL.md" "$ROOT/skills/dev-bounce/SKILL.md" || die "스킬 복사 실패"
-MANIFEST="$(jq --arg p "$ROOT/skills/dev-bounce/SKILL.md" '. + [$p]' <<<"$MANIFEST")"
+COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
+jq -n --arg c "$COMMIT" --arg b "$BRANCH" --arg t "$(date -u +%FT%TZ)" \
+  '{commit:$c, branch:$b, installed_at:$t}' > "$NEW/installed.json"
+# 도는 중인 훅이 반쯤 바뀐 파일을 읽지 않게 디렉토리를 한 번에 바꾼다.
+rm -rf "$G.old"; [ -d "$G" ] && mv "$G" "$G.old"
+mv "$NEW" "$G" || { [ -d "$G.old" ] && mv "$G.old" "$G"; die "설치 디렉토리 교체 실패"; }
+rm -rf "$G.old"
 
-# workflow.yaml 은 사용자 자산이다 — 기본값과 다른 것만 담는 override. 없으면 빈 것을 만든다.
-# 옛 버전이 복사해 둔 "기본값 전체 사본"은 기본값과 같은 부분을 걷어내 override 만 남긴다(원본은 .bak).
-if [ -f "$DIR/workflow.yaml" ]; then
-  # -B: compile·legacy 를 import 하므로 바이트코드를 남기지 않는다 (설치본에 .pyc 가 커밋됐다)
-  python3 -B "$DIR/engine/migrate-workflow.py" "$DIR/workflow.yaml" || true
-  printf '  workflow.yaml 유지 (레포별 override)\n'
-else
-  cat > "$DIR/workflow.yaml" <<'YML'
-# ai-bouncer 레포별 워크플로우 설정 — 기본값과 다른 것만 적는다.
-# 기본값은 엔진(.claude/ai-bouncer/engine/default.yaml)이 갖고 업데이트 때마다 바뀐다.
-# 병합 규칙: settings 는 키 단위 덮기 / stages.<이름>.steps 는 label 이 같으면 교체·새 label 이면 뒤에 추가 /
-#            remove: [label…] 로 기본 step 삭제 / forbid 는 키 단위 덮기. 스키마: docs/SCHEMA.md
-#
-# 예) verify 단계에 프로젝트 테스트를 게이트로 추가:
-# stages:
-#   verify:
-#     steps:
-#       - label: 유닛 테스트
-#         run: "npm test"
-#         blocking: true
+mkdir -p "$CLAUDE_HOME/skills/dev-bounce"
+install -m 644 "$SRC/skills/dev-bounce/SKILL.md" "$CLAUDE_HOME/skills/dev-bounce/SKILL.md" || die "스킬 복사 실패"
 
-version: 1
-YML
-  MANIFEST="$(jq --arg p "$DIR/workflow.yaml" '. + [$p]' <<<"$MANIFEST")"
-fi
-
-# ── 2. 업데이트 브랜치 반영 ──────────────────────────────────
-# 설정은 workflow.yaml의 settings 섹션에 있다. 별도 config 파일은 없다.
-if [ "$BRANCH" != "main" ]; then
-  python3 - "$DIR/workflow.yaml" "$BRANCH" <<'PYB'
-import re, sys
-p, b = sys.argv[1], sys.argv[2]
-s = open(p, encoding='utf-8').read()
-if re.search(r'(?m)^[ \t]+update_branch:', s):
-    s = re.sub(r'(?m)^([ \t]+)update_branch:.*$', r'\g<1>update_branch: ' + b, s, count=1)
-elif re.search(r'(?m)^settings:[ \t]*$', s):
-    s = re.sub(r'(?m)^settings:[ \t]*$', 'settings:\n  update_branch: ' + b, s, count=1)
-else:
-    s = s.rstrip('\n') + '\n\nsettings:\n  update_branch: ' + b + '\n'
-open(p, 'w', encoding='utf-8').write(s)
-PYB
-  printf '  업데이트 브랜치 → %s\n' "$BRANCH"
-fi
-
-# ── 3. bouncer 실행 파일 ─────────────────────────────────────
-# 설치가 프로젝트별이므로, 셸에서 부를 때 현재 위치의 프로젝트 엔진을 찾아 실행한다.
-# 특정 프로젝트 경로를 박아두면 다른 레포에서 엉뚱한 버전이 돈다.
-mkdir -p "$DIR/bin"
-cat > "$DIR/bin/bouncer" <<'SHIM'
-#!/usr/bin/env bash
-d="$PWD"
-while [ "$d" != "/" ]; do
-  if [ -f "$d/.claude/ai-bouncer/engine/bouncer.sh" ]; then
-    exec bash "$d/.claude/ai-bouncer/engine/bouncer.sh" "$@"
-  fi
-  d="$(dirname "$d")"
-done
-printf 'ai-bouncer: 이 프로젝트에 설치되어 있지 않다 (./install.sh 로 설치).\n' >&2
-exit 1
-SHIM
-chmod 755 "$DIR/bin/bouncer"
+# ── 2. bouncer 실행 파일 ─────────────────────────────────────
 BINDIR="$HOME/.local/bin"; mkdir -p "$BINDIR"
-# 심볼릭 링크로 걸면 **마지막에 설치한 프로젝트**를 가리키게 되고,
-# 그 프로젝트를 제거하는 순간 다른 모든 프로젝트에서 bouncer 가 사라진다.
-# 셔임은 내용이 프로젝트와 무관하므로 실제 파일로 복사한다.
-# cp 는 심볼릭 링크를 **따라간다**. 구버전이 남긴 링크가 있으면 링크 대상에
-# 쓰고 링크는 그대로라, 그 프로젝트를 지우는 순간 여기 설치도 같이 죽는다.
+# 옛 버전이 남긴 심볼릭 링크면 cp 가 링크 대상을 덮어쓴다 — 먼저 지운다.
 rm -f "$BINDIR/bouncer" 2>/dev/null
-# rm 이 실패하면(권한 등) cp 가 **링크를 따라가** 엉뚱한 파일을 덮어쓴다.
-# cp 성공만 보면 그걸 못 잡으므로 링크가 남았는지도 확인한다.
-if cp "$DIR/bin/bouncer" "$BINDIR/bouncer" 2>/dev/null && [ ! -L "$BINDIR/bouncer" ]; then
+if printf '#!/usr/bin/env bash\nexec bash "%s/engine/bouncer.sh" "$@"\n' "$G" > "$BINDIR/bouncer" 2>/dev/null \
+   && [ ! -L "$BINDIR/bouncer" ]; then
   chmod 755 "$BINDIR/bouncer"
 else
-  printf '  ⚠️ %s 를 만들지 못했다. 엔진은 %s 로 직접 부를 수 있다.\n' \
-    "$BINDIR/bouncer" "$DIR/engine/bouncer.sh"
+  printf '  ⚠️ %s 를 만들지 못했다. 엔진은 %s 로 직접 부를 수 있다.\n' "$BINDIR/bouncer" "$G/engine/bouncer.sh"
 fi
 case ":$PATH:" in
   *":$BINDIR:"*) ;;
   *) printf '  ⚠️ %s 가 PATH에 없다. 쉘 설정에 추가하라:\n     export PATH="%s:$PATH"\n' "$BINDIR" "$BINDIR" ;;
 esac
 
-# ── 4. hook 등록 (남의 hook은 건드리지 않는다) ───────────────
+# ── 3. hook 등록 (전역 settings, 남의 hook은 건드리지 않는다) ─
 [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-python3 - "$SETTINGS" <<'PY' || die "hook 등록을 건너뛰고 설치를 중단했습니다."
+python3 - "$SETTINGS" "$G" <<'PY' || die "hook 등록을 건너뛰고 설치를 중단했습니다."
 import json, sys
-settings_path = sys.argv[1]
-# 절대경로를 박으면 이 settings.json을 커밋했을 때 다른 사람 컴퓨터에서 깨진다.
-# ${CLAUDE_PROJECT_DIR}는 세션이 시작된 프로젝트 루트로 치환된다.
-# 경로 placeholder에는 exec form(args 포함)이 권장된다 — 셸 개입 없이 그대로 치환된다.
-d = "${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer"
+settings_path, d = sys.argv[1], sys.argv[2]
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
@@ -240,136 +106,39 @@ except Exception as exc:
         "ai-bouncer: settings.json 을 읽지 못했습니다 - %s\n"
         "  파일: %s\n  백업: %s\n"
         "  덮어쓰면 env/permissions/다른 도구의 hook이 사라지므로 설치를 중단합니다.\n"
-        "  JSON 문법을 고친 뒤 다시 실행하세요 (주석/후행 콤마/BOM은 허용되지 않습니다).\n"
         % (exc, settings_path, bak))
     sys.exit(3)
 hooks = cfg.setdefault("hooks", {})
-
-# 먼저 모든 이벤트에서 ai-bouncer hook을 걷어낸다.
-# 등록할 이벤트만 청소하면, 구버전이 쓰던 다른 이벤트(SubagentStart 등)에
-# 이미 지워진 스크립트를 가리키는 등록이 남는다.
+# 먼저 모든 이벤트에서 ai-bouncer hook을 걷어낸다 (구버전이 쓰던 이벤트 포함).
 for event, arr in list(hooks.items()):
     for entry in list(arr):
         entry["hooks"] = [h for h in entry.get("hooks", [])
-                          if "/.claude/ai-bouncer/" not in str(h.get("command", ""))]
+                          if "/.claude/ai-bouncer/" not in str(h.get("command", ""))
+                          and not str(h.get("command", "")).startswith(d + "/")]
         if not entry["hooks"]:
             arr.remove(entry)
     if not arr:
         del hooks[event]
-
 for event, matcher, cmd, timeout in spec:
-    arr = hooks.setdefault(event, [])
     e = {"hooks": [{"type": "command", "command": cmd, "args": [], "timeout": timeout}]}
     if matcher:
         e["matcher"] = matcher
-    arr.append(e)
+    hooks.setdefault(event, []).append(e)
 json.dump(cfg, open(settings_path, "w"), ensure_ascii=False, indent=2)
-print("  hook %d개 등록 완료" % len(spec))
+print("  hook %d개 등록 (전역)" % len(spec))
 PY
 
-# ── 5. 런타임 상태를 gitignore ───────────────────────────────
-# 이게 없으면 워킹트리가 항상 더러워서 finalize 게이트가 안 열린다.
-GI="$PROJECT/.gitignore"
-if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1; then
-  if ! grep -qxF '.ai-bouncer/' "$GI" 2>/dev/null; then
-    printf '\n# ai-bouncer 런타임 상태\n.ai-bouncer/\n' >> "$GI"
-    GITIGNORE_ADDED=1
-    printf '  .gitignore에 .ai-bouncer/ 추가\n'
-  fi
-  # 설정 디렉토리 안에 섞여 있는 런타임 파일들. 커밋되면 세션마다 가짜 diff가 뜬다.
-  printf 'workflow.compiled.json\n.update-check\nworkflow.yaml.bak*\n__pycache__/\n' > "$DIR/.gitignore"
+# 아주 옛 버전은 전역 ~/.claude/CLAUDE.md 에 규칙을 넣었다. 전역 파일은 건드리지 않고 알리기만 한다.
+if grep -q 'ai-bouncer-rule start' "$CLAUDE_HOME/CLAUDE.md" 2>/dev/null; then
+  printf '\n  ℹ️ %s 에 구버전 규칙 블록이 남아 있다 (# --- ai-bouncer-rule start --- ~ end ---). 지워도 된다.\n' "$CLAUDE_HOME/CLAUDE.md"
 fi
 
-# ── 6. CLAUDE.md 규칙 블록 ───────────────────────────────────
-# hook은 작업이 시작된 뒤에만 강제할 수 있다. `.active`가 없으면 PreToolUse는 통과시킨다.
-# 그래서 "작업을 시작하게 만드는 것"은 프롬프트 레벨이어야 한다.
-# 전역 CLAUDE.md는 건드리지 않는다 — 설치가 프로젝트별이므로 프로젝트 파일에만 넣는다.
-CMD_FILE="$PROJECT/CLAUDE.md"
-if [ "$CLAUDE_MD" = 1 ]; then
-  BLOCK="$(cat <<'MD'
-<!-- ai-bouncer:start -->
-## ai-bouncer
+printf '\n전역 설치 완료 (업데이트 브랜치 %s)\n' "$BRANCH"
 
-코드 수정·기능 구현·버그 수정·리팩터링 등 **개발 작업은 `/dev-bounce`로 시작한다.**
-스킬을 거치지 않고 Edit / Write / Bash로 소스를 고치지 않는다.
-
-- 작업이 시작되면 hook이 단계별 규칙을 강제한다. 시작 전에는 아무것도 막지 않는다.
-- 진행 중인 작업이 있는지 `bouncer status`로 먼저 확인하고, 있으면 이어서 한다.
-- 질문·설명 요청은 해당 없다. 그냥 답하면 된다.
-- hook이 차단하면 우회하지 말고 차단 사유에 적힌 조건을 충족시켜라.
-<!-- ai-bouncer:end -->
-MD
-)"
-  if [ -f "$CMD_FILE" ] && grep -q '<!-- ai-bouncer:start -->' "$CMD_FILE"; then
-    # 기존 블록만 교체. 사용자가 쓴 나머지 내용은 건드리지 않는다.
-    python3 - "$CMD_FILE" <<PYM
-import re, sys
-p = sys.argv[1]
-s = open(p).read()
-block = '''$BLOCK'''
-s = re.sub(r'<!-- ai-bouncer:start -->.*?<!-- ai-bouncer:end -->', block, s, flags=re.S)
-open(p, 'w').write(s)
-PYM
-    printf '  CLAUDE.md 규칙 블록 갱신\n'
-  else
-    [ -f "$CMD_FILE" ] && printf '\n' >> "$CMD_FILE"
-    printf '%s\n' "$BLOCK" >> "$CMD_FILE"
-    MANIFEST="$(jq --arg p "$CMD_FILE" '. + [$p]' <<<"$MANIFEST")"
-    printf '  CLAUDE.md에 규칙 블록 추가\n'
-  fi
+# ── 4. 지금 레포에 켜기 ──────────────────────────────────────
+if [ "$INIT" = 1 ] && git rev-parse --show-toplevel >/dev/null 2>&1; then
+  printf '\n'
+  bash "$G/engine/init.sh" ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} || die "bouncer init 실패"
 fi
-
-# ── 7. 컴파일 + 기록 ─────────────────────────────────────────
-python3 "$DIR/engine/compile.py" "$DIR/workflow.yaml" "$DIR/workflow.compiled.json" \
-  || die "workflow.yaml 컴파일 실패"
-COMMIT="$(git -C "$SRC" rev-parse HEAD 2>/dev/null || echo unknown)"
-jq -n --arg c "$COMMIT" --arg b "$BRANCH" --arg t "$(date -u +%FT%TZ)" \
-  '{commit:$c, branch:$b, installed_at:$t}' > "$DIR/installed.json"
-# 경로는 프로젝트 기준 상대경로로 저장한다. 절대경로면 clone한 다른 위치에서
-# 제거할 때 아무것도 못 지우면서 "제거했다"고 보고하게 된다.
-printf '%s\n' "$MANIFEST" \
-  | jq --arg root "$PROJECT/" --argjson gi "${GITIGNORE_ADDED:-0}" \
-      '{files: (map(if startswith($root) then .[($root|length):] else . end)),
-        gitignore_added: ($gi == 1)}' > "$DIR/manifest.json"
-
-OLD_GLOBAL_HOOKS=0
-if [ -f "$HOME/.claude/settings.json" ]; then
-  OLD_GLOBAL_HOOKS="$(jq '[.hooks // {} | to_entries[] | .value[] | .hooks[]
-    | select(.command | contains("/.claude/ai-bouncer/"))] | length' "$HOME/.claude/settings.json" 2>/dev/null || echo 0)"
-fi
-if [ "${OLD_GLOBAL_HOOKS:-0}" -gt 0 ] 2>/dev/null; then
-  printf '\n  ⚠️ 전역 ~/.claude/settings.json 에 구버전 hook %s개가 아직 등록돼 있다.\n' "$OLD_GLOBAL_HOOKS"
-  printf '     그대로 두면 구 hook과 신규 hook이 동시에 돌아 작업이 차단될 수 있다.\n'
-  printf '     정리: bash <ai-bouncer>/migrate.sh --apply\n'
-fi
-
-if [ "${OLD_GLOBAL_RULE:-0}" = 1 ]; then
-  printf '\n  ℹ️ 전역 ~/.claude/CLAUDE.md에 구버전 규칙 블록이 남아 있다.\n'
-  printf '     신규는 프로젝트 CLAUDE.md만 쓰므로 전역 블록은 지워도 된다\n'
-  printf '     (# --- ai-bouncer-rule start --- ~ end --- 구간). 전역 파일은 건드리지 않았다.\n'
-fi
-
-if [ "${OLD_TASKS:-0}" -gt 0 ] 2>/dev/null; then
-  printf '\n  ⚠️ 구버전 미완료 작업 %s건이 .ai-bouncer-tasks/ 에 있다.\n' "$OLD_TASKS"
-  printf '     신규 엔진은 이 형식을 읽지 못한다. 문서는 그대로 두었으니\n'
-  printf '     필요하면 직접 확인하고, 새 작업은 /dev-bounce 로 시작하라.\n'
-fi
-
-# 이 컴퓨터의 설치 목록에 기록한다. `get.sh update` 가 이 목록을 보고
-# 깔린 곳 전부를 한 번에 갱신한다 (프로젝트마다 따로 업데이트하면 빠지는 곳이 생긴다).
-REG_DIR="${BOUNCER_REGISTRY_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ai-bouncer}"
-if mkdir -p "$REG_DIR" 2>/dev/null; then
-  REG="$REG_DIR/installs"
-  { [ -f "$REG" ] && cat "$REG"; (cd "$PROJECT" && pwd -P); } | awk 'NF && !seen[$0]++' > "$REG.tmp" \
-    && mv "$REG.tmp" "$REG"
-fi
-
-printf '\n설치 완료 (업데이트 브랜치 %s)\n' "$BRANCH"
-printf '  워크플로우: %s\n  스킬:       /dev-bounce\n' "$DIR/workflow.yaml"
-if git -C "$PROJECT" rev-parse --git-dir >/dev/null 2>&1 \
-   && [ -n "$(git -C "$PROJECT" status --porcelain 2>/dev/null)" ]; then
-  printf '\n  ⚠️ 설치로 생긴 파일이 커밋되지 않았다. 먼저 커밋하라 —\n'
-  printf '     그러지 않으면 첫 작업이 finalize의 "워킹트리 정리 확인"에서 막힌다.\n'
-  printf '     git add .claude .gitignore CLAUDE.md && git commit -m "chore: ai-bouncer 설치"\n'
-fi
-[ "$CI" = 1 ] || printf '\n다음: 새 세션에서 /dev-bounce 를 실행해보라.\n'
+[ "$CI" = 1 ] || printf '\n다음: 새 세션에서 /dev-bounce 를 실행해보라. 설정이 없는 레포에서는 켤지 먼저 묻는다.\n'
+exit 0

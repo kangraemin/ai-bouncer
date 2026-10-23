@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ai-bouncer CLI — 스킬과 사용자가 쓰는 진입점.
 #
+#   bouncer init [--decline]          이 레포에 켠다 (workflow.yaml) / 켜지 않는다
 #   bouncer scan                      시작 전에 알아야 할 것 전부 (상태 + 모드 + 선택 항목)
 #   bouncer start <workflow> <slug> [--parallel] [--off <id> ...]
 #   bouncer status                    현재 단계와 남은 조건
@@ -70,6 +71,11 @@ step_json() { bouncer_stage "$PROJECT" "$2" | jq -c --arg i "$1" '.steps[]? | se
 #   OPTION   <workflow> <stage> <id> <label>  시작할 때 물어볼 선택 항목
 cmd_scan() {
   local found=0 d owner stage age wf
+  # 엔진은 전역이라 설정 없는 레포에서도 불린다. 모드 목록이 비어 보이면 모델이 이유를 모른다.
+  if [ ! -f "$(bouncer_workflow_yaml "$PROJECT")" ]; then
+    printf 'ERROR	이 레포에는 ai-bouncer 설정이 없다 — 켜려면 bouncer init (켜지 않으려면 bouncer init --decline)\n'
+    return 0
+  fi
   for d in $(bouncer_live_locks "$PROJECT"); do
     owner="$(jq -r '.session_id // empty' "$d/.active" 2>/dev/null)"
     stage="$(bouncer_state "$d" '.current_stage')"
@@ -760,6 +766,7 @@ $dirty"
 }
 
 case "${1:-}" in
+  init)      shift; exec bash "$_D/init.sh" "$@" ;;
   scan)      shift; cmd_scan "$@" ;;
   check)     shift; cmd_check "$@" ;;
   start)     shift; cmd_start "$@" ;;
@@ -781,6 +788,6 @@ case "${1:-}" in
                create)   die "worktree는 'bouncer start <workflow> <slug> --parallel' 로 만든다." ;;
                *) die "usage: bouncer worktree finalize" ;;
              esac ;;
-  ""|-h|--help|help) sed -n '3,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '3,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

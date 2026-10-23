@@ -15,6 +15,7 @@ command -v jq >/dev/null 2>&1 || exit 0
 { IFS= read -r SESSION; IFS= read -r CWD; IFS= read -r TOOL; } \
   < <(jq -r '(.session_id // "" | tostring), (.cwd // "" | tostring), (.tool_name // "" | tostring)' <<<"$INPUT" 2>/dev/null)
 [ -n "$CWD" ] || CWD="$PWD"
+bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 [ -n "$SESSION" ] && [ -n "$TOOL" ] || exit 0
 # 이 세션의 작업이 없으면 아무것도 강제하지 않는다. 아래 엔진 명령 면제 판정보다 먼저 본다 —
 # 작업 없는 세션의 Bash 마다 정규식 grep 세 번을 돌릴 이유가 없다.
@@ -27,6 +28,8 @@ TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
 if [ "$TOOL" = "Bash" ]; then
   _C="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
   _ROOT="$(bouncer_project_root "$CWD")"
+  # 전역 엔진 경로(이 훅과 같은 설치본)로 부르는 것도 인정한다.
+  _ENG="$(cd "$(dirname "${BASH_SOURCE[0]}")/../engine" && pwd)/bouncer\.sh"
   # grep 의 `^…$` 는 **줄** 앵커다. 명령 어딘가에 `bouncer` 한 줄만 끼우면
   # 통째로 통과했다 (감사에서 실제로 뚫렸다). 개행이 있으면 아예 면제하지 않는다.
   case "$_C" in
@@ -37,7 +40,8 @@ if [ "$TOOL" = "Bash" ]; then
       # /tmp/e/.claude/ai-bouncer/engine/bouncer.sh 를 심어 hook 을 끌 수 있다.
       if printf '%s' "$_C" | grep -Eq '^[[:space:]]*bouncer([[:space:]]+[^;&|<>()`$'"'"'"]*)?[[:space:]]*$' \
          || printf '%s' "$_C" | grep -qE "^[[:space:]]*(\./)?${_ROOT//\//\\/}/\.claude/ai-bouncer/engine/bouncer\.sh([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$" \
-         || printf '%s' "$_C" | grep -qE "^[[:space:]]*(\./)?\.claude/ai-bouncer/engine/bouncer\.sh([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$"; then
+         || printf '%s' "$_C" | grep -qE "^[[:space:]]*(\./)?\.claude/ai-bouncer/engine/bouncer\.sh([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$" \
+         || printf '%s' "$_C" | grep -qE "^[[:space:]]*${_ENG//\//\\/}([[:space:]]+[^;&|<>()\`\$'\"]*)?[[:space:]]*$"; then
         exit 0
       fi ;;
   esac

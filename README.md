@@ -9,14 +9,18 @@
 </div>
 
 ```bash
-# 설치 — 프로젝트 루트에서
+# 설치 — 엔진은 전역 한 벌, 지금 레포에도 켠다
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash
+
+# 다른 레포에 켜기 — 설정이 없는 레포는 새 세션을 시작할 때 켤지 묻는다. 직접 켜려면:
+bouncer init            # 켜지 않으려면 bouncer init --decline
 
 # 업데이트 (설정은 보존)
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s update
 
-# 삭제
+# 삭제 — 이 레포에서 끄기 / 전역 엔진까지
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s uninstall
+curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s uninstall --global
 ```
 
 <br>
@@ -143,21 +147,12 @@ bouncer start plan "hotfix" --parallel
 
 <br>
 
-## 구버전에서 올라오기
+## 옛 버전(레포별 설치)에서 올라오기
 
-구버전은 `~/.claude/ai-bouncer/`에 전역으로 깔렸다. 신규는 전역을 쓰지 않는다.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s migrate --apply --install
-```
-
-전역 hook·디렉토리·스킬·`CLAUDE.md` 블록을 정리하고, 구버전을 쓰던 프로젝트 전부에
-신규를 설치한다. ai-bouncer가 스스로 설치한 것만 건드리고, `settings.json`과
-`CLAUDE.md`는 백업을 남긴다. 중간에 끊겨도 다시 실행하면 이어서 진행된다.
-
-세션을 시작하면 구 업데이터가 이 이관을 자동으로 실행하기도 한다. 다만 구버전에
-자기 갱신 경로 버그가 있어 발동하지 않는 환경이 있으므로, 자동으로 넘어오지 않았다면
-위 명령을 직접 실행하면 된다.
+`bash -s update` 한 번이면 된다. 전역 엔진을 깔고, 켠 레포마다 레포 안 엔진·훅·스킬과
+프로젝트 `settings.json`의 ai-bouncer hook을 걷어내고 `workflow.yaml`만 남긴다.
+이미 열려 있는 세션은 시작할 때 읽은 옛 hook 경로를 계속 부르므로, 그 자리에는 전역 hook으로
+넘기는 얇은 파일을 둔다(커밋 대상 아님). 정리된 파일은 레포에서 커밋하면 된다.
 
 <br>
 
@@ -177,26 +172,28 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 ## 설치되는 것
 
 ```
-<프로젝트>/
-├── .claude/
-│   ├── ai-bouncer/
-│   │   ├── workflow.yaml          ← 유일한 설정 파일
-│   │   ├── prompts/ engine/ hooks/ scripts/
-│   │   └── workflow.compiled.json ← 자동 생성 (gitignore)
-│   ├── settings.json              ← hook 7개 등록 (남의 hook은 건드리지 않는다)
-│   └── skills/dev-bounce/
+~/.claude/
+├── ai-bouncer/                    ← 엔진 + hook + 기본값 (전역 한 벌, 업데이트 때 통째로 교체)
+├── settings.json                  ← hook 5개 등록 (남의 hook은 건드리지 않는다)
+└── skills/dev-bounce/
+
+<레포>/
+├── .claude/ai-bouncer/
+│   ├── workflow.yaml              ← 레포 설정 (기본값과 다른 것만). 이게 있는 레포에서만 hook이 일한다
+│   └── workflow.compiled.json     ← 자동 생성 (gitignore)
 ├── .ai-bouncer/                   ← 런타임 상태 (gitignore)
 └── CLAUDE.md                      ← 규칙 블록 (마커 밖 내용은 보존)
 ```
 
-프로젝트 밖에도 두 가지가 생긴다:
+그 밖에:
 
-- `~/.local/bin/bouncer` — 셸에서 부를 수 있게 하는 실행 파일. 내용이 프로젝트와 무관해서(현재 위치의 설치본을 찾아 실행한다) 한 프로젝트를 제거해도 다른 프로젝트가 계속 쓴다. `--purge` 로도 지우지 않는다.
-  현재 디렉토리에서 위로 올라가며 프로젝트를 찾으므로 어느 레포에서든 그 레포의 엔진이 돈다.
+- `~/.local/bin/bouncer` — 셸에서 부르는 실행 파일. 전역 엔진을 실행한다.
+- `~/.local/state/ai-bouncer/` — 켠 레포 목록(`installs`)과 켜지 않기로 한 레포 목록(`declined`).
 - `~/.ai-bouncer/worktrees/<repo>/<branch>/` — 병렬 작업용 worktree.
   레포 밖에 두는 이유는 빌드 도구가 긁지 않고 권한 프롬프트도 뜨지 않게 하기 위해서다.
 
-hook 경로는 `${CLAUDE_PROJECT_DIR}` 기준이라 팀원과 커밋을 공유해도 깨지지 않는다.
+설정이 없는 레포에서는 hook이 아무것도 하지 않는다. 새 세션을 시작할 때만 켤지 한 번 묻고,
+거절하면 그 레포에서는 다시 묻지 않는다.
 
 | hook | 역할 |
 |---|---|

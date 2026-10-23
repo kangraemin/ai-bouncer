@@ -72,7 +72,7 @@ T2="$(mktemp -d)"; ( cd "$T2" && git init -q . && git config user.email t@t && g
   && echo x > a && git add a && git commit -qm i \
   && printf 'node_modules/\n' > .gitignore \
   && bash "$R/install.sh" --ci >/dev/null 2>&1 )
-[ "$(jq -r '.gitignore_added' "$T2/.claude/ai-bouncer/manifest.json")" = true ] \
+[ "$(jq -r '.gitignore_added' "$T2/.claude/ai-bouncer/init.json")" = true ] \
   && ok "install이 넣었으면 그렇게 기록" || no "gitignore_added=true"
 ( cd "$T2" && bash "$R/uninstall.sh" >/dev/null 2>&1 )
 grep -qxF '.ai-bouncer/' "$T2/.gitignore" && no "우리가 넣은 줄 제거" "남음" || ok "우리가 넣은 줄은 되돌림"

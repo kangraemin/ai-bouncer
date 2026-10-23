@@ -8,6 +8,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # 테스트는 실제 홈을 건드리면 안 된다. worktree 는 $HOME/.ai-bouncer/ 에,
 # 런처는 $HOME/.local/bin 에 만들어진다 — 격리 없이 돌리면 매 실행마다
 # 실제 홈에 쌓인다 (감사 시점에 459개 6.6MB가 누적돼 있었다).
+unset CLAUDE_CONFIG_DIR XDG_STATE_HOME BOUNCER_REGISTRY_DIR
 if [ -z "${BOUNCER_TEST_HOME:-}" ]; then
   BOUNCER_TEST_HOME="$(mktemp -d)"
   export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"

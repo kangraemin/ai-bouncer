@@ -295,8 +295,8 @@ fi
 mkdir -p "$U/sub"
 ( cd "$U" && git init -q . >/dev/null 2>&1; HOME="$UH" bash "$R/install.sh" --ci >/dev/null 2>&1 )
 ( cd "$U/sub" && HOME="$UH" bash "$R/uninstall.sh" >/dev/null 2>&1 </dev/null )
-[ -f "$U/.claude/ai-bouncer/engine/bouncer.sh" ] \
-  && no "하위에서 uninstall 실패" "엔진이 남았다" || ok "하위 디렉토리에서도 제거된다"
+[ -f "$U/.claude/ai-bouncer/workflow.compiled.json" ] \
+  && no "하위에서 uninstall 실패" "컴파일본이 남았다" || ok "하위 디렉토리에서도 제거된다"
 rm -rf "$U" "$UH"
 
 

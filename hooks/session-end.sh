@@ -16,6 +16,7 @@ SESSION="$(printf '%s' "$INPUT" | jq -r '.session_id // empty')"
 CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty')"
 [ -n "$SESSION" ] || exit 0
 [ -n "$CWD" ] || CWD="$PWD"
+bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 
 # 하위 디렉토리에서 세션이 시작되면 CWD 밑에는 tasks가 없다.
 # 다른 hook 5개는 전부 위로 올라가는데 여기만 안 올라가서,

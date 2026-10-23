@@ -187,6 +187,7 @@ if [ -n "$OLD" ] && git -C "$R" show "$OLD:config/default.yaml" > "$W/old-defaul
 fi
 
 echo "[설치·업데이트]"
+unset CLAUDE_CONFIG_DIR
 if [ -z "${BOUNCER_TEST_HOME:-}" ]; then BOUNCER_TEST_HOME="$(mktemp -d)"; export BOUNCER_TEST_HOME HOME="$BOUNCER_TEST_HOME"; fi
 P1="$(mktemp -d)"
 ( cd "$P1" && git init -q . && git config user.email t@t && git config user.name t && echo a > a && git add a && git commit -qm i
@@ -196,18 +197,20 @@ P1="$(mktemp -d)"
 J
   bash "$R/install.sh" --ci >/dev/null 2>&1 ) || no "설치 실행"
 A="$P1/.claude/ai-bouncer"
-[ -f "$A/engine/default.yaml" ] && cmp -s "$A/engine/default.yaml" "$R/config/default.yaml" && ok "기본값은 엔진 쪽 default.yaml 로 설치" || no "default.yaml 설치"
+GE="$HOME/.claude/ai-bouncer/engine"
+[ -f "$GE/default.yaml" ] && cmp -s "$GE/default.yaml" "$R/config/default.yaml" && ok "기본값은 전역 엔진 쪽 default.yaml 로 설치" || no "default.yaml 설치"
 B="$(/usr/bin/grep -vE '^\s*(#|$)' "$A/workflow.yaml")"
 [ "$B" = "version: 1" ] && ok "업데이트 시 옛 전체 사본이 빈 override 로 바뀐다" || no "설치 시 변환" "$B"
 [ -f "$A/workflow.yaml.bak" ] && ok "업데이트가 .bak 을 남긴다" || no ".bak 없음"
 /usr/bin/grep -q 'user-prompt' "$P1/.claude/settings.json" && no "UserPromptSubmit 잔재" "남음" || ok "옛 user-prompt hook 등록은 업데이트 때 제거"
-jq -e '(.hooks.UserPromptSubmit // []) == []' "$P1/.claude/settings.json" >/dev/null && ok "UserPromptSubmit 등록 없음" || no "UserPromptSubmit 등록됨"
+# ai-bouncer hook 만 있던 프로젝트 settings 는 비어서 지워진다 (hook 은 이제 전역 settings 에 있다)
+{ [ ! -f "$P1/.claude/settings.json" ] || jq -e '(.hooks.UserPromptSubmit // []) == []' "$P1/.claude/settings.json" >/dev/null; } && ok "UserPromptSubmit 등록 없음" || no "UserPromptSubmit 등록됨"
 [ -f "$A/workflow.compiled.json" ] && ok "컴파일본 생성" || no "컴파일본 없음"
 echo "# 내 메모" >> "$A/workflow.yaml"
 ( cd "$P1" && bash "$R/install.sh" --ci >/dev/null 2>&1 )
 /usr/bin/grep -q '내 메모' "$A/workflow.yaml" && ok "재설치는 override 를 건드리지 않는다" || no "override 덮어씀"
-echo "변조" >> "$A/engine/default.yaml"
+echo "변조" >> "$GE/default.yaml"
 ( cd "$P1" && bash "$R/install.sh" --ci >/dev/null 2>&1 )
-cmp -s "$A/engine/default.yaml" "$R/config/default.yaml" && ok "엔진 default.yaml 은 업데이트마다 덮어쓴다" || no "default.yaml 보존됨"
+cmp -s "$GE/default.yaml" "$R/config/default.yaml" && ok "엔진 default.yaml 은 업데이트마다 덮어쓴다" || no "default.yaml 보존됨"
 rm -rf "$P1"
 finish
