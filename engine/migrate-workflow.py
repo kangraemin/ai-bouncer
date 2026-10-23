@@ -21,10 +21,9 @@ sys.path.insert(0, HERE)
 import compile as C            # noqa: E402
 import legacy as L             # noqa: E402
 
-HEADER = '''# ai-bouncer 레포별 워크플로우 설정 — 기본값과 다른 것만 적는다.
-# 기본값은 엔진(.claude/ai-bouncer/engine/default.yaml)이 갖고 업데이트 때마다 바뀐다.
-# 병합 규칙: settings 는 키 단위 덮기 / stages.<이름>.steps 는 label 이 같으면 교체·새 label 이면 뒤에 추가 /
-#            remove: [label…] 로 기본 step 삭제 / forbid 는 키 단위 덮기. 스키마: docs/SCHEMA.md
+HEADER = '''# ai-bouncer 레포 설정 — 이 레포에서 "작업 끝"이라고 하려면 통과해야 할 검사를 적는다.
+# 단계 순서(구현 → 검증 → 마무리)와 기본 규칙은 전역 엔진에 있다. 여기엔 이 레포만 다른 것만 적는다.
+# 적을 수 있는 키: docs/SCHEMA.md
 '''
 
 

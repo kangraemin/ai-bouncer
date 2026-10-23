@@ -122,6 +122,16 @@ comp "$W/r3.yaml" && [ "$(jqo '.stages.verify.forbid|has("bash")')" = false ] \
   && ok "폐기된 forbid.bash 는 조용히 버린다" || no "forbid.bash" "$(head -2 "$W/err")"
 [ "$(jq -r '[.stages[].forbid|select(.!=null)|has("bash")]|any' "$W/out.json" 2>/dev/null)" != true ] && ok "기본값 forbid 에 bash 없음" || no "bash 잔존"
 
+cat > "$W/r4.yaml" <<'Y'
+version: 1
+settings:
+  update_branch: rework
+  repo: someone/fork
+Y
+comp "$W/r4.yaml" && ok "폐기된 settings(update_branch, repo)는 오류 없이 통과" || no "폐기 settings" "$(head -2 "$W/err")"
+[ "$(jqo '.settings|has("update_branch") or has("repo")')" = false ] && ok "컴파일 결과에 폐기 settings 없음" || no "폐기 settings 잔존" "$(jqo '.settings')"
+/usr/bin/grep -q '^settings:' "$R/config/default.yaml" && no "기본값에 settings 블록" "남음" || ok "기본값 파일에 settings 블록 없음(기본값은 코드)"
+
 echo "[마이그레이션]"
 MIG="$R/engine/migrate-workflow.py"
 mkdir -p "$W/m1"; cp "$R/config/default.yaml" "$W/m1/workflow.yaml"
@@ -164,6 +174,12 @@ printf '아무 말이나 적힌 사용자 프롬프트\n' > "$W/m3/prompts/mine.
 python3 "$MIG" "$W/m3/workflow.yaml" >/dev/null 2>&1
 /usr/bin/grep -q 'edit_files' "$W/m3/workflow.yaml" && no "폐기 키 제거" "남음" || ok "폐기된 forbid.edit_files 는 변환 때 제거"
 [ -f "$W/m3/prompts/mine.md" ] && ok "알 수 없는 사용자 프롬프트는 보존" || no "사용자 프롬프트 삭제됨"
+
+# 폐기된 settings 는 변환 때 걷어내고 나머지는 남긴다
+mkdir -p "$W/m5"; printf 'version: 1\nsettings:\n  update_branch: "rework"\n  max_continue: 7\n' > "$W/m5/workflow.yaml"
+python3 "$MIG" "$W/m5/workflow.yaml" >/dev/null 2>&1
+/usr/bin/grep -q 'update_branch' "$W/m5/workflow.yaml" && no "update_branch 제거" "남음" || ok "폐기된 update_branch 는 변환 때 제거"
+/usr/bin/grep -q 'max_continue: 7' "$W/m5/workflow.yaml" && ok "살아 있는 settings 는 보존" || no "max_continue 소실"
 
 # 옛 버전의 default.yaml (git 이력이 있을 때만)
 OLD="$(git -C "$R" log --format=%h -- config/default.yaml 2>/dev/null | tail -1)"

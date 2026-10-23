@@ -427,15 +427,15 @@ ROOT_KEYS = {'version', 'base', 'settings', 'workflows', 'stages'}
 # 기본값은 코드에 둔다. yaml은 덮어쓰기만 한다 —
 # 그래야 새 설정이 생겨도 기존 yaml을 고칠 필요가 없다.
 SETTINGS = {
-    'update_branch': 'main',
     'max_attempts': 3,
     'max_continue': 10,
     'max_loops': 3,
     'stale_lock_hours': 12,
-    'repo': 'kangraemin/ai-bouncer',
 }
-# 세션 시작 업데이트 알림을 없앴다. 예전 yaml 에 남은 키는 오류 없이 무시한다.
-RETIRED_SETTINGS = {'update_check', 'update_check_interval_hours'}
+# 예전 yaml 에 남은 키는 오류 없이 무시한다(bouncer init 이 걷어낸다).
+#   update_check* — 세션 시작 업데이트 알림을 없앴다.
+#   update_branch / repo — 어디서도 읽지 않았다(2026-10-24 확인).
+RETIRED_SETTINGS = {'update_check', 'update_check_interval_hours', 'update_branch', 'repo'}
 
 
 # ─────────────────────────────────────────────────────────────

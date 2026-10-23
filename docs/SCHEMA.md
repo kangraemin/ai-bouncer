@@ -1,16 +1,46 @@
 # workflow.yaml 스키마
 
+## 이 파일이 하는 일
+
+이 레포에서 "작업 끝"이라고 하려면 **통과해야 할 검사**를 적는다.
+단계 순서(구현 → 검증 → 마무리)와 기본 규칙(검증 전 push 금지 등)은 전역 엔진의
+기본값(`config/default.yaml`)에 있다. 레포 파일 `<레포>/.claude/ai-bouncer/workflow.yaml` 에는
+**기본값과 다른 것만** 적는다. 비어 있으면(`version: 1` 한 줄) 기본값 그대로다.
+
+보통은 verify 단계에 검사 명령 하나면 된다. 엔진이 직접 돌려 종료코드로 판정한다:
+
+```yaml
+version: 1
+stages:
+  verify:
+    steps:
+      - label: 테스트
+        run: "npm test"
+        blocking: true
+```
+
+자주 쓰는 것은 여기까지다(2026-10-24 기준 30개 레포 중 23곳은 비어 있고, 나머지도 `run`·`timeout`·`blocking`·`optional`·`inject` 정도만 쓴다).
+아래는 전체 키 목록이다.
+
+### 기본값과 합치는 규칙
+
+| 키 | 규칙 |
+|---|---|
+| `settings` | 키 단위로 덮는다 |
+| `workflows.<이름>` | 같은 이름이면 `label`·`stages` 를 덮고, 새 이름이면 추가 |
+| `stages.<이름>.steps` | `label` 이 같으면 그 자리에서 교체, 새 `label` 이면 기본 step 뒤에 추가. `remove: [label…]` 로 기본 step 삭제 |
+| `stages.<이름>.forbid` | 키 단위로 덮는다(`push: false` 로 기본 금지를 끌 수 있다) |
+| `stages.<이름>.on_fail` | 적으면 덮는다 |
+| 루트 `base: none` | 기본값 없이 이 파일 하나만 쓴다 |
+
 ## 최상위
 
-| 키 | 필수 | 설명 |
-|---|:---:|---|
-| `version` | ✅ | 현재 `1` |
-| `settings` | | 엔진 설정. 적지 않으면 기본값 |
-| `workflows` | ✅ | 시작할 때 뜨는 모드 선택지 |
-| `stages` | ✅ | 스테이지 정의. 체인에 쓰인 이름은 **전부** 정의돼야 한다 |
-
-설정 파일은 이것 하나다. 별도 `config.json`은 없고, 설치는 **프로젝트별로만** 한다
-(`<프로젝트>/.claude/ai-bouncer/workflow.yaml`). 전역 설치는 지원하지 않는다.
+| 키 | 설명 |
+|---|---|
+| `version` | 현재 `1` |
+| `settings` | 엔진 숫자 설정. 거의 바꿀 일이 없다 (맨 아래 `settings` 절) |
+| `workflows` | 시작할 때 뜨는 모드 선택지 |
+| `stages` | 스테이지 정의. 체인에 쓰인 이름은 기본값과 합친 뒤 **전부** 정의돼야 한다 |
 
 ## `workflows.<이름>`
 
@@ -219,8 +249,7 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 | 내장 파서 + YAML 앵커 | pyyaml 없는 머신에서 `stages`가 통째로 사라진다 |
 | **같은 블록에 중복된 키** | YAML은 뒤엣것으로 조용히 덮어쓴다. `forbid:`를 실수로 두 번 쓰면 앞의 가드가 에러 없이 사라진다 |
 
-> hook은 `<프로젝트>/.claude/settings.json`에 `${CLAUDE_PROJECT_DIR}` 기준 경로로 등록된다.
-> 절대경로가 아니므로 이 파일을 팀과 공유해도 다른 컴퓨터에서 깨지지 않는다.
+> hook은 전역 `~/.claude/settings.json` 에 한 번만 등록된다. 레포에는 이 설정 파일만 있다.
 
 ## `settings`
 
@@ -229,18 +258,16 @@ Edit/Write 게이트와 셸 게이트는 **같은 판정기**를 쓴다. 다만 
 
 ```yaml
 settings:
-  update_branch: dev
   max_continue: 20
 ```
 
 | 키 | 기본 | 설명 |
 |---|---|---|
-| `update_branch` | `main` | 자동 업데이트 기준 브랜치 |
 | `max_attempts` | `3` | blocking 실패 재시도 후 `on_fail` 발동 |
 | `max_continue` | `10` | Stop 연속 차단 상한. 초과 시 사용자에게 질문 |
 | `max_loops` | `3` | `on_fail`로 앞 단계와 왕복할 수 있는 횟수. 초과하면 사용자에게 넘긴다 |
 | `stale_lock_hours` | `12` | 이 시간 넘게 하트비트가 멈춘 잠금을 정리 |
-| `repo` | `kangraemin/ai-bouncer` | 업데이트를 받아올 저장소 |
 
 알 수 없는 키는 컴파일이 거부한다 (오타로 설정이 조용히 무시되는 것을 막는다).
+폐기된 `update_branch`·`repo`·`update_check*` 는 오류 없이 무시하고, `bouncer init` 이 파일에서 걷어낸다.
 

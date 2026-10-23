@@ -143,18 +143,18 @@ if [ -f "$DIR/workflow.yaml" ]; then
   python3 -B "$_D/migrate-workflow.py" "$DIR/workflow.yaml" >/dev/null || true
 else
   cat > "$DIR/workflow.yaml" <<'YML'
-# ai-bouncer 레포별 워크플로우 설정 — 기본값과 다른 것만 적는다.
-# 기본값은 전역 엔진(~/.claude/ai-bouncer/engine/default.yaml)이 갖고 업데이트 때마다 바뀐다.
-# 병합 규칙: settings 는 키 단위 덮기 / stages.<이름>.steps 는 label 이 같으면 교체·새 label 이면 뒤에 추가 /
-#            remove: [label…] 로 기본 step 삭제 / forbid 는 키 단위 덮기. 스키마: docs/SCHEMA.md
+# ai-bouncer 레포 설정 — 이 레포에서 "작업 끝"이라고 하려면 통과해야 할 검사를 적는다.
+# 단계 순서(구현 → 검증 → 마무리)와 기본 규칙은 전역 엔진에 있다. 여기엔 이 레포만 다른 것만 적는다.
 #
-# 예) verify 단계에 프로젝트 테스트를 게이트로 추가:
+# 보통은 verify 단계에 검사 명령 하나면 된다. 엔진이 직접 돌려 통과해야 끝난다:
 # stages:
 #   verify:
 #     steps:
-#       - label: 유닛 테스트
+#       - label: 테스트
 #         run: "npm test"
 #         blocking: true
+#
+# 그 밖의 키(시작할 때 끌 수 있는 검사, 지시문 덧붙이기, 기본 step 빼기): docs/SCHEMA.md
 
 version: 1
 YML
