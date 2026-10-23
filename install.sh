@@ -220,7 +220,7 @@ d = "${CLAUDE_PROJECT_DIR}/.claude/ai-bouncer"
 spec = [
     ("SessionStart", None,                       f"{d}/hooks/session-start.sh", 30),
     ("PreToolUse",   "Edit|Write|MultiEdit|NotebookEdit|Bash", f"{d}/hooks/pre-tool.sh", 10),
-    ("PostToolUse",  "ExitPlanMode",             f"{d}/hooks/post-tool.sh", 10),
+    ("PostToolUse",  "ExitPlanMode|Bash",        f"{d}/hooks/post-tool.sh", 30),
     ("Stop",         None,                       f"{d}/hooks/stop.sh", 1800),
     ("SessionEnd",   None,                       f"{d}/hooks/session-end.sh", 5),
 ]

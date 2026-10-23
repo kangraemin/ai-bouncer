@@ -230,6 +230,43 @@ bouncer_evidence_tree() {
   GIT_INDEX_FILE="$idx" git -C "$w" write-tree 2>/dev/null || true
 }
 
+# ── 테스트만 바뀐 경우 ──────────────────────────────────────
+# 빌드·타입 검사가 통과한 뒤 테스트 파일만 고쳤는데 "코드가 바뀌었다"며 빌드를 다시
+# 돌리게 했다 (먹맵 2026-10-23). 테스트 파일만 바뀌었으면 테스트를 돌리는 step만 무효로 한다.
+bouncer_is_test_path() {
+  printf '%s' "$1" | grep -Eq '(^|/)(tests?|__tests__|e2e|spec)/|\.(test|spec)\.[A-Za-z0-9]+$|_test\.(go|py)$|(^|/)test_[^/]*\.py$'
+}
+bouncer_is_test_cmd() {
+  printf '%s' "$1" | grep -Eq 'playwright|jest|vitest|pytest|mocha|cypress|(^|[ /:])(test|e2e)([ :]|$)'
+}
+# 두 트리 사이에 바뀐 파일이 전부 테스트 파일이면 참.
+bouncer_test_only_diff() {
+  local w="$1" a="$2" b="$3" f any=""
+  while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    any=1
+    bouncer_is_test_path "$f" || return 1
+  done < <(git -C "$w" diff-tree -r --name-only "$a" "$b" 2>/dev/null || echo '/')
+  [ -n "$any" ]
+}
+
+# ── 사용자 원문 확인 ─────────────────────────────────────────
+# 사용자가 채팅에서 직접 한 말인지 transcript 에서 확인한다. 다른 세션 메시지·훅 피드백·
+# 도구 결과는 사용자 말이 아니다 — 그걸로 게이트를 풀 수 있으면 대리 승인이 된다.
+bouncer_user_said() {
+  local sid="$1" quote="$2" tr
+  [ -n "$sid" ] && [ "${#quote}" -ge 4 ] || return 1
+  tr="$(ls "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$sid".jsonl 2>/dev/null | head -1)"
+  [ -f "$tr" ] || return 1
+  # 메시지 단위로 거른다 — 줄 단위로 거르면 다른 세션 메시지의 나머지 줄이 사용자 말로 남는다.
+  jq -r 'select(.type == "user" and (.isMeta // false | not))
+    | .message.content
+    | if type == "string" then . else (map(select(.type == "text") | .text) | join(" ")) end
+    | select(test("<cross-session-message|<system-reminder|<task-notification|<command-|^Stop hook feedback") | not)
+    | gsub("\\s+"; " ")' "$tr" 2>/dev/null \
+  | tail -200 | grep -qF -- "$(printf '%s' "$quote" | tr -s '[:space:]' ' ')"
+}
+
 # ── 실행 범위 ────────────────────────────────────────────────
 # 범위를 좁힐 수 있는 명령인가. {scope} 자리가 있거나, 연결 연산자가 없는 단일 명령이면
 # 끝에 경로를 붙일 수 있다. 먹맵 e2e(`npx playwright test --workers=1`)는 자리가 없어
