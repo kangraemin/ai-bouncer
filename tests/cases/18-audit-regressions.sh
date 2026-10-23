@@ -16,7 +16,8 @@ pass_implement                                         # implement → verify
 python3 - "$T/.claude/ai-bouncer/workflow.yaml" <<'PY'
 import sys, re
 p = sys.argv[1]; s = open(p).read()
-open(p, 'w').write(s.replace('\n  simple:\n', '\n  simplified:\n'))
+# 기본값과 병합하면 simple 이 되살아나므로 기본값 없이(base: none) 이 파일만 쓰게 한다
+open(p, 'w').write('base: none\n' + s.replace('\n  simple:\n', '\n  simplified:\n'))
 PY
 python3 "$R/engine/compile.py" "$T/.claude/ai-bouncer/workflow.yaml" \
         "$T/.claude/ai-bouncer/workflow.compiled.json" >/dev/null
@@ -217,35 +218,13 @@ says '알 수 없는 인자' bouncer release --forcex && ok "release 오타 거�
 CLAUDE_CODE_SESSION_ID=S9 bash "$R/engine/bouncer.sh" cancel >/dev/null 2>&1
 
 echo
-echo "[두 게이트가 같은 답을 낸다]"
-# Edit 판정과 Bash 판정이 각각 구현돼 있어 `*`의 의미와 `!` 우선순위가 정반대였다
-GU="$R/engine/lib/guard.py"
-for pat in '["src/*"]' '["!src/**","src/a.js"]' '["**","!docs/**"]'; do
-  for f in src/deep/c.js src/a.js docs/d.md app.js; do
-    e=$(python3 "$GU" --check-path "$pat" "$T" "$T/$f")
-    b=$(printf '%s' "rm $T/$f" | python3 "$GU" "$pat" false '[]' "$T")
-    if { [ -n "$e" ] && [ -z "$b" ]; } || { [ -z "$e" ] && [ -n "$b" ]; }; then
-      no "게이트 불일치" "$pat / $f — Edit=${e:+차단}${e:-통과} Bash=${b:+차단}${b:-통과}"; MISMATCH=1
-    fi
-  done
-done
-[ "${MISMATCH:-0}" = 0 ] && ok "Edit 게이트와 Bash 게이트 판정 일치 (12조합)"
-
-echo
 echo "[핵심 차단이 실제로 걸리는가]"
 # 감사에서 이 기능들을 전부 no-op으로 바꿔도 테스트가 전건 통과했다.
-# 무력화하면 반드시 여기서 빨간불이 나야 한다.
+# 무력화하면 반드시 여기서 빨간불이 나야 한다. (셸 명령의 엔진 파일 해석·글롭 스코프 게이트는 지웠다)
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
-# (a) 엔진 디렉토리 삭제 — 제약 없는 done 단계에서도 막혀야 한다
 bouncer start simple guard1 >/dev/null
-for c in "rm -rf .ai-bouncer" "git clean -fdx" "rm -rf .ai*" "rm -rf .claude" \
-         "find . -name state.json -delete"; do
-  r=$(pre Bash "$(jq -nc --arg c "$c" '{command:$c}')")
-  [ -n "$r" ] || { no "엔진 보호" "$c 통과됨"; G1=1; }
-done
-[ "${G1:-0}" = 0 ] && ok "엔진 디렉토리를 지우는 명령 차단 (5건)"
 
 # (b) 스테이지가 yaml에서 사라지면 Stop과 PreToolUse 둘 다 막아야 한다
 cp "$T/.claude/ai-bouncer/workflow.compiled.json" "$T/compiled.bak"

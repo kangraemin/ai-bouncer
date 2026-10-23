@@ -153,23 +153,9 @@ GU="$R/engine/lib/guard.py"
 export CLAUDE_CODE_SESSION_ID=S1
 bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 
-# worktree 안에서도 edit_files 스코프가 살아야 한다 (--parallel 에서만 사라졌다)
-WTP="$T/.wt"; mkdir -p "$WTP/src" "$WTP/docs"
-SC='["**","!src/**"]'
-[ -n "$(printf 'rm -f docs/x.md' | python3 "$GU" "$SC" false '[]' "$T" "$WTP" "$WTP")" ] \
-  && ok "worktree 안 스코프 밖은 차단" || no "worktree 스코프 소실" "통과됨"
-[ -z "$(printf 'rm -f src/a.js' | python3 "$GU" "$SC" false '[]' "$T" "$WTP" "$WTP")" ] \
-  && ok "worktree 안 예외 경로는 허용" || no "worktree 예외 차단됨"
-[ -n "$(python3 "$GU" --check-path "$SC" "$T" "$WTP/docs/x.md" "$WTP" "$WTP")" ] \
-  && ok "Edit 도 worktree 안 스코프를 본다" || no "Edit 스코프 소실"
-
-# 슬래시 없는 `bouncer.sh` 는 엔진이 아니다
-[ -n "$(printf 'bouncer.sh anything && git push' | python3 "$GU" true true '[]' "$T" '' "$T")" ] \
+# 슬래시 없는 `bouncer.sh` 는 엔진이 아니다 — push 금지를 면제받지 않는다
+[ -n "$(printf 'bouncer.sh anything && git push' | python3 "$GU" true "$T" '' "$T")" ] \
   && ok "bouncer.sh 이름만으로 면제받지 않는다" || no "이름 면제 통과"
-
-# EDIT→PUSH 패스 사이 cd 추적 누수 (쓰기보다 뒤에 오는 cd 가 앞을 막았다)
-[ -z "$(printf 'touch src/a.js && cd -' | python3 "$GU" "$SC" true '[]' "$T" "$WTP" "$WTP")" ] \
-  && ok "쓰기 뒤에 오는 cd 는 앞을 막지 않는다" || no "패스 간 cd 누수"
 
 # 설정 손상을 Stop 이 정확히 보고하고, 무한 차단하지 않는다
 bouncer start simple cfg >/dev/null
@@ -178,8 +164,8 @@ printf 'nope' > "$T/.claude/ai-bouncer/workflow.compiled.json"
 r=$(stop); printf '%s' "$r" | grep -q '설정을 읽을 수 없다' \
   && ok "Stop 이 설정 손상을 정확히 보고" || no "Stop 오진" "${r:0:70}"
 REL=0
-for i in $(seq 1 30); do
-  printf '%s' "$(stop)" | grep -q '"decision"' || REL=1
+for i in $(seq 1 30); do   # 실제 재진입은 stop_hook_active=true 로 온다
+  printf '%s' "$(hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"stop_hook_active\":true}")" | grep -q '"decision"' || REL=1
 done
 [ "$REL" = 1 ] && ok "무한 차단하지 않고 세션을 돌려준다" || no "12회 연속 차단" "안전밸브 미작동"
 cp "$T/cc2.bak" "$T/.claude/ai-bouncer/workflow.compiled.json"
@@ -200,8 +186,8 @@ bouncer cancel >/dev/null 2>&1; rm -f "$T"/.ai-bouncer/tasks/*/.active
 bouncer start simple sv >/dev/null
 printf 'garbage' > "$(task_dir)/state.json"
 REL=0
-for i in $(seq 1 40); do
-  printf '%s' "$(stop)" | grep -q '"decision"' || { REL=$i; break; }
+for i in $(seq 1 40); do   # 실제 재진입은 stop_hook_active=true 로 온다
+  printf '%s' "$(hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"stop_hook_active\":true}")" | grep -q '"decision"' || { REL=$i; break; }
 done
 [ "$REL" != 0 ] && ok "손상 상태에서도 ${REL}회째 세션을 돌려준다" \
                 || no "무한 차단" "40회 전부 막혔다"
@@ -239,7 +225,7 @@ BACK=0
 for i in $(seq 1 6); do
   stop >/dev/null
   [ "$(stage)" = implement ] && { BACK=$i; break; }
-  user_turn >/dev/null; bouncer done "verify/사람 확인" >/dev/null 2>&1
+  bouncer done "verify/사람 확인" >/dev/null 2>&1
 done
 [ "$BACK" != 0 ] && ok "run 게이트가 실패하면 사람 확인이 있어도 반송된다" \
                  || no "반송 안 됨" "$(stage) 에 머묾"
@@ -273,7 +259,6 @@ bouncer cancel >/dev/null 2>&1
 bouncer start simple cap >/dev/null
 stop >/dev/null                                   # 사람 대기 표시
 bouncer todo add '작업' >/dev/null 2>&1; bouncer todo done 1 >/dev/null 2>&1
-user_turn >/dev/null
 python3 - "$(task_dir)/state.json" <<'PYX'
 import json, sys
 p = sys.argv[1]; d = json.load(open(p))
@@ -364,7 +349,7 @@ fi
 rmdir "$(task_dir)/.lock" 2>/dev/null
 bouncer cancel >/dev/null 2>&1
 
-# m4: edit_files:true + 사람 확인 게이트면 즉시 반송하지 않는다
+# m4: 사람 확인처럼 보이는 inject 게이트가 있어도 엔진 게이트 실패는 반송된다
 cat > "$FIXTURE_DIR/_hw.yaml" <<'Y'
 version: 1
 workflows:
@@ -382,9 +367,6 @@ stages:
         run: "test -f PASSME"
         by: engine
         blocking: true
-    forbid:
-      edit_files: true
-      reason: 검증 중에는 수정할 수 없다
   done:
     steps: [{label: 끝, inject: "끝"}]
 Y

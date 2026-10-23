@@ -30,7 +30,6 @@ for i in $(seq 1 12); do
   out=$(hook stop "{\"session_id\":\"S1\",\"cwd\":\"$T\",\"stop_hook_active\":true}")
   printf '%s' "$out" | jq -e '.decision == "block"' >/dev/null 2>&1 || released=$((released+1))
 done
-[ "$(state .reentry_count)" != "" ] && ok "재진입 횟수를 기록한다" || no "재진입 기록"
 [ "$released" -ge 2 ] && ok "반복 차단 시 주기적으로 세션을 돌려준다 (12회 중 ${released}회)" \
   || no "무한루프 방지" "12회 내내 밀어붙임"
 

@@ -20,9 +20,6 @@ stages:
         run: 'exit 1'
         by: engine
         blocking: true
-    forbid:
-      edit_files: true
-      reason: 검증 단계에선 수정 금지.
   done:
     steps: [{label: 완료, inject: "끝."}]
 Y
@@ -53,7 +50,7 @@ RT=$(state '[.history[]|select(.returned_from)]|length')
 # 근본 원인 수정 전에는 2 Stop마다 1왕복이라 40회에 20왕복이 났다.
 # 아무것도 안 고치면 애초에 다시 내보내지 않으므로 왕복은 1~2회에 그쳐야 한다.
 [ "$RT" -le 3 ] && ok "고친 게 없으면 왕복 자체가 안 생긴다 (${RT}회)" || no "헛바퀴" "${RT}회 왕복"
-printf '%s' "$esc" | grep -qE '작업 트리가 그대로|왕복했다' && ok "막힌 이유를 설명한다" || no "이유 설명" "${esc:0:60}"
+printf '%s' "$esc" | grep -qE '작업 트리가 그대로|왕복했다|도구 없이 [0-9]+번 연속' && ok "막힌 이유를 설명한다" || no "이유 설명" "${esc:0:60}"
 
 # 실제로 고치면 다시 전진해야 한다
 echo "change" >> app.js
