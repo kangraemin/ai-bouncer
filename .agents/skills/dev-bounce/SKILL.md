@@ -78,11 +78,13 @@ bouncer start <모드> "<slug>" --pick <단계>=<id>,<id> [--pick <단계>=…]
 | `bouncer workflows` | 모드 목록 |
 | `bouncer check` | workflow.yaml 검사 |
 | `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 (오래됐거나 없으면 exit 2) |
-| `bouncer init [--defaults\|--decline]` | 레포에 켜기 / 빈 설정에 기본값 채우기 / 켜지 않기 |
+| `bouncer init [--defaults\|--setup\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않기 |
+| `bouncer setup` | 레포 설정을 사용자와 대화로 정한다 — 출력된 안내대로 묻고 yaml 을 쓴다 |
 
 ## 사용자가 "앞으로 항상 ~해라"라고 할 때
 
 이번만인지 앞으로 계속인지 애매하면 묻는다. 앞으로 계속이면 작업이 끝난 뒤에 고친다.
+설정을 크게 다시 정하려면 `bouncer setup` 안내를 따른다.
 1. `workflow.yaml`의 해당 단계에 넣는다.
    - 자동으로 판정할 수 있으면 `run`에 넣는다.
    - 사람 판단이 필요하면 `prompt`에 넣는다.

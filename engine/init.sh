@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # bouncer init — 이 레포에 ai-bouncer 를 켠다 (레포 설정만 만든다. 엔진·훅은 전역).
-#   bouncer init                  .claude/ai-bouncer/workflow.yaml, .gitignore, CLAUDE.md 규칙 블록
-#   bouncer init --defaults       단계 설정이 없는 workflow.yaml 에 기본값(모드·단계·프롬프트)을 그대로 써 넣는다
+#   bouncer init                  .claude/ai-bouncer/workflow.yaml(단계 설정 없음 = 엔진 기본값), .gitignore, CLAUDE.md 규칙 블록
+#   bouncer init --defaults       기본값(모드·단계·프롬프트)을 workflow.yaml 에 그대로 써 넣는다
+#   bouncer init --setup          켜고, 다음 새 세션에서 한 번 사용자와 대화로 설정하게 한다 (bouncer setup)
 #   bouncer init --decline        이 레포에서는 켜지 않는다 (세션 시작 때 다시 묻지 않는다)
 #   bouncer init --no-claude-md   CLAUDE.md 는 건드리지 않는다
 #
@@ -12,14 +13,15 @@ set -uo pipefail
 _D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_D/lib/common.sh"
 
-DECLINE=0; CLAUDE_MD=1; QUIET=0; DEFAULTS=0
+DECLINE=0; CLAUDE_MD=1; QUIET=0; DEFAULTS=0; SETUP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --decline)      DECLINE=1; shift ;;
     --defaults)     DEFAULTS=1; shift ;;
+    --setup)        SETUP=1; shift ;;
     --no-claude-md) CLAUDE_MD=0; shift ;;
     --quiet)        QUIET=1; shift ;;
-    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'ai-bouncer: 알 수 없는 인자: %s\n' "$1" >&2; exit 1 ;;
   esac
 done
@@ -169,8 +171,15 @@ if [ -f "$DIR/workflow.yaml" ]; then
       && die "이미 단계 설정이 있다: $DIR/workflow.yaml (덮어쓰지 않는다)"
     write_defaults; say '  workflow.yaml 에 기본값을 써 넣었다\n'
   fi
-else
+elif [ "$DEFAULTS" = 1 ]; then
   write_defaults
+  CREATED=1
+else
+  # 단계 설정은 비워 둔다 — 엔진 기본값으로 돈다. 이 레포에 맞는 설정은 bouncer setup 으로 사용자와 정한다.
+  cat > "$DIR/workflow.yaml" <<'YML'
+# ai-bouncer 레포 설정 — 비어 있으면 엔진 기본값(plan / simple 모드)으로 돈다.
+# 이 레포에 맞게 정하려면 Claude 세션에서 `bouncer setup` 안내대로 대화하며 채운다. 형식: docs/SCHEMA.md
+YML
   CREATED=1
 fi
 
@@ -224,13 +233,24 @@ jq -n --argjson gi "$GI_ADDED" '{gitignore_added: $gi}' > "$DIR/init.json"
 if mkdir -p "$REG_DIR" 2>/dev/null; then
   { [ -f "$REG_DIR/installs" ] && cat "$REG_DIR/installs"; printf '%s\n' "$PROJECT"; } \
     | awk 'NF && !seen[$0]++' > "$REG_DIR/installs.tmp" && mv "$REG_DIR/installs.tmp" "$REG_DIR/installs"
+  if [ "$SETUP" = 1 ]; then
+    { [ -f "$REG_DIR/setup-pending" ] && cat "$REG_DIR/setup-pending"; printf '%s\n' "$PROJECT"; } \
+      | awk 'NF && !seen[$0]++' > "$REG_DIR/setup-pending.tmp" && mv "$REG_DIR/setup-pending.tmp" "$REG_DIR/setup-pending"
+  fi
+  if [ "$DEFAULTS" = 1 ] && [ -f "$REG_DIR/setup-pending" ]; then
+    grep -vxF "$PROJECT" "$REG_DIR/setup-pending" > "$REG_DIR/setup-pending.tmp"; mv "$REG_DIR/setup-pending.tmp" "$REG_DIR/setup-pending"
+  fi
   if [ -f "$REG_DIR/declined" ]; then
     grep -vxF "$PROJECT" "$REG_DIR/declined" > "$REG_DIR/declined.tmp"; mv "$REG_DIR/declined.tmp" "$REG_DIR/declined"
   fi
 fi
 
-if [ "$CREATED" = 1 ]; then
+if [ "$CREATED" = 1 ] && [ "$DEFAULTS" = 1 ]; then
   say 'ai-bouncer를 켰다: %s\n  설정: %s (기본값으로 채웠다 — 이 레포에 맞게 고치면 된다)\n' "$PROJECT" "$DIR/workflow.yaml"
+elif [ "$CREATED" = 1 ]; then
+  say 'ai-bouncer를 켰다: %s\n  설정: %s (비어 있다 — 엔진 기본값으로 돈다)\n' "$PROJECT" "$DIR/workflow.yaml"
+  if [ "$SETUP" = 1 ]; then say '  다음 새 Claude 세션에서 한 번, 이 레포에 맞는 설정을 대화로 정한다\n'
+  else say '  다음: bouncer setup — 안내대로 사용자와 대화하며 이 레포에 맞게 채운다\n'; fi
 else
   say 'ai-bouncer 설정 갱신: %s\n' "$PROJECT"
 fi

@@ -24,7 +24,8 @@ rc=0
 case "$ACTION" in
   # 받아온 브랜치를 설치에도 그대로 넘긴다. 안 넘기면 다음 자동 업데이트에
   # main으로 조용히 되돌아간다.
-  install) bash "$TMP/src/install.sh" --ci --branch "$BRANCH" "$@" || rc=$? ;;
+  # curl | bash 는 stdin 이 파이프다. 터미널이 있으면 install.sh 가 /dev/tty 로 묻는다.
+  install) bash "$TMP/src/install.sh" --branch "$BRANCH" "$@" || rc=$? ;;
   update)
     bash "$TMP/src/update-all.sh" --branch "$BRANCH" "$@" || rc=$? ;;
   uninstall)      bash "$TMP/src/uninstall.sh" "$@" || rc=$? ;;

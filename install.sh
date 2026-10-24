@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ai-bouncer 설치 — 엔진·훅·스킬을 이 컴퓨터에 한 벌 깐다 (~/.claude/ai-bouncer).
-#   ./install.sh                전역 설치 + 지금 레포가 git 레포면 거기도 켠다 (bouncer init)
+#   ./install.sh                전역 설치 + 지금 레포가 처음이면 켤지 묻는다 (터미널이 없으면 켜지 않고 새 세션이 묻는다)
 #   ./install.sh --no-init      전역 설치만
-#   ./install.sh --ci           비대화 모드 (사실 물어보는 게 없다)
+#   ./install.sh --ci           비대화 모드 (처음 켜는 레포도 묻지 않고 빈 설정으로 켠다)
 #   ./install.sh --branch dev   업데이트 기준 브랜치 기록
 #   ./install.sh --no-claude-md bouncer init 이 CLAUDE.md 에 규칙 블록을 넣지 않음
 #
@@ -41,7 +41,7 @@ printf 'ai-bouncer 설치 → %s\n' "$G"
 NEW="$G.new.$$"; rm -rf "$NEW"
 mkdir -p "$NEW/engine/lib" "$NEW/engine/prompts" "$NEW/hooks" || die "디렉토리 생성 실패"
 # engine/lib 는 통째로 옮긴다 — 목록을 손으로 적었다가 새 파일이 빠져 설치본에서 조용히 안 돈 적이 있다.
-for f in engine/compile.py engine/migrate-workflow.py engine/bouncer.sh engine/init.sh \
+for f in engine/compile.py engine/migrate-workflow.py engine/bouncer.sh engine/init.sh engine/setup.sh \
          $(cd "$SRC" && ls engine/lib/*.sh engine/lib/*.py) \
          hooks/session-start.sh hooks/pre-tool.sh hooks/stop.sh hooks/session-end.sh; do
   install -m 755 "$SRC/$f" "$NEW/$f" || { rm -rf "$NEW"; die "복사 실패: $f"; }
@@ -132,9 +132,40 @@ fi
 printf '\n전역 설치 완료 (업데이트 브랜치 %s)\n' "$BRANCH"
 
 # ── 4. 지금 레포에 켜기 ──────────────────────────────────────
-if [ "$INIT" = 1 ] && git rev-parse --show-toplevel >/dev/null 2>&1; then
+# 처음 켜는 레포면 여기서 한 번 묻는다 (터미널이 있을 때만). 그 뒤로는 묻지 않는다.
+if [ "$INIT" = 1 ] && TOP="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   printf '\n'
-  bash "$G/engine/init.sh" ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} || die "bouncer init 실패"
+  MODE=()
+  # 이미 켠 레포(하위 프로젝트 포함)는 묻지 않고 갱신만 한다. init 과 같은 규칙으로 가장 가까운 설정을 찾는다.
+  HAS=0; d="$(pwd -P)"; TOP="$(cd "$TOP" && pwd -P)"
+  while :; do
+    [ -f "$d/.claude/ai-bouncer/workflow.yaml" ] && { HAS=1; break; }
+    [ "$d" = "$TOP" ] || [ "$d" = "/" ] && break
+    d="$(dirname "$d")"
+  done
+  if [ "$HAS" = 1 ] || [ "$CI" = 1 ]; then
+    :
+  elif ! { : </dev/tty; } 2>/dev/null; then
+    # 물을 터미널이 없다 — 켜지 않고 둔다. 새 Claude 세션이 처음 한 번 묻는다.
+    MODE=(skip)
+  else
+    printf '이 레포(%s)에 ai-bouncer 를 켤까요?\n' "$TOP"
+    printf '  1) 켜고, 다음 Claude 세션에서 이 레포에 맞게 대화로 정한다 (추천)\n'
+    printf '  2) 기본값으로 켠다\n'
+    printf '  3) 이 레포에서는 켜지 않는다\n'
+    printf '선택 [1]: '
+    read -r ans </dev/tty || ans=1
+    case "${ans:-1}" in
+      2) MODE=(--defaults) ;;
+      3) MODE=(--decline) ;;
+      *) MODE=(--setup) ;;
+    esac
+  fi
+  if [ "${MODE[*]-}" = skip ]; then
+    printf '이 레포는 아직 켜지 않았다 — 새 Claude 세션에서 켤지 묻는다.\n'
+  else
+    bash "$G/engine/init.sh" ${MODE[@]+"${MODE[@]}"} ${INIT_ARGS[@]+"${INIT_ARGS[@]}"} || die "bouncer init 실패"
+  fi
 fi
-[ "$CI" = 1 ] || printf '\n다음: 새 세션에서 /dev-bounce 를 실행해보라. 설정이 없는 레포에서는 켤지 먼저 묻는다.\n'
+[ "$CI" = 1 ] || printf '\n다음: 새 Claude 세션을 열어라. 설정이 없는 레포에서는 켤지 처음 한 번 묻는다.\n'
 exit 0

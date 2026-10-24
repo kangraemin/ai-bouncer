@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # ai-bouncer CLI — 스킬과 사용자가 쓰는 진입점.
 #
-#   bouncer init [--defaults|--decline] 이 레포에 켠다 (기본값으로 채운 workflow.yaml) / 빈 설정에 기본값 채우기 / 켜지 않는다
+#   bouncer init [--defaults|--setup|--decline]
+#                                     이 레포에 켠다 (빈 설정 = 엔진 기본값) / 기본값을 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않는다
+#   bouncer setup                     이 레포 설정을 사용자와 대화로 정하는 안내 (찾은 검사 명령 포함)
 #   bouncer scan                      시작 전에 알아야 할 것 (이 세션의 작업, 모드, 고를 항목)
 #   bouncer start <모드> <slug> [--pick <단계>=<id>,<id> ...]
 #                                     작업 시작. 고르는 단계(choosable ask·auto)는 전부 --pick 으로 답해야 한다 (빈 값 = 건너뜀)
@@ -245,6 +247,7 @@ cmd_fresh() {
 
 case "${1:-}" in
   init)      shift; exec bash "$_D/init.sh" "$@" ;;
+  setup)     shift; exec bash "$_D/setup.sh" "$@" ;;
   scan)      shift; cmd_scan "$@" ;;
   check)     shift; cmd_check "$@" ;;
   start)     shift; cmd_start "$@" ;;
@@ -252,6 +255,6 @@ case "${1:-}" in
   cancel)    shift; cmd_cancel "$@" ;;
   workflows) shift; cmd_workflows "$@" ;;
   fresh)     shift; cmd_fresh "$@" ;;
-  ""|-h|--help|help) sed -n '3,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

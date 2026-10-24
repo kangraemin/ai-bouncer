@@ -48,14 +48,13 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh | bash -s uninstall --global
 ```
 
-설정이 없는 레포
-- 새 세션을 시작할 때 켤지 묻는다.
-- 켜면(`bouncer init`) 기본값을 채운 `.claude/ai-bouncer/workflow.yaml`이 생긴다.
-- 켜지 않으려면 `bouncer init --decline`을 쓴다.
-
-설정 파일은 있는데 단계 설정이 없는 레포
-- 새 세션을 시작할 때 기본값을 쓸지 직접 정할지 묻는다.
-- 기본값을 쓰려면 `bouncer init --defaults`를 쓴다.
+처음 켤 때 한 번만 묻는다. 그 뒤로는 묻지 않는다.
+- 터미널에서 설치하면 그 자리에서 묻는다. 새 Claude 세션에서 처음 열면 세션이 묻는다.
+- 선택지
+  - 이 레포에 맞게 정한다 (추천): Claude가 레포의 테스트·린트·빌드 명령을 찾아 추천하고, 대화로 모드·검증·마무리를 정해 workflow.yaml을 쓴다 (`bouncer setup`)
+  - 기본값으로 켠다: `bouncer init --defaults`
+  - 켜지 않는다: `bouncer init --decline`
+- 설정 파일이 비어 있으면 엔진 기본값(plan / simple)으로 돈다. 나중에 바꾸고 싶으면 `bouncer setup`을 다시 돌린다.
 
 <br>
 
@@ -149,7 +148,8 @@ run: "bouncer fresh .ai-bouncer/test-result && grep -qx 'fail: 0' .ai-bouncer/te
 | `bouncer workflows` | 모드 목록 |
 | `bouncer check` | workflow.yaml 검사 |
 | `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 |
-| `bouncer init [--defaults\|--decline]` | 레포에 켜기 / 빈 설정에 기본값 채우기 / 켜지 않기 |
+| `bouncer init [--defaults\|--setup\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않기 |
+| `bouncer setup` | 이 레포 설정을 사용자와 대화로 정하는 안내 (찾은 검사 명령 포함) |
 
 <br>
 
@@ -157,7 +157,7 @@ run: "bouncer fresh .ai-bouncer/test-result && grep -qx 'fail: 0' .ai-bouncer/te
 
 ```
 ~/.claude/ai-bouncer/        전역 엔진 한 벌 (설치·업데이트가 통째로 바꾼다)
-  engine/  bouncer.sh  compile.py  init.sh  default.yaml  prompts/
+  engine/  bouncer.sh  compile.py  init.sh  setup.sh  default.yaml  prompts/
   hooks/   session-start.sh  pre-tool.sh  stop.sh  session-end.sh
 <레포>/.claude/ai-bouncer/
   workflow.yaml              레포 설정 (커밋 대상)

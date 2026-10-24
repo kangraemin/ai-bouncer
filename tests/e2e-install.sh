@@ -53,7 +53,7 @@ echo "── 설치 ──"
 bash "$R/install.sh" --ci --branch dev >/dev/null 2>&1 || { no "설치 실행"; exit 1; }
 ok "설치 실행"
 BAD=0
-for f in engine/bouncer.sh engine/init.sh engine/default.yaml hooks/stop.sh hooks/pre-tool.sh installed.json; do
+for f in engine/bouncer.sh engine/init.sh engine/setup.sh engine/default.yaml hooks/stop.sh hooks/pre-tool.sh installed.json; do
   [ -f "$G/$f" ] || { BAD=1; printf '     ↳ %s 없음\n' "$f"; }
 done
 [ "$BAD" = 0 ] && ok "전역 엔진 배치" || no "전역 엔진 배치" "위 파일이 없다"
@@ -134,10 +134,10 @@ r=$(printf '{"session_id":"S1","cwd":"%s"}' "$T" | bash "$G/hooks/stop.sh")
 printf '%s' "$r" | jq -e '.decision == "block"' >/dev/null && ok "끝단 전에는 Stop 을 막는다" || no "Stop 차단" "${r:0:80}"
 "$HOME/.local/bin/bouncer" cancel >/dev/null 2>&1
 
-echo "── 단계 설정 없는 레포 설정: 기본값 쓸지 묻는다 ──"
+echo "── 단계 설정 없는 레포 설정: 다시 묻지 않고 기본값으로 돈다 ──"
 E="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$E" && git init -q . && mkdir -p .claude/ai-bouncer && printf '# 비어 있음\n' > .claude/ai-bouncer/workflow.yaml )
 printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$E" | bash "$G/hooks/session-start.sh" | grep -q 'init --defaults' \
-  && ok "단계 설정이 없으면 묻는다" || no "단계 설정 질문"
+  && no "켠 레포에 다시 물음" || ok "단계 설정이 없어도 다시 묻지 않는다"
 ( cd "$E" && "$HOME/.local/bin/bouncer" init --defaults --no-claude-md >/dev/null 2>&1 )
 grep -q '^workflows:' "$E/.claude/ai-bouncer/workflow.yaml" && [ -f "$E/.claude/ai-bouncer/prompts/plan.md" ] \
   && ok "설치본 init --defaults 가 기본값·프롬프트를 채운다" || no "설치본 defaults"
@@ -171,12 +171,48 @@ r=$(printf '{"session_id":"S9","cwd":"%s","tool_name":"Write","tool_input":{"fil
 [ -z "$(ss startup)" ] && ok "거절하면 다시 묻지 않는다" || no "거절 후 또 물음"
 [ -e "$N/.claude" ] && no "거절인데 파일 생김" || ok "거절은 레포에 아무것도 만들지 않는다"
 ( cd "$N" && "$HOME/.local/bin/bouncer" init >/dev/null 2>&1 )
-[ -f "$N/.claude/ai-bouncer/workflow.compiled.json" ] && grep -q '^workflows:' "$N/.claude/ai-bouncer/workflow.yaml" \
-  && ok "bouncer init 으로 켠다 (기본값을 채운 설정)" || no "init"
+[ -f "$N/.claude/ai-bouncer/workflow.compiled.json" ] && ! grep -q '^workflows:' "$N/.claude/ai-bouncer/workflow.yaml" \
+  && ok "bouncer init 으로 켠다 (빈 설정 = 엔진 기본값)" || no "init"
+( cd "$N" && "$HOME/.local/bin/bouncer" setup ) | grep -q 'AskUserQuestion' && ok "설치본 bouncer setup 이 대화 안내를 낸다" || no "설치본 setup"
 grep -qx "$N" "$HOME/.local/state/ai-bouncer/declined" && no "켠 뒤에도 거절 목록에 남음" || ok "켜면 거절 목록에서 뺀다"
 printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$N" | bash "$G/hooks/session-start.sh" | grep -q '/dev-bounce' \
   && ok "켠 레포에선 평소 안내" || no "켠 뒤 안내"
 rm -rf "$N"
+
+echo "── 설치할 때 처음 한 번 묻는다 ──"
+# 터미널이 있으면 install.sh 가 /dev/tty 로 묻는다 — python pty 로 키 입력을 흉내 낸다
+pick(){ python3 - "$1" "$2" "$R/install.sh" <<'P'
+import os, pty, sys, select
+repo, ans, inst = sys.argv[1:4]
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir(repo); os.execvp('bash', ['bash', inst, '--no-claude-md'])
+out = b''; sent = False
+while True:
+    r, _, _ = select.select([fd], [], [], 20)
+    if not r: break
+    try: c = os.read(fd, 4096)
+    except OSError: break
+    if not c: break
+    out += c
+    if not sent and b'[1]: ' in out:
+        os.write(fd, (ans + '\n').encode()); sent = True
+os.waitpid(pid, 0)
+P
+}
+for a in 1 2 3; do eval "Q$a=\"\$(cd \"\$(mktemp -d)\" && pwd -P)\""; done
+for a in 1 2 3; do eval "q=\$Q$a"; git -C "$q" init -q; pick "$q" "$a" >/dev/null 2>&1; done
+[ -f "$Q1/.claude/ai-bouncer/workflow.yaml" ] && ! grep -q '^workflows:' "$Q1/.claude/ai-bouncer/workflow.yaml" \
+  && grep -qxF "$Q1" "$HOME/.local/state/ai-bouncer/setup-pending" && ok "1 → 빈 설정으로 켜고 다음 세션 setup 예약" || no "선택 1"
+grep -q '^workflows:' "$Q2/.claude/ai-bouncer/workflow.yaml" 2>/dev/null && ok "2 → 기본값으로 켠다" || no "선택 2"
+[ ! -e "$Q3/.claude" ] && grep -qxF "$Q3" "$HOME/.local/state/ai-bouncer/declined" && ok "3 → 켜지 않고 다시 묻지 않는다" || no "선택 3"
+printf '{"session_id":"S9","cwd":"%s","source":"startup"}' "$Q1" | bash "$G/hooks/session-start.sh" | grep -q 'bouncer setup' \
+  && ok "예약한 레포는 다음 세션에서 setup 안내" || no "예약 안내"
+X="$(cd "$(mktemp -d)" && pwd -P)"; git -C "$X" init -q
+# setsid 로 제어 터미널을 끊는다 — 사용자 터미널에서 테스트를 돌려도 /dev/tty 가 열리지 않게
+( cd "$X" && python3 -c 'import os,sys; os.setsid(); os.execvp("bash", ["bash", sys.argv[1], "--no-claude-md"])' "$R/install.sh" </dev/null >/dev/null 2>&1 )
+[ ! -e "$X/.claude" ] && ok "터미널이 없으면 켜지 않고 세션에 맡긴다" || no "터미널 없이 켜짐"
+rm -rf "$Q1" "$Q2" "$Q3" "$X"
 
 echo "── 하위 프로젝트 (모노레포) ──"
 M="$(cd "$(mktemp -d)" && pwd -P)"; ( cd "$M" && git init -q . && mkdir -p web/.claude/ai-bouncer/engine \

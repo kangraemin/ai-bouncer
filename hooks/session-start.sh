@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SessionStart — 컴파일 최신화, 진행 중 작업 안내, 설정 없는 레포면 켤지 묻기.
+# SessionStart — 컴파일 최신화, 진행 중 작업 안내, 설정 없는 레포면 켤지 묻기(처음 한 번).
 # stdout이 그대로 모델 컨텍스트에 들어간다.
 
 set -uo pipefail
@@ -25,23 +25,25 @@ if [ ! -f "$YAML" ]; then
 
 [ai-bouncer] 이 레포($TOP)에는 워크플로우 설정이 없어 ai-bouncer가 꺼져 있다.
 사용자의 첫 요청을 처리하기 전에 AskUserQuestion으로 한 번 물어라: "이 레포에 ai-bouncer를 켤까요?"
-- 켠다 → \`bouncer init\` (.claude/ai-bouncer/workflow.yaml 을 만든다. 커밋 대상이다)
+- 켜고 이 레포에 맞게 정한다 (Recommended) → \`bouncer init\` 한 뒤 \`bouncer setup\` 안내대로 사용자와 대화하며 설정을 채운다
+- 기본값으로 켠다 → \`bouncer init --defaults\`
 - 안 켠다 → \`bouncer init --decline\` (이 레포에서는 다시 묻지 않는다)
+켠 뒤에는 다시 묻지 않는다. 설정은 커밋 대상이다.
 AskUserQuestion 도구가 없는 세션(claude -p, 위임 실행)이면 묻지 말고 이 안내를 무시한다.
 EOF
   exit 0
 fi
 
-# 설정 파일은 있는데 단계 설정이 없다 — 엔진 기본값으로 돈다. 그대로 쓸지 직접 정할지 새 세션에서 한 번 묻는다.
-if [ "$(jq -r '.source // empty' <<<"$INPUT" 2>/dev/null)" = startup ] \
-   && ! grep -Eq '^(workflows|stages):' "$YAML" 2>/dev/null; then
+# 설치할 때 "대화로 정한다"를 골랐다 — 새 세션에서 한 번만 안내하고 예약을 지운다. 그 뒤로는 묻지 않는다.
+ROOT="$(cd "$(bouncer_project_root "$CWD")" && pwd -P)"
+PENDING="$(bouncer_registry_dir)/setup-pending"
+if [ "$(jq -r '.source // empty' <<<"$INPUT" 2>/dev/null)" = startup ] && grep -qxF "$ROOT" "$PENDING" 2>/dev/null; then
+  grep -vxF "$ROOT" "$PENDING" > "$PENDING.tmp"; mv "$PENDING.tmp" "$PENDING"
   cat <<EOF
 
-[ai-bouncer] $YAML 에 단계 설정(workflows·stages)이 없어 기본값으로 돈다.
-사용자의 첫 요청을 처리하기 전에 AskUserQuestion으로 한 번 물어라: "워크플로우 단계를 어떻게 할까요?"
-- 기본값을 쓴다 → \`bouncer init --defaults\` (기본 모드·단계·프롬프트를 workflow.yaml 에 써 넣는다. 커밋 대상이다)
-- 직접 정한다 → 사용자가 원하는 모드·단계를 듣고 workflow.yaml 에 적은 뒤 \`bouncer check\`
-AskUserQuestion 도구가 없는 세션(claude -p, 위임 실행)이면 묻지 말고 기본값으로 진행한다.
+[ai-bouncer] 설치할 때 이 레포($ROOT)의 설정을 대화로 정하기로 했다.
+사용자의 첫 요청을 처리하기 전에 \`bouncer setup\`을 실행하고 그 안내대로 사용자와 정해라.
+AskUserQuestion 도구가 없는 세션이면 묻지 말고 \`bouncer init --defaults\`로 기본값을 쓴다.
 EOF
 fi
 
