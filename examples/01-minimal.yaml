@@ -15,4 +15,5 @@ stages:
     prompt: 요청받은 것을 구현한다.
   verify:
     prompt: 테스트를 돌려 통과를 확인한다.
-    run: npm test
+    items:                         # 검사는 항목으로 둔다. 시작할 때 고른 것만 돈다 (기본 choosable: ask)
+      test: {run: npm test}

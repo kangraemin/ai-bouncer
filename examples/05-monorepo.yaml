@@ -18,10 +18,9 @@ stages:
   implement:
     prompt: 계획대로 구현한다.
   verify:
-    prompt: 전체 타입 체크를 통과시킨다.
-    run: pnpm -r typecheck
     choosable: ask
     items:
+      test:   {label: 전체 타입 체크, run: pnpm -r typecheck}
       api:    {label: api 패키지,    run: pnpm --filter @app/api test}
       web:    {label: web 패키지,    run: pnpm --filter @app/web test}
       shared: {label: shared 패키지, run: pnpm --filter @app/shared test}

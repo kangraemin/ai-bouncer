@@ -100,6 +100,8 @@ stages:
   - `plan`: plan → implement → verify → finalize
   - `simple`: implement → verify → finalize
 - verify 단계는 `choosable: ask`이고, 항목은 `test`(테스트·빌드·린트)와 `review`(변경분 리뷰)다.
+- 레포의 검사 명령은 `stages.verify.items.<id>.run`에 둔다. `stages.verify.run`에 넣으면 고를 수 없고 매번 강제로 돈다.
+- e2e처럼 오래 걸리는 검사는 run에서 돌리지 않는다. prompt로 모델이 영향받는 것만 직접 돌려 결과 파일을 남기게 하고, run은 `bouncer fresh`로 결과만 본다.
 - 기본값은 run이 없다. 이 레포에서 무엇으로 검사할지는 레포 설정에 적는다.
 
 ```yaml
@@ -113,6 +115,6 @@ stages:
 
 `steps`, `forbid`, `on_fail`, `settings`, `base` 같은 옛 키는 없어졌다.
 - `bouncer init`(업데이트 때 자동으로 돈다)이 옛 파일을 새 형식으로 바꾼다.
-- run 명령은 살려서 그 단계의 `run`으로 옮긴다.
+- run 명령은 살려서 그 단계의 `run`으로 옮긴다. verify의 검사는 명령마다 고르는 항목(`items`)으로 옮긴다.
 - 나머지는 버리고 기본값에 맡긴다.
 - 원본은 `workflow.yaml.bak`로 남는다.

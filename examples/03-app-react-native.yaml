@@ -1,6 +1,6 @@
 # 모바일 앱 (React Native) — 자동화로 못 잡는 것은 prompt 로 지시만 한다.
 # 시뮬레이터가 못 재현하는 것(햅틱·권한·딥링크)은 run 으로 판정할 수 없다.
-# 자동화할 수 있는 것은 전부 run 으로 쓴다.
+# 자동화할 수 있는 것은 전부 run 으로 쓴다. 검사는 items 로 두고 시작할 때 고른다.
 
 workflows:
   plan:
@@ -13,15 +13,17 @@ stages:
   implement:
     prompt: 계획대로 구현한다.
   verify:
-    prompt: 타입 체크와 유닛 테스트를 통과시킨다.
-    run:
-      - npx tsc --noEmit
-      - npm test -- --ci
     choosable: ask
     items:
+      test:
+        label: 타입 체크·유닛 테스트
+        run: [npx tsc --noEmit, npm test -- --ci]
       maestro:
-        label: 시뮬레이터 e2e
-        run: npx maestro test .maestro/
+        label: 시뮬레이터 e2e (영향받는 flow 만)
+        prompt: |
+          바꾼 화면에 영향을 주는 flow 만 골라 직접 돌린다. 전체를 돌리지 않는다.
+            { npx maestro test .maestro/<flow>.yaml; } > .ai-bouncer/e2e-result 2>&1; echo "exit: $?" >> .ai-bouncer/e2e-result
+        run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
       device:
         label: 실기기 확인
         prompt: 햅틱·권한 팝업·딥링크처럼 시뮬레이터가 못 재현하는 동작을 실기기에서 확인하고 결과를 보고한다.

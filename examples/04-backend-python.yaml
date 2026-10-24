@@ -15,10 +15,8 @@ stages:
   implement:
     prompt: 계획대로 구현한다.
   verify:
-    prompt: 타입 체크와 테스트를 통과시킨다.
-    run:
-      - mypy src/
-      - pytest -q
+    items:
+      test: {label: 타입 체크·테스트, run: [mypy src/, pytest -q]}
   policy:
     prompt: 디버그 출력을 지우고 CHANGELOG 에 변경을 적는다.
     run:

@@ -2,7 +2,8 @@
 """옛 형식 workflow.yaml 을 지금 형식(workflows / stages.<단계>.{prompt, run, items, choosable})으로 바꾼다.
 
 install/update(bouncer init) 때마다 돈다. 이미 지금 형식이면 아무것도 바꾸지 않는다(멱등).
-  - 단계의 run step 은 그 단계의 run 으로 옮긴다({scope} 자리는 지운다). 잠깐 썼던 checks 는 verify.run 으로.
+  - 단계의 run step 은 그 단계의 run 으로 옮긴다({scope} 자리는 지운다). 잠깐 썼던 checks 는 verify 로.
+    verify 의 검사는 명령마다 고르는 항목(items)으로 옮긴다 — 단계 run 에 두면 매번 강제로 돈다.
   - 나머지(지시문, workflows, settings, forbid, on_fail, remove …)는 버리고 목록을 출력한다.
     옛 파일의 지시문·모드는 대부분 기본값 사본이었다. 기본값이 그 자리를 채운다.
   - 주석은 사라진다. 원본은 workflow.yaml.bak 로 남긴다.
@@ -112,6 +113,16 @@ def convert(raw):
     for c in raw.get('checks') or []:
         if isinstance(c, dict) and _cmd(c.get('run')):
             stages.setdefault('verify', {}).setdefault('run', []).append(_cmd(c['run']))
+    # verify 의 검사는 고르는 항목으로 옮긴다. 단계 run 에 두면 고를 수 없고 매번 강제로 돈다.
+    if stages.get('verify', {}).get('run'):
+        items = {}
+        for c in stages['verify'].pop('run'):
+            base = re.sub(r'[^a-z0-9]+', '-', c.lower()).strip('-')[:30].strip('-') or 'check'
+            iid, n = base, 2
+            while iid in items or iid in ('test', 'review'):
+                iid, n = '%s-%d' % (base, n), n + 1
+            items[iid] = {'label': c, 'run': [c]}
+        stages['verify']['items'] = items
     return ({'stages': stages} if stages else {}), dropped
 
 

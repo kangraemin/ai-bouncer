@@ -1,6 +1,7 @@
 # 웹 프론트엔드 (Next.js) — 검사를 run 에 맡기는 형태.
 # run 은 실제 종료코드로 판정하므로 "통과했습니다"라고 말해도 넘어가지 못한다.
-# 무거운 e2e 는 items 로 빼고, 시작할 때 사용자에게 할지 묻는다(choosable: ask).
+# 검사는 전부 items 로 두고, 시작할 때 고른다(choosable: ask). 단계 run 에 넣으면 매번 강제로 돈다.
+# e2e 는 hook 에서 돌리지 않는다 — 모델이 영향받는 spec 만 직접 돌려 결과 파일을 남기고, run 은 그 결과만 본다.
 
 workflows:
   plan:
@@ -17,17 +18,16 @@ stages:
   implement:
     prompt: 계획대로 구현한다.
   verify:
-    prompt: 타입·린트·유닛 테스트·빌드를 통과시킨다.
-    run:
-      - npx tsc --noEmit
-      - npm run lint
-      - npm test -- --run
-      - npm run build
     choosable: ask
     items:
+      test:
+        label: 타입·린트·유닛·빌드
+        run: [npx tsc --noEmit, npm run lint, npm test -- --run, npm run build]
       e2e:
-        label: Playwright e2e
-        prompt: 화면 흐름이 바뀌었으면 e2e 를 돌린다.
-        run: npx playwright test
+        label: Playwright e2e (영향받는 spec 만)
+        prompt: |
+          바꾼 화면에 영향을 주는 spec 만 골라 직접 돌린다. 전체를 돌리지 않는다.
+            { npx playwright test <spec...>; } > .ai-bouncer/e2e-result 2>&1; echo "exit: $?" >> .ai-bouncer/e2e-result
+        run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

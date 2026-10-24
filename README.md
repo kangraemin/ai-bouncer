@@ -78,11 +78,13 @@ stages:
     prompt: 계획대로 구현한다.
   verify:
     prompt: 실제로 실행해서 확인한다.
-    run: npm run lint              # 끝내려 할 때 돈다. 전부 exit 0 이어야 다음 단계로 간다
-    choosable: ask
+    choosable: ask                 # 검사는 전부 항목으로 두고 시작할 때 고른다
     items:
-      test:   {label: 유닛 테스트, run: npm test}
-      e2e:    {label: e2e,        run: npx playwright test}
+      test:   {label: 린트·유닛 테스트, run: [npm run lint, npm test]}   # 끝내려 할 때 돈다. 전부 exit 0 이어야 넘어간다
+      e2e:                         # 오래 걸리는 건 모델이 영향받는 것만 직접 돌리고, run 은 결과만 본다
+        label: e2e (영향받는 spec 만)
+        prompt: 영향받는 spec 만 돌려 결과를 .ai-bouncer/e2e-result 에 남기고 마지막 줄에 "exit: <코드>" 를 적는다.
+        run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
       review: {label: 변경분 리뷰, prompt: git diff 를 끝까지 읽고 고친다.}
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.
