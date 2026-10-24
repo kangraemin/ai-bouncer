@@ -1,7 +1,8 @@
-# 웹 프론트엔드 (Next.js) — 검사를 run 에 맡기는 형태.
-# run 은 실제 종료코드로 판정하므로 "통과했습니다"라고 말해도 넘어가지 못한다.
+# 웹 프론트엔드 (Next.js) — 검사는 모델이 돌리고, run 은 결과만 검증하는 형태.
 # 검사는 전부 items 로 두고, 시작할 때 고른다(choosable: ask). 단계 run 에 넣으면 매번 강제로 돈다.
-# e2e 는 hook 에서 돌리지 않는다 — 모델이 영향받는 spec 만 직접 돌려 결과 파일을 남기고, run 은 그 결과만 본다.
+# prompt: 모델이 `bouncer record <이름> <명령>` 으로 직접 돌린다. 범위(영향받는 spec 등)도 모델이 고른다.
+# run: `bouncer passed <이름>` — 그 결과가 마지막 수정보다 새것이고 exit 0 인지만 본다.
+#   "통과했습니다"라고 말해도, 고친 뒤 다시 안 돌린 옛 결과로도 넘어가지 못한다.
 
 workflows:
   plan:
@@ -22,12 +23,11 @@ stages:
     items:
       test:
         label: 타입·린트·유닛·빌드
-        run: [npx tsc --noEmit, npm run lint, npm test -- --run, npm run build]
+        prompt: "`bouncer record test 'npx tsc --noEmit && npm run lint && npm test -- --run && npm run build'` 로 돌린다."
+        run: bouncer passed test
       e2e:
         label: Playwright e2e (영향받는 spec 만)
-        prompt: |
-          바꾼 화면에 영향을 주는 spec 만 골라 직접 돌린다. 전체를 돌리지 않는다.
-            { npx playwright test <spec...>; } > .ai-bouncer/e2e-result 2>&1; echo "exit: $?" >> .ai-bouncer/e2e-result
-        run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
+        prompt: "바꾼 화면에 영향을 주는 spec 만 골라 `bouncer record e2e npx playwright test <spec...>` 로 돌린다. 전체를 돌리지 않는다."
+        run: bouncer passed e2e
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

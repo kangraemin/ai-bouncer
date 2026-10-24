@@ -1,8 +1,8 @@
 # 가장 작은 레포 설정 — 모드 하나, 단계 둘.
 # 적지 않은 것은 없다. 레포가 workflows 를 적으면 기본 모드 목록을 통째로 대신한다.
 #
-#   prompt  그 단계에서 할 일 (들어오면 주입한다)
-#   run     끝내려 할 때 도는 검사. 전부 exit 0 이어야 다음 단계로 간다
+#   prompt  그 단계에서 할 일 (들어오면 주입한다). 검사도 모델이 여기 적힌 대로 직접 돌린다
+#   run     끝내려 할 때 도는 검증. 결과만 본다. 전부 exit 0 이어야 다음 단계로 간다
 # 마지막 단계의 run 까지 통과해야 멈출 수 있다.
 
 workflows:
@@ -14,6 +14,7 @@ stages:
   implement:
     prompt: 요청받은 것을 구현한다.
   verify:
-    prompt: 테스트를 돌려 통과를 확인한다.
-    items:                         # 검사는 항목으로 둔다. 시작할 때 고른 것만 돈다 (기본 choosable: ask)
-      test: {run: npm test}
+    items:                         # 검사는 항목으로 둔다. 시작할 때 고른 것만 한다 (기본 choosable: ask)
+      test:
+        prompt: "`bouncer record test npm test` 로 테스트를 돌린다."   # 모델이 돌린다
+        run: bouncer passed test                                      # hook 은 결과가 최신이고 통과했는지만 본다

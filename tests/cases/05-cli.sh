@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 케이스 05 — CLI: scan, status, workflows, check, fresh, 다중 세션 격리
+# 케이스 05 — CLI: scan, status, workflows, check, fresh, record/passed, 다중 세션 격리
 . "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
 setup "$R/tests/fixtures/flow.yaml" "$R/tests/fixtures/prompts" || abort_setup "setup"
 
@@ -34,6 +34,16 @@ bouncer fresh .ai-bouncer/rep >/dev/null; [ $? = 2 ] && ok "fresh: 리포트 뒤
 sleep 1; echo ok > .ai-bouncer/rep; bouncer fresh .ai-bouncer/rep && ok "fresh: 다시 돌리면 통과" || no "fresh 재통과"
 sleep 1; echo new > new.txt
 bouncer fresh .ai-bouncer/rep >/dev/null; [ $? = 2 ] && ok "fresh: 새 파일도 본다" || no "fresh untracked"
+
+# record / passed — 검사는 모델이 record 로 돌리고, run 은 passed 로 결과만 본다
+bouncer passed t >/dev/null; [ $? = 2 ] && ok "passed: 결과 없으면 exit 2" || no "passed 없음"
+bouncer record t 'echo hi; exit 3' >/dev/null; [ $? = 3 ] && ok "record: 명령의 종료코드를 돌려준다" || no "record rc"
+[ "$(tail -1 .ai-bouncer/results/t)" = 'exit: 3' ] && grep -qx hi .ai-bouncer/results/t && ok "record: 출력과 exit 줄을 남긴다" || no "record 파일"
+bouncer passed t | grep -q hi; [ "${PIPESTATUS[0]}" = 2 ] && ok "passed: 실패한 결과는 exit 2 + 끝부분" || no "passed 실패"
+bouncer record t true >/dev/null && bouncer passed t && ok "passed: 통과한 최신 결과" || no "passed 통과"
+sleep 1; echo again >> app.js
+bouncer passed t >/dev/null; [ $? = 2 ] && ok "passed: 결과 뒤에 고친 파일 있으면 exit 2" || no "passed 낡음"
+says "결과 이름" bouncer record ../x true && ok "record: 경로가 든 이름 거부" || no "record 이름"
 unset BOUNCER_TASK_DIR; b1 cancel >/dev/null
 
 cleanup; finish

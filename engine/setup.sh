@@ -74,18 +74,16 @@ cat <<'EOF'
 2. 답이 애매하거나 사용자가 덧붙이면 이어서 묻는다. 정할 것이 다 정해질 때까지 주고받는다.
 3. 정해지면 설정 파일을 쓴다. 엔진 기본값과 다른 것만 적는다.
    - 적지 않은 단계·prompt 는 엔진 기본값이 들어간다(기본 단계: plan, implement, verify, finalize).
-   - 검사 명령은 전부 stages.verify.items.<id>.run 에 둔다. stages.verify.run 에는 넣지 않는다 —
+   - 검사는 전부 stages.verify.items.<id> 로 둔다. stages.verify.run 에는 넣지 않는다 —
      거기 넣으면 고를 수 없고 매번 강제로 돈다. verify 는 choosable: all 로 두지 않는다.
-     기본 항목 test·review 는 지울 수 없다. test 는 run 을 덮어쓰고, review 가 필요 없으면 고르지 않으면 된다.
-   - e2e 처럼 오래 걸리는 검사는 hook(run)에서 돌리지 않는다. 시간 초과로 끊긴다.
-     prompt 로 모델이 **이번 수정에 영향받는 것만** 직접 돌려 결과 파일을 남기게 하고,
-     run 은 `bouncer fresh <결과파일> && <통과 확인>` 으로 결과만 본다:
+     기본 항목 test·review 는 지울 수 없다. test 는 덮어쓰고, review 가 필요 없으면 고르지 않으면 된다.
+   - 검사는 hook(run)에서 돌리지 않는다. 모델이 prompt 대로 `bouncer record <id> <명령>` 으로 직접 돌리고,
+     run 은 `bouncer passed <id>` 로 결과(최신인지·exit 0 인지)만 본다. hook 에서 돌리면 시간 초과로 끊긴다.
+     e2e 처럼 범위를 고를 수 있는 것은 **이번 수정에 영향받는 것만** 돌리게 적는다:
        e2e:
          label: e2e (영향받는 spec 만)
-         prompt: |
-           바꾼 화면에 영향을 주는 spec 만 골라 직접 돌린다. 전체를 돌리지 않는다.
-             { npx playwright test <spec...>; } > .ai-bouncer/e2e-result 2>&1; echo "exit: $?" >> .ai-bouncer/e2e-result
-         run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
+         prompt: "바꾼 화면에 영향을 주는 spec 만 골라 `bouncer record e2e npx playwright test <spec...>` 로 돌린다. 전체를 돌리지 않는다."
+         run: bouncer passed e2e
    - "커밋만"이면 stages.finalize.prompt 를 바꾸고, "마무리 없음"이면 모드의 stages 에서 finalize 를 뺀다.
 
    예:
@@ -96,8 +94,8 @@ cat <<'EOF'
        verify:
          choosable: ask
          items:
-           test: {label: 유닛 테스트 (npm test), run: npm test}
-           lint: {label: 린트 (npm run lint), run: npm run lint}
+           test: {label: 유닛 테스트 (npm test), prompt: "`bouncer record test npm test` 로 돌린다.", run: bouncer passed test}
+           lint: {label: 린트 (npm run lint), prompt: "`bouncer record lint npm run lint` 로 돌린다.", run: bouncer passed lint}
 4. `bouncer check` 가 OK 인지 확인한다. 쓴 내용을 사용자에게 보여 주고, 커밋해야 한다고 알린다.
 
 AskUserQuestion 을 쓸 수 없는 세션이면 묻지 말고 `bouncer init --defaults` 로 기본값을 쓴다.

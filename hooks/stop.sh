@@ -114,7 +114,7 @@ DEADLINE=$(( $(date +%s) + ${BOUNCER_RUN_BUDGET:-1700} ))
 while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
   LEFT=$(( DEADLINE - $(date +%s) )); [ "$LEFT" -gt 0 ] || LEFT=1
-  # run 에서 `bouncer fresh` 같은 엔진 명령을 쓸 수 있게 실행 파일 위치를 PATH 에 넣는다 (hook 의 PATH 에 없을 수 있다).
+  # run 에서 `bouncer passed`·`bouncer fresh` 같은 엔진 명령을 쓸 수 있게 실행 파일 위치를 PATH 에 넣는다 (hook 의 PATH 에 없을 수 있다).
   OUT="$(cd "$WORK_ROOT" && PATH="$HOME/.local/bin:$PATH" BOUNCER_STAGE="$STAGE" BOUNCER_TASK_DIR="$TASK" \
            bouncer_run_timeout "$LEFT" bash -c "$CMD" 2>&1)"; RC=$?
   [ "$RC" -eq 0 ] && continue

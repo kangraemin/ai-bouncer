@@ -16,10 +16,13 @@ stages:
     prompt: 계획대로 구현한다.
   verify:
     items:
-      test: {label: 타입 체크·테스트, run: [mypy src/, pytest -q]}
+      test:
+        label: 타입 체크·테스트
+        prompt: "`bouncer record test 'mypy src/ && pytest -q'` 로 돌린다."
+        run: bouncer passed test
   policy:
     prompt: 디버그 출력을 지우고 CHANGELOG 에 변경을 적는다.
-    run:
+    run:                           # 금방 끝나는 상태 확인은 run 에 바로 둬도 된다
       - "! grep -rn 'print(' src/ --include='*.py'"
       - git diff --name-only HEAD | grep -q CHANGELOG
   finalize:

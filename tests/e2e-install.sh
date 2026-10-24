@@ -155,7 +155,7 @@ stages:
 Y
 )
 ( cd "$O" && "$HOME/.local/bin/bouncer" init --no-claude-md >/dev/null 2>&1 )
-[ "$(jq -c '.stages.verify.items[]|select(.id=="npm-test")|.run' "$O/.claude/ai-bouncer/workflow.compiled.json" 2>/dev/null)" = '["npm test"]' ] \
+[ "$(jq -c '.stages.verify.items[]|select(.id=="npm-test")|.run' "$O/.claude/ai-bouncer/workflow.compiled.json" 2>/dev/null)" = '["bouncer passed npm-test"]' ] \
   && ok "옛 run 은 살리고 변환" || no "옛 형식 변환" "$(cat "$O/.claude/ai-bouncer/workflow.yaml")"
 rm -rf "$O"
 

@@ -19,8 +19,9 @@ stages:
 Y
 python3 "$R/engine/migrate-workflow.py" "$T/w.yaml" >/dev/null 2>&1
 O="$(python3 "$R/engine/compile.py" "$T/w.yaml" 2>&1)" && ok "변환 결과가 컴파일된다" || no "컴파일" "$O"
-[ "$(jq -c '[.stages.verify.items[]|select(.id!="test" and .id!="review")|.run[0]]' <<<"$O")" = '["npm test","npm run lint"]' ] \
-  && ok "verify 의 run 은 고르는 항목으로 ({scope} 제거)" || no "run" "$(jq -c .stages.verify.items <<<"$O")"
+[ "$(jq -c '[.stages.verify.items[]|select(.id!="test" and .id!="review")|.run[0]]' <<<"$O")" = '["bouncer passed npm-test","bouncer passed npm-run-lint"]' ] \
+  && jq -r '.stages.verify.items[]|select(.id=="npm-run-lint")|.prompt' <<<"$O" | grep -qF "bouncer record npm-run-lint 'npm run lint'" \
+  && ok "verify 의 run 은 고르는 항목으로 — 명령은 prompt(record), run 은 passed ({scope} 제거)" || no "run" "$(jq -c .stages.verify.items <<<"$O")"
 [ "$(jq -c '.stages.verify.run' <<<"$O")" = '[]' ] && ok "verify 단계 run 은 비운다 (매번 강제로 돌지 않게)" || no "verify run 잔존" "$(jq -c .stages.verify.run <<<"$O")"
 [ -f "$T/w.yaml.bak" ] && ok "원본은 .bak 로 남긴다" || no ".bak"
 grep -q 'settings\|forbid\|steps' "$T/w.yaml" && no "옛 키 잔존" "$(cat "$T/w.yaml")" || ok "옛 키는 버린다"

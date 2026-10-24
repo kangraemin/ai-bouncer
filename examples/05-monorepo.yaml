@@ -1,6 +1,6 @@
 # 모노레포 — 어느 패키지를 검증할지 시작할 때 고르는 형태.
 # 패키지 이름을 명령에 끼워 넣는 변수 치환은 없다. 모델이 정한 문자열이 셸 명령이 되면 안 된다.
-# 명령은 전부 yaml 에 고정하고 items 로 고른다.
+# 명령은 전부 yaml 에 고정하고 items 로 고른다. 모델이 record 로 돌리고 run 은 passed 로 결과만 본다.
 #   plan 모드: 사용자에게 묻는다 / quick 모드: AI 가 바뀐 패키지를 보고 고른다
 
 workflows:
@@ -20,9 +20,9 @@ stages:
   verify:
     choosable: ask
     items:
-      test:   {label: 전체 타입 체크, run: pnpm -r typecheck}
-      api:    {label: api 패키지,    run: pnpm --filter @app/api test}
-      web:    {label: web 패키지,    run: pnpm --filter @app/web test}
-      shared: {label: shared 패키지, run: pnpm --filter @app/shared test}
+      test:   {label: 전체 타입 체크, prompt: "`bouncer record test pnpm -r typecheck` 로 돌린다.",                 run: bouncer passed test}
+      api:    {label: api 패키지,    prompt: "`bouncer record api pnpm --filter @app/api test` 로 돌린다.",       run: bouncer passed api}
+      web:    {label: web 패키지,    prompt: "`bouncer record web pnpm --filter @app/web test` 로 돌린다.",       run: bouncer passed web}
+      shared: {label: shared 패키지, prompt: "`bouncer record shared pnpm --filter @app/shared test` 로 돌린다.", run: bouncer passed shared}
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

@@ -13,6 +13,8 @@
 3. 모드의 **마지막 단계까지 오지 않았으면 Stop hook에서 멈출 수 없다.**
 4. 단계마다 할 일(md 파일로도 줄 수 있다)을 수행하고, 다 끝나면 다음 단계로 넘어간다.
 5. 단계에는 **역할(prompt)과 조건(run)** 을 준다.
+   - prompt: 모델이 할 일. 테스트·빌드·e2e 같은 검사도 모델이 prompt 대로 직접 돌린다.
+   - run: hook이 결과만 검증한다. 검사를 hook에서 돌리지 않는다.
 
 ### 고르기 (choosable)
 
@@ -80,11 +82,14 @@ stages:
     prompt: 실제로 실행해서 확인한다.
     choosable: ask                 # 검사는 전부 항목으로 두고 시작할 때 고른다
     items:
-      test:   {label: 린트·유닛 테스트, run: [npm run lint, npm test]}   # 끝내려 할 때 돈다. 전부 exit 0 이어야 넘어간다
-      e2e:                         # 오래 걸리는 건 모델이 영향받는 것만 직접 돌리고, run 은 결과만 본다
+      test:
+        label: 린트·유닛 테스트
+        prompt: "`bouncer record test 'npm run lint && npm test'` 로 돌린다."   # 모델이 돌린다
+        run: bouncer passed test   # hook 은 결과가 최신이고 통과했는지만 본다
+      e2e:
         label: e2e (영향받는 spec 만)
-        prompt: 영향받는 spec 만 돌려 결과를 .ai-bouncer/e2e-result 에 남기고 마지막 줄에 "exit: <코드>" 를 적는다.
-        run: "bouncer fresh .ai-bouncer/e2e-result && tail -1 .ai-bouncer/e2e-result | grep -qx 'exit: 0'"
+        prompt: "영향받는 spec 만 골라 `bouncer record e2e npx playwright test <spec...>` 로 돌린다."
+        run: bouncer passed e2e
       review: {label: 변경분 리뷰, prompt: git diff 를 끝까지 읽고 고친다.}
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.
@@ -122,20 +127,30 @@ stages:
 - 단계는 Stop hook만 넘긴다.
 - 상태·설정 파일(`.ai-bouncer/`, `.claude/ai-bouncer/`, `.claude/settings.json`)은 Edit·Write로 고칠 수 없다.
 
-### 오래 걸리는 검사
+### 검사는 prompt에서 돌리고 run은 결과만 본다
 
-run은 Stop hook 안에서 돈다. 합계 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다. 수 분 걸리는 검사는 이렇게 나눈다.
-- 모델이 직접 돌린다. 테스트가 결과 파일을 남기게 한다.
-- run에서는 결과 파일만 확인한다.
+run은 Stop hook 안에서 돈다. 합계 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다.
+- 검사를 hook에서 돌리면 시간 초과로 끊긴다.
+- 이번 수정에 영향받는 것만 고르는 판단도 hook은 못 한다.
+
+그래서 검사는 이렇게 나눈다.
 
 ```yaml
-run: "bouncer fresh .ai-bouncer/test-result && grep -qx 'fail: 0' .ai-bouncer/test-result"
+prompt: "`bouncer record e2e npx playwright test <spec...>` 로 돌린다."   # 모델이 돌린다
+run: bouncer passed e2e                                                  # hook 은 결과만 본다
 ```
 
-`bouncer fresh <파일>`
-- 그 파일이 없으면 exit 2로 실패한다.
-- 작업 시작 뒤 바뀐 파일보다 오래됐어도 exit 2로 실패한다.
+`bouncer record <이름> <명령>`
+- 명령을 돌리고 출력을 `.ai-bouncer/results/<이름>`에 남긴다.
+- 마지막 줄에 `exit: <코드>`를 적는다.
+
+`bouncer passed <이름>`
+- 결과가 없거나 마지막 줄이 `exit: 0`이 아니면 exit 2로 실패한다.
+- 작업 시작 뒤 바뀐 파일보다 결과가 오래됐어도 exit 2로 실패한다.
 - 그래서 고친 뒤 다시 돌리지 않은 옛 결과로는 통과하지 못한다.
+
+결과 파일을 스스로 만드는 테스트는 `bouncer fresh <파일> && <통과 확인>`으로 본다.
+- 금방 끝나는 상태 확인(grep 등)은 run에 바로 둬도 된다.
 
 <br>
 
@@ -149,6 +164,8 @@ run: "bouncer fresh .ai-bouncer/test-result && grep -qx 'fail: 0' .ai-bouncer/te
 | `bouncer cancel` | 작업 취소 |
 | `bouncer workflows` | 모드 목록 |
 | `bouncer check` | workflow.yaml 검사 |
+| `bouncer record <이름> <명령>` | prompt용: 검사를 돌리고 결과를 남긴다 |
+| `bouncer passed <이름>` | run용: 그 결과가 최신이고 통과했는지 |
 | `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 |
 | `bouncer init [--defaults\|--setup\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않기 |
 | `bouncer setup` | 이 레포 설정을 사용자와 대화로 정하는 안내 (찾은 검사 명령 포함) |

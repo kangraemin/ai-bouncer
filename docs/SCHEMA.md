@@ -44,6 +44,7 @@ stages:
 
 ### run — 조건
 
+- 검증만 한다. 검사(테스트·빌드·e2e)는 prompt에서 모델이 `bouncer record`로 직접 돌리고, run은 `bouncer passed`로 결과만 본다.
 - 모델이 응답을 끝내려 할 때 레포 루트에서 `bash -c`로 돈다.
 - 단계 run, 고른 항목들의 run 순서로 돈다.
 - 전부 exit 0이면 다음 단계로 넘어간다.
@@ -54,10 +55,17 @@ stages:
   - `127`: 명령을 찾을 수 없다
 - 환경변수로 `BOUNCER_STAGE`, `BOUNCER_TASK_DIR`를 받는다.
 - PATH에 `~/.local/bin`이 들어가 있어서 `bouncer` 명령을 쓸 수 있다.
-- 합계 시간 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다.
-  - 오래 걸리는 검사는 모델이 직접 돌려 결과 파일을 남기게 한다.
-  - run에서는 `bouncer fresh <파일> && <결과 확인>`으로 결과만 본다.
-  - `bouncer fresh`는 결과 파일이 없거나 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2로 실패한다.
+- 합계 시간 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다. 검사를 run에서 돌리면 끊긴다.
+- `bouncer record <이름> <명령>`: 명령을 돌려 출력을 `.ai-bouncer/results/<이름>`에 남기고 마지막 줄에 `exit: <코드>`를 적는다.
+- `bouncer passed <이름>`: 결과가 없거나, `exit: 0`이 아니거나, 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2로 실패한다.
+- `bouncer fresh <파일>`: 결과 파일을 스스로 만드는 테스트용. 없거나 오래됐으면 exit 2로 실패한다.
+
+```yaml
+items:
+  test:
+    prompt: "`bouncer record test npm test` 로 돌린다."
+    run: bouncer passed test
+```
 
 ### choosable — 고르는 방식
 
@@ -100,21 +108,24 @@ stages:
   - `plan`: plan → implement → verify → finalize
   - `simple`: implement → verify → finalize
 - verify 단계는 `choosable: ask`이고, 항목은 `test`(테스트·빌드·린트)와 `review`(변경분 리뷰)다.
-- 레포의 검사 명령은 `stages.verify.items.<id>.run`에 둔다. `stages.verify.run`에 넣으면 고를 수 없고 매번 강제로 돈다.
-- e2e처럼 오래 걸리는 검사는 run에서 돌리지 않는다. prompt로 모델이 영향받는 것만 직접 돌려 결과 파일을 남기게 하고, run은 `bouncer fresh`로 결과만 본다.
+- 레포의 검사는 `stages.verify.items.<id>`에 둔다. `stages.verify.run`에 넣으면 고를 수 없고 매번 강제로 돈다.
+- 검사는 prompt에서 모델이 `bouncer record`로 돌리고, run은 `bouncer passed`로 결과만 본다. e2e처럼 범위를 고를 수 있으면 영향받는 것만 돌리게 적는다.
 - 기본값은 run이 없다. 이 레포에서 무엇으로 검사할지는 레포 설정에 적는다.
 
 ```yaml
 stages:
   verify:
     items:
-      test: {run: npm test}     # label·prompt 는 기본값 그대로, run 만 덧붙인다
+      test:
+        prompt: "`bouncer record test npm test` 로 돌린다."
+        run: bouncer passed test
 ```
 
 ## 옛 형식
 
 `steps`, `forbid`, `on_fail`, `settings`, `base` 같은 옛 키는 없어졌다.
 - `bouncer init`(업데이트 때 자동으로 돈다)이 옛 파일을 새 형식으로 바꾼다.
-- run 명령은 살려서 그 단계의 `run`으로 옮긴다. verify의 검사는 명령마다 고르는 항목(`items`)으로 옮긴다.
+- run 명령은 살려서 그 단계의 `run`으로 옮긴다.
+- verify의 검사는 명령마다 고르는 항목(`items`)으로 옮긴다. 명령은 prompt(`bouncer record`)로, run은 `bouncer passed`로 바꾼다.
 - 나머지는 버리고 기본값에 맡긴다.
 - 원본은 `workflow.yaml.bak`로 남는다.

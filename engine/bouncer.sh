@@ -11,7 +11,9 @@
 #   bouncer cancel                    작업 취소
 #   bouncer workflows                 정의된 모드 목록
 #   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
-#   bouncer fresh <리포트>             run 스크립트용: 리포트가 없거나 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2
+#   bouncer record <이름> <명령...>     prompt 용: 검사를 직접 돌리고 결과를 .ai-bouncer/results/<이름> 에 남긴다
+#   bouncer passed <이름>              run 용: 그 결과가 최신이고 통과(exit: 0)했는지만 본다. 아니면 exit 2
+#   bouncer fresh <리포트>             run 용: 리포트가 없거나 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2
 #
 # current_stage 는 이 CLI로 바꿀 수 없다. 전이는 Stop hook만 한다.
 
@@ -253,6 +255,34 @@ cmd_fresh() {
   return 0
 }
 
+# ── record / passed ──────────────────────────────────────────
+# 검사는 모델이 prompt 대로 직접 돌리고(record), run 은 결과만 검증한다(passed).
+# run 은 Stop hook 안에서 돌아 시간 상한이 있다. 검사 자체를 거기서 돌리면 끊기고, 범위도 못 고른다.
+result_name() { case "$1" in ''|*[!A-Za-z0-9_-]*) die "결과 이름은 영문·숫자·-·_ 만 쓴다: '$1'" ;; esac; }
+result_file() {
+  printf '%s/.ai-bouncer/results/%s' "$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null || bouncer_project_root "$PROJECT")" "$1"
+}
+cmd_record() {
+  [ $# -ge 2 ] || die "usage: bouncer record <이름> <명령...>"
+  result_name "$1"
+  local f rc; f="$(result_file "$1")"; shift
+  mkdir -p "$(dirname "$f")"
+  bash -c "$*" 2>&1 | tee "$f"; rc=${PIPESTATUS[0]}
+  printf 'exit: %s\n' "$rc" >> "$f"
+  printf '→ %s (exit: %s)\n' "$f" "$rc"
+  return "$rc"
+}
+cmd_passed() {
+  [ -n "${1:-}" ] || die "usage: bouncer passed <이름>"
+  result_name "$1"
+  local f; f="$(result_file "$1")"
+  [ -f "$f" ] || { printf '결과가 없다: %s — `bouncer record %s <명령>` 으로 직접 돌려라.\n' "$f" "$1"; exit 2; }
+  ( cmd_fresh "$f" ) || exit 2
+  tail -1 "$f" | grep -qx 'exit: 0' && return 0
+  printf '검사 %s 가 통과하지 못했다 (%s). 끝부분:\n' "$1" "$(tail -1 "$f")"; tail -n 20 "$f" | sed '$d'
+  exit 2
+}
+
 case "${1:-}" in
   init)      shift; exec bash "$_D/init.sh" "$@" ;;
   setup)     shift; exec bash "$_D/setup.sh" "$@" ;;
@@ -263,6 +293,8 @@ case "${1:-}" in
   cancel)    shift; cmd_cancel "$@" ;;
   workflows) shift; cmd_workflows "$@" ;;
   fresh)     shift; cmd_fresh "$@" ;;
-  ""|-h|--help|help) sed -n '3,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  record)    shift; cmd_record "$@" ;;
+  passed)    shift; cmd_passed "$@" ;;
+  ""|-h|--help|help) sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

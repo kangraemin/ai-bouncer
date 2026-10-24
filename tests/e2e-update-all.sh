@@ -46,7 +46,7 @@ grep -qx "$H/work/sub/p2" "$BOUNCER_REGISTRY_DIR/installs" && ok "탐색으로 �
 grep -qx "$H/work/p3" "$BOUNCER_REGISTRY_DIR/installs" && no "설정 없는 레포가 목록에 남음" || ok "설정 없는 레포는 목록에서 뺌"
 printf '%s' "$out" | grep -q '켠 레포 2곳' && ok "대상 수 보고" || no "대상 수" "$(printf '%s' "$out" | head -3)"
 
-[ "$(jq -c '.stages.verify.items[]|select(.id=="make-test")|.run' "$H/work/sub/p2/.claude/ai-bouncer/workflow.compiled.json")" = '["make test"]' ] \
+[ "$(jq -c '.stages.verify.items[]|select(.id=="make-test")|.run' "$H/work/sub/p2/.claude/ai-bouncer/workflow.compiled.json")" = '["bouncer passed make-test"]' ] \
   && ok "옛 형식 설정을 변환 (run 보존)" || no "옛 형식 변환" "$(cat "$H/work/sub/p2/.claude/ai-bouncer/workflow.yaml")"
 [ "$(jq -r '.workflows|keys|join(",")' "$H/work/p1/.claude/ai-bouncer/workflow.compiled.json")" = mine ] \
   && ok "사용자 설정 보존" || no "사용자 설정"

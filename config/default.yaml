@@ -4,6 +4,7 @@
 #
 #   workflows.<모드>   = 단계 순서. 마지막 단계까지 끝나야 Stop 에서 멈출 수 있다
 #   stages.<단계>      = prompt(할 일, md 파일 가능) + run(통과 조건, 전부 exit 0 이면 다음 단계)
+#                        검사는 prompt 에서 모델이 `bouncer record` 로 돌리고, run 은 `bouncer passed` 로 결과만 본다
 #   items + choosable  = 세부 항목과 고르는 방식. ask 사용자에게 묻는다 / auto AI 가 고른다 / all 전부(기본)
 # 스키마: docs/SCHEMA.md
 
@@ -32,7 +33,7 @@ stages:
     items:
       test:
         label: 테스트·빌드·린트 실행
-        prompt: 이 프로젝트의 테스트 / 빌드 / 린트를 실행하고 결과를 확인한다.
+        prompt: 이 프로젝트의 테스트 / 빌드 / 린트를 직접 실행하고 결과를 확인한다.
       review:
         label: 변경분 리뷰
         prompt: git diff 를 처음부터 끝까지 읽고 버그·누락·불필요한 변경을 찾아 고친다.
