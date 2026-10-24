@@ -183,7 +183,8 @@ bouncer scan 의 CHOICE 줄을 보고 정한다 — 방식 ask 는 AskUserQuesti
   # 첫 단계 지시는 여기서 바로 준다. Stop 을 기다리면 첫 응답이 지시 없이 나간다.
   prompt="$(bouncer_stage_view "$PROJECT" "$dir" "$first" | jq -r '.prompt // ""')"
   [ -n "$prompt" ] && bouncer_state_update "$dir" --arg s "$first" '.shown[$s] = true'
-  printf 'STARTED\t%s\tworkflow=%s\tchain=%s\n' "$task_id" "$wf" "$(jq -r 'join(" → ")' <<<"$chain")"
+  # 단계 순서는 보여 주지 않는다. 보이면 모델이 다음 단계 일을 미리 꺼낸다.
+  printf 'STARTED\t%s\tworkflow=%s\tstage=%s\n' "$task_id" "$wf" "$first"
   [ -n "$prompt" ] && printf '\n%s\n' "$prompt"
   return 0
 }
@@ -198,9 +199,8 @@ hook은 이 상태에서 작업을 진행시키지 않는다. 작업을 포기�
   local sj; sj="$(bouncer_stage_view "$PROJECT" "$TASK" "$STAGE")"
   [ -n "$sj" ] \
     || die "단계 '$STAGE' 가 workflow.yaml에 없다 (작업 도중 삭제·개명된 것으로 보인다). 되돌리거나 'bouncer cancel' 로 정리하라."
-  printf '작업:      %s\n모드:      %s\n체인:      %s\n현재 단계:  %s\n' \
-    "$(bouncer_state "$TASK" '.task_id')" "$(bouncer_state "$TASK" '.workflow')" \
-    "$(bouncer_task_chain "$TASK" | tr '\n' ' ')" "$STAGE"
+  printf '작업:      %s\n모드:      %s\n현재 단계:  %s\n' \
+    "$(bouncer_state "$TASK" '.task_id')" "$(bouncer_state "$TASK" '.workflow')" "$STAGE"
   jq -r '
     (if .prompt != "" then "\n[지시]\n" + .prompt else empty end),
     (if (.run | length) > 0

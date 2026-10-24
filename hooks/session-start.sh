@@ -73,8 +73,7 @@ if [ "$COMPILED_OK" = 1 ]; then
   if [ -n "$SESSION" ] && TASK="$(bouncer_my_task "$CWD" "$SESSION")"; then
     WF="$(bouncer_state "$TASK" '.workflow')"
     printf '\n[ai-bouncer] 이 세션에 진행 중인 작업이 있다: %s\n' "$(bouncer_state "$TASK" '.task_id')"
-    printf '  워크플로우 %s / 현재 단계 %s\n  체인: %s\n' \
-      "$WF" "$(bouncer_state "$TASK" '.current_stage')" "$(bouncer_task_chain "$TASK" | tr '\n' ' ')"
+    printf '  워크플로우 %s / 현재 단계 %s\n' "$WF" "$(bouncer_state "$TASK" '.current_stage')"
     printf '  `bouncer status`로 현재 단계의 지시와 검사를 확인하고 이어서 진행해라.\n'
   else
     printf '\n[ai-bouncer] 개발 작업은 /dev-bounce 로 시작한다. 사용 가능한 모드:\n'

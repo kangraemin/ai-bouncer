@@ -98,8 +98,6 @@ bouncer_state_update() {
 
 # ── 워크플로우 정의 ──────────────────────────────────────────
 bouncer_chain()  { jq -r --arg w "$2" '.workflows[$w].stages[]? // empty' "$(bouncer_compiled_file "$1")" 2>/dev/null; }
-# 이 작업의 체인 — 시작할 때 아무것도 고르지 않은 단계는 빠져 있다.
-bouncer_task_chain() { jq -r '.chain[]? // empty' "$1/state.json" 2>/dev/null; }
 bouncer_next_stage() {
   jq -r --arg c "$2" '(.chain // []) as $st | ($st | index($c)) as $i
     | if $i == null then "" else ($st[$i+1] // "") end' "$1/state.json" 2>/dev/null
@@ -108,11 +106,17 @@ bouncer_is_last_stage() {
   jq -e --arg c "$2" '(.chain // []) | (index($c) != null and index($c) == (length - 1))' "$1/state.json" >/dev/null 2>&1
 }
 # 이 작업에서 실제로 적용할 단계 내용 {prompt, run}. 시작할 때 고른 단계(state.choices 에 있는 단계)면 고른 항목만 넣는다.
+# 지시 끝에는 엔진이 "이 단계만 하고 끝내라"를 붙인다. 레포가 prompt 를 덮어써도 빠지지 않게 여기서 붙인다.
+# 없으면 모델이 다음 단계 일을 미리 꺼내거나("이제 리뷰합니다") 한 응답에 몰아 한다.
+BOUNCER_STAGE_TAIL='이 단계 일만 한다. 다음 단계 일은 미리 하거나 예고하지 않는다. 마치면 응답을 끝낸다 — 끝내면 엔진이 검사하고 다음 지시를 준다.'
+BOUNCER_LAST_TAIL='마지막 단계다. 마치면 응답을 끝낸다 — 끝내면 엔진이 검사하고 작업을 닫는다.'
 bouncer_stage_view() {
-  jq -c --arg s "$3" --slurpfile st "$2/state.json" '
+  jq -c --arg s "$3" --slurpfile st "$2/state.json" --arg tail "$BOUNCER_STAGE_TAIL" --arg last "$BOUNCER_LAST_TAIL" '
     .stages[$s] // empty | . as $x
     | ($x.items | if ($st[0].choices // {} | has($s)) then map(select(.id as $i | $st[0].choices[$s] | index($i))) else . end) as $it
-    | {prompt: ([$x.prompt] + ($it | map(.prompt)) | map(select(. != "")) | join("\n\n")),
+    | ([$x.prompt] + ($it | map(.prompt)) | map(select(. != "")) | join("\n\n")) as $p
+    | (if ($st[0].chain // [] | last) == $s then $last else $tail end) as $t
+    | {prompt: (if $p == "" then "" else $p + "\n\n" + $t end),
        run: ($x.run + ([$it[].run[]]))}' "$(bouncer_compiled_file "$1")" 2>/dev/null
 }
 

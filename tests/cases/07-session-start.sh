@@ -17,7 +17,7 @@ ss | grep -q '컴파일하지 못했다' && jq -e '.workflows.main' .claude/ai-b
 cp /tmp/w.$$ .claude/ai-bouncer/workflow.yaml; rm -f /tmp/w.$$
 
 b1 start main s1 --pick b=x >/dev/null
-ss compact | grep -q '진행 중인 작업이 있다' && ss compact | grep -q 'a b c' && ok "진행 중 작업과 체인 안내" || no "작업 안내" "$(ss compact)"
+ss compact | grep -q '진행 중인 작업이 있다' && ! ss compact | grep -q '체인' && ok "진행 중 작업 안내 (단계 순서는 숨김)" || no "작업 안내" "$(ss compact)"
 b1 cancel >/dev/null
 
 # ── 단계 설정이 없는 yaml → 묻지 않고 엔진 기본값으로 돈다 ──
