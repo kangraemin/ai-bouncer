@@ -20,6 +20,8 @@ bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 # 이 세션의 작업이 없으면 아무것도 강제하지 않는다. 아래 엔진 명령 면제 판정보다 먼저 본다 —
 # 작업 없는 세션의 Bash 마다 정규식 grep 세 번을 돌릴 이유가 없다.
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0
+SESSION_CWD="$CWD"                    # 상대 경로는 세션 폴더 기준으로 푼다
+CWD="$(bouncer_task_root "$TASK")"   # 보호 경로·설정은 작업을 시작한 레포 기준
 
 # 아래 차단들은 전부 "bouncer cancel / check 로 정리하라"를 안내한다.
 # 그 명령까지 막으면 모델이 빠져나갈 길이 없다 — 엔진 명령은 먼저 통과시킨다.
@@ -83,7 +85,7 @@ GUARD="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/lib/guard.py"
 if [ ! -f "$GUARD" ] || ! command -v python3 >/dev/null 2>&1; then
   bouncer_block "⛔ [ai-bouncer / $STAGE] 경로 판정기를 사용할 수 없다 ($GUARD). 설치가 손상됐을 수 있다 — 다시 설치하라."
 fi
-R="$(python3 -S "$GUARD" --check-path "$(bouncer_project_root "$CWD")" "$FILE_PATH" "$CWD" 2>/dev/null)" \
+R="$(python3 -S "$GUARD" --check-path "$(bouncer_project_root "$CWD")" "$FILE_PATH" "$SESSION_CWD" 2>/dev/null)" \
   || bouncer_block "⛔ [ai-bouncer / $STAGE] 경로 판정 중 오류가 발생했다. 안전을 위해 차단한다."
 [ -n "$R" ] && bouncer_block "⛔ [ai-bouncer / $STAGE] $R"
 exit 0

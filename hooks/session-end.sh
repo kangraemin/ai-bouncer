@@ -18,6 +18,13 @@ CWD="$(printf '%s' "$INPUT" | jq -r '.cwd // empty')"
 [ -n "$CWD" ] || CWD="$PWD"
 bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 
+# 다른 레포에서 시작한 작업은 세션 표지가 가리킨다. 그 잠금도 풀고 표지를 지운다.
+MARK="$(bouncer_session_mark "$SESSION")" && if [ -f "$MARK" ]; then
+  active="$(cat "$MARK")/.active"
+  [ -f "$active" ] && [ "$(jq -r '.session_id // empty' "$active" 2>/dev/null)" = "$SESSION" ] && rm -f "$active"
+  rm -f "$MARK"
+fi
+
 # 하위 디렉토리에서 세션이 시작되면 CWD 밑에는 tasks가 없다.
 # 다른 hook 5개는 전부 위로 올라가는데 여기만 안 올라가서,
 # 모노레포처럼 하위 경로에서 일하면 매 세션 좀비 잠금이 쌓였다.

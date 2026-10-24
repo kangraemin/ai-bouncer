@@ -20,6 +20,7 @@ bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
 [ -n "$SESSION" ] || exit 0
 
 TASK="$(bouncer_my_task "$CWD" "$SESSION")" || exit 0      # 내 작업 없으면 관여 안 함
+CWD="$(bouncer_task_root "$TASK")"                          # 설정·검사는 작업을 시작한 레포 기준
 COMPILED="$(bouncer_compiled_file "$CWD")"
 
 CONFIG_BROKEN=0

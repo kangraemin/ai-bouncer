@@ -12,6 +12,8 @@ SESSION="$(jq -r '.session_id // empty' <<<"$INPUT" 2>/dev/null)"
 CWD="$(jq -r '.cwd // empty'            <<<"$INPUT" 2>/dev/null)"
 [ -n "$CWD" ] || CWD="$PWD"
 bouncer_defer_to_local "$CWD" "${BASH_SOURCE[0]}" && exit 0
+# 이 세션의 작업이 다른 레포에 있으면(그 레포로 cd 해서 시작) 그 레포 기준으로 안내한다.
+if [ -n "$SESSION" ] && _T="$(bouncer_my_task "$CWD" "$SESSION")"; then CWD="$(bouncer_task_root "$_T")"; fi
 
 YAML="$(bouncer_workflow_yaml "$CWD")"
 COMPILED="$(bouncer_compiled_file "$CWD")"
@@ -73,7 +75,7 @@ if [ "$COMPILED_OK" = 1 ]; then
   if [ -n "$SESSION" ] && TASK="$(bouncer_my_task "$CWD" "$SESSION")"; then
     WF="$(bouncer_state "$TASK" '.workflow')"
     printf '\n[ai-bouncer] 이 세션에 진행 중인 작업이 있다: %s\n' "$(bouncer_state "$TASK" '.task_id')"
-    printf '  워크플로우 %s / 현재 단계 %s\n' "$WF" "$(bouncer_state "$TASK" '.current_stage')"
+    printf '  레포 %s / 워크플로우 %s / 현재 단계 %s\n' "$CWD" "$WF" "$(bouncer_state "$TASK" '.current_stage')"
     printf '  `bouncer status`로 현재 단계의 지시와 검사를 확인하고 이어서 진행해라.\n'
   else
     printf '\n[ai-bouncer] 개발 작업은 /dev-bounce 로 시작한다. 사용 가능한 모드:\n'

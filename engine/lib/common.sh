@@ -47,18 +47,31 @@ bouncer_defer_to_local() {
 }
 
 # ── 활성 태스크 ──────────────────────────────────────────────
+# 세션이 연 폴더와 작업을 시작한 레포가 다를 수 있다 (my-sns 에서 열고 `cd mukmap && bouncer start`).
+# hook 은 세션 폴더 기준으로만 찾았어서, 그런 작업은 Stop 이 못 보고 구현 단계에서 그냥 멈췄다.
+# 그래서 start 가 세션별 표지(작업 경로)를 남기고, 폴더에서 못 찾으면 표지를 본다.
+bouncer_session_mark() {
+  case "$1" in ""|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  printf '%s/sessions/%s' "$(bouncer_registry_dir)" "$1"
+}
+# 작업 디렉토리(<레포>/.ai-bouncer/tasks/<id>)의 레포 루트
+bouncer_task_root() { printf '%s' "${1%/.ai-bouncer/tasks/*}"; }
+
 # 이 세션이 소유한 .active만 찾는다. 남의 것은 읽지도 건드리지도 않는다.
 bouncer_my_task() {
-  local project="${1:-$PWD}" session="${2:-}" tasks active owner
+  local project="${1:-$PWD}" session="${2:-}" tasks active owner mark
   [ -n "$session" ] || return 1
   tasks="$(bouncer_tasks_dir "$project")"
-  [ -d "$tasks" ] || return 1
   for active in "$tasks"/*/.active; do
     [ -f "$active" ] || continue
     owner="$(jq -r '.session_id // empty' "$active" 2>/dev/null)"
     if [ "$owner" = "$session" ]; then dirname "$active"; return 0; fi
   done
-  return 1
+  # 표지는 가리키는 곳의 .active 가 여전히 이 세션 것일 때만 믿는다. 끝났거나 남의 것이면 무시한다.
+  mark="$(bouncer_session_mark "$session")" && [ -f "$mark" ] || return 1
+  active="$(cat "$mark")/.active"
+  [ -f "$active" ] && [ "$(jq -r '.session_id // empty' "$active" 2>/dev/null)" = "$session" ] || return 1
+  dirname "$active"
 }
 
 # ── state.json ───────────────────────────────────────────────

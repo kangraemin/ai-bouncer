@@ -47,6 +47,7 @@ need_task() {
   fi
   [ -n "$TASK" ] || die "이 세션의 활성 작업이 없다.
 새로 시작하려면: bouncer start <모드> <slug>"
+  PROJECT="$(bouncer_task_root "$TASK")"; COMPILED="$(bouncer_compiled_file "$PROJECT")"
   STAGE="$(bouncer_state "$TASK" '.current_stage')"
 }
 
@@ -67,12 +68,16 @@ choices_of() {
 #   CHOICE   <모드> <단계> <id> <방식> <label>  시작 전에 골라야 할 항목. 방식 ask = 사용자에게 묻는다, auto = AI 가 고른다
 #   ERROR    <메시지>
 cmd_scan() {
+  local d wf
+  # 다른 레포에서 시작한 이 세션의 작업이 있으면 그 레포 기준으로 본다.
+  if d="$(bouncer_my_task "$PROJECT" "$SESSION")"; then
+    PROJECT="$(bouncer_task_root "$d")"; COMPILED="$(bouncer_compiled_file "$PROJECT")"
+  fi
   # 엔진은 전역이라 설정 없는 레포에서도 불린다. 모드 목록이 비어 보이면 모델이 이유를 모른다.
   if [ ! -f "$(bouncer_workflow_yaml "$PROJECT")" ]; then
     printf 'ERROR\t이 레포에는 ai-bouncer 설정이 없다 — 켜려면 bouncer init (켜지 않으려면 bouncer init --decline)\n'
     return 0
   fi
-  local d wf
   if d="$(bouncer_my_task "$PROJECT" "$SESSION")"; then
     printf 'STATE\tMINE\t%s\t%s\t%s\n' "$d" "$(bouncer_state "$d" '.workflow')" "$(bouncer_state "$d" '.current_stage')"
   else
@@ -117,12 +122,12 @@ cmd_start() {
   [ -n "$wf" ] && [ -n "$slug" ] || die "usage: bouncer start <모드> <slug> [--pick <단계>=<id>,...]"
   shift 2
   [ -n "$SESSION" ] || die "세션 ID를 알 수 없다 (CLAUDE_CODE_SESSION_ID 미설정)."
-  compiled_ok
-  [ -n "$(bouncer_chain "$PROJECT" "$wf")" ] || die "정의되지 않은 모드: $wf"
-  # 한 세션이 활성 작업을 둘 가지면 hook 은 하나만 본다.
+  # 한 세션이 활성 작업을 둘 가지면 hook 은 하나만 본다. 다른 레포의 작업도 센다.
   local mine
   mine="$(bouncer_my_task "$PROJECT" "$SESSION")" && die "이 세션에 이미 진행 중인 작업이 있다: $mine
 'bouncer status' 로 확인하고 이어서 하거나, 'bouncer cancel' 로 정리한 뒤 새로 시작하라."
+  compiled_ok
+  [ -n "$(bouncer_chain "$PROJECT" "$wf")" ] || die "정의되지 않은 모드: $wf"
 
   # 고른 결과: {단계: [id...]}. 고르는 단계는 하나도 빠짐없이 답이 있어야 한다 —
   # 고르지 않고 시작하면 사용자가 원한 검사가 빠졌는지 아무도 모른다.
@@ -179,6 +184,9 @@ bouncer scan 의 CHOICE 줄을 보고 정한다 — 방식 ask 는 AskUserQuesti
       shown:{}, continue_streak:0, history:[{stage:$stage, at:$now}]
     }' > "$dir/state.json" || die "state.json 생성 실패"
   jq -n --arg s "$SESSION" --arg now "$(date -u +%FT%TZ)" '{session_id:$s, claimed_at:$now}' > "$dir/.active"
+  # 세션 폴더가 다른 레포여도 hook 이 이 작업을 찾게 표지를 남긴다.
+  local mark; mark="$(bouncer_session_mark "$SESSION")" && mkdir -p "$(dirname "$mark")" 2>/dev/null \
+    && printf '%s\n' "$(cd "$dir" && pwd -P)" > "$mark"
 
   # 첫 단계 지시는 여기서 바로 준다. Stop 을 기다리면 첫 응답이 지시 없이 나간다.
   prompt="$(bouncer_stage_view "$PROJECT" "$dir" "$first" | jq -r '.prompt // ""')"
