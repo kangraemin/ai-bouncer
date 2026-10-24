@@ -115,7 +115,7 @@ while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
   # 예산을 다 써도 남은 명령은 1초로라도 돌려 시간 초과(124)로 보고한다 — 건너뛰면 통과로 보인다.
   LEFT=$(( DEADLINE - $(date +%s) )); [ "$LEFT" -gt 0 ] || LEFT=1
-  # run 에서 `bouncer passed`·`bouncer fresh` 같은 엔진 명령을 쓸 수 있게 실행 파일 위치를 PATH 에 넣는다 (hook 의 PATH 에 없을 수 있다).
+  # run 에서 `bouncer passed` 같은 엔진 명령을 쓸 수 있게 실행 파일 위치를 PATH 에 넣는다 (hook 의 PATH 에 없을 수 있다).
   OUT="$(cd "$WORK_ROOT" && PATH="$HOME/.local/bin:$PATH" BOUNCER_STAGE="$STAGE" BOUNCER_TASK_DIR="$TASK" \
            bouncer_run_timeout "$LEFT" bash -c "$CMD" 2>&1)"; RC=$?
   [ "$RC" -eq 0 ] && continue

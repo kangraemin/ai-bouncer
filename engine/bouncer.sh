@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # ai-bouncer CLI — 스킬과 사용자가 쓰는 진입점.
 #
-#   bouncer init [--defaults|--setup|--decline]
-#                                     이 레포에 켠다 (빈 설정 = 엔진 기본값) / 기본값을 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않는다
+#   bouncer init [--defaults|--decline]
+#                                     이 레포에 켠다 (빈 설정 = 엔진 기본값) / 기본값을 써 넣기 / 켜지 않는다
 #   bouncer setup                     이 레포 설정을 사용자와 대화로 정하는 안내 (찾은 검사 명령 포함)
-#   bouncer scan                      시작 전에 알아야 할 것 (이 세션의 작업, 모드, 고를 항목)
+#   bouncer scan                      시작 전에 알아야 할 것 (이 세션의 작업과 현재 단계 지시, 모드, 고를 항목)
 #   bouncer start <모드> <slug> [--pick <단계>=<id>,<id> ...]
 #                                     작업 시작. 고르는 단계(choosable ask·auto)는 전부 --pick 으로 답해야 한다 (빈 값 = 건너뜀)
-#   bouncer status                    현재 단계의 지시와 검사(run)
 #   bouncer cancel                    작업 취소
-#   bouncer workflows                 정의된 모드 목록
 #   bouncer check                     workflow.yaml이 유효한지 검사 (아무것도 쓰지 않는다)
 #   bouncer record <이름> <명령...>     prompt 용: 검사를 직접 돌리고 결과를 .ai-bouncer/results/<이름> 에 남긴다
 #   bouncer passed <이름>              run 용: 그 결과가 최신이고 통과(exit: 0)했는지만 본다. 아니면 exit 2
-#   bouncer fresh <리포트>             run 용: 리포트가 없거나 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2
 #
 # current_stage 는 이 CLI로 바꿀 수 없다. 전이는 Stop hook만 한다.
 
@@ -35,22 +32,12 @@ compiled_ok() {
 'bouncer check' 로 workflow.yaml을 확인하라. 다음 세션 시작 때 다시 컴파일된다."
 }
 
-# need_task [--mutating]
-# 사람이 자기 터미널에서 칠 때는 세션 ID가 없다. 진행 중 작업이 하나뿐이면 **보여주는** 것까지는
-# 해준다. 바꾸는 명령(cancel)은 열어주지 않는다 — 그 작업을 쥔 세션이 알림 없이 게이트를 잃는다.
+# 이 세션의 작업을 TASK 로 잡는다. 사람이 자기 터미널에서 칠 때는 세션 ID가 없어 잡지 못한다.
+# 진행 중인 작업이 하나뿐이어도 열어주지 않는다 — 그 작업을 쥔 세션이 알림 없이 게이트를 잃는다.
 need_task() {
   TASK="$(bouncer_my_task "$PROJECT" "$SESSION")" || TASK=""
-  if [ -z "$TASK" ] && [ -z "$SESSION" ] && [ "${1:-}" != "--mutating" ]; then
-    local live; live="$(ls -d "$(bouncer_tasks_dir "$PROJECT")"/*/.active 2>/dev/null)"
-    if [ "$(printf '%s\n' "$live" | grep -c .)" = 1 ]; then
-      TASK="$(dirname "$live")"
-      printf '(세션 ID가 없어 진행 중인 작업 하나를 대상으로 한다: %s)\n' "$(basename "$TASK")" >&2
-    fi
-  fi
   [ -n "$TASK" ] || die "이 세션의 활성 작업이 없다.
 새로 시작하려면: bouncer start <모드> <slug>"
-  PROJECT="$(bouncer_task_root "$TASK")"; COMPILED="$(bouncer_compiled_file "$PROJECT")"
-  STAGE="$(bouncer_state "$TASK" '.current_stage')"
 }
 
 # 모드에서 고르는 단계(choosable ask·auto)마다 고를 수 있는 것: "<단계>\t<id>\t<방식>\t<label>"
@@ -64,7 +51,7 @@ choices_of() {
 
 # ── scan ─────────────────────────────────────────────────────
 # 스킬이 제일 먼저, 한 번만 호출한다.
-#   STATE    MINE <dir> <모드> <단계>        이 세션이 이어서 할 작업
+#   STATE    MINE <dir> <모드> <단계>        이 세션이 이어서 할 작업. 출력 맨 끝에 현재 단계 지시가 붙는다
 #   STATE    NONE
 #   WORKFLOW <이름> <label>                 모드 선택지
 #   CHOICE   <모드> <단계> <id> <방식> <label>  시작 전에 골라야 할 항목. 방식 ask = 사용자에게 묻는다, auto = AI 가 고른다
@@ -80,7 +67,9 @@ cmd_scan() {
     printf 'ERROR\t이 레포에는 ai-bouncer 설정이 없다 — 켜려면 bouncer init (켜지 않으려면 bouncer init --decline)\n'
     return 0
   fi
+  local mine=""
   if d="$(bouncer_my_task "$PROJECT" "$SESSION")"; then
+    mine="$d"
     printf 'STATE\tMINE\t%s\t%s\t%s\n' "$d" "$(bouncer_state "$d" '.workflow')" "$(bouncer_state "$d" '.current_stage')"
   else
     printf 'STATE\tNONE\n'
@@ -94,13 +83,9 @@ cmd_scan() {
   for wf in $(jq -r '.workflows | keys[]' "$COMPILED"); do
     choices_of "$wf" | sed "s/^/CHOICE	$wf	/"
   done
-}
-
-# ── workflows ────────────────────────────────────────────────
-cmd_workflows() {
-  compiled_ok
-  jq -r '.workflows | to_entries[] |
-    "\(.key)\t\(.value.label)\n    " + (.value.stages | join(" → "))' "$COMPILED"
+  # 이어서 할 작업이면 지금 단계 지시를 다시 준다 (compact·resume 뒤에는 지시가 컨텍스트에 없다).
+  [ -n "$mine" ] && bouncer_resume_text "$PROJECT" "$mine"
+  return 0
 }
 
 # ── check ────────────────────────────────────────────────────
@@ -127,7 +112,10 @@ cmd_start() {
   # 한 세션이 활성 작업을 둘 가지면 hook 은 하나만 본다. 다른 레포의 작업도 센다.
   local mine
   mine="$(bouncer_my_task "$PROJECT" "$SESSION")" && die "이 세션에 이미 진행 중인 작업이 있다: $mine
-'bouncer status' 로 확인하고 이어서 하거나, 'bouncer cancel' 로 정리한 뒤 새로 시작하라."
+'bouncer scan' 으로 현재 단계 지시를 보고 이어서 하거나, 'bouncer cancel' 로 정리한 뒤 새로 시작하라."
+  # 이 세션에서 workflow.yaml 을 고친 뒤 시작하면 SessionStart 때 만든 컴파일 결과는 옛것이다.
+  local err; err="$(bouncer_compile_if_stale "$PROJECT")" \
+    || printf '⚠️ workflow.yaml을 컴파일하지 못해 이전 설정으로 시작한다.\n%s\n' "$err" >&2
   compiled_ok
   [ -n "$(bouncer_chain "$PROJECT" "$wf")" ] || die "정의되지 않은 모드: $wf"
 
@@ -176,7 +164,7 @@ bouncer scan 의 CHOICE 줄을 보고 정한다 — 방식 ask 는 AskUserQuesti
   task_id="$(date +%Y%m%d-%H%M%S)-$(printf '%s' "$SESSION" | shasum -a 256 | cut -c1-6)-$slug_safe"
   dir="$(bouncer_tasks_dir "$PROJECT")/$task_id"
   mkdir -p "$(dirname "$dir")" && mkdir "$dir" 2>/dev/null || die "태스크 디렉토리를 만들 수 없다: $dir"
-  : > "$dir/.started"   # 작업 시작 시각. fresh 가 지난 작업의 리포트를 걸러 낼 때 쓴다
+  : > "$dir/.started"   # 작업 시작 시각. passed 가 지난 작업의 결과를 걸러 낼 때 쓴다
 
   root="$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null)"; [ -n "$root" ] || root="$PROJECT"
   jq -n --arg id "$task_id" --arg slug "$slug" --arg wf "$wf" --arg stage "$first" \
@@ -201,28 +189,9 @@ bouncer scan 의 CHOICE 줄을 보고 정한다 — 방식 ask 는 AskUserQuesti
   return 0
 }
 
-# ── 상태 ─────────────────────────────────────────────────────
-cmd_status() {
-  need_task
-  jq -e . "$TASK/state.json" >/dev/null 2>&1 \
-    || die "state.json이 손상됐다: $TASK/state.json
-hook은 이 상태에서 작업을 진행시키지 않는다. 작업을 포기하려면: bouncer cancel"
-  compiled_ok
-  local sj; sj="$(bouncer_stage_view "$PROJECT" "$TASK" "$STAGE")"
-  [ -n "$sj" ] \
-    || die "단계 '$STAGE' 가 workflow.yaml에 없다 (작업 도중 삭제·개명된 것으로 보인다). 되돌리거나 'bouncer cancel' 로 정리하라."
-  printf '작업:      %s\n모드:      %s\n현재 단계:  %s\n' \
-    "$(bouncer_state "$TASK" '.task_id')" "$(bouncer_state "$TASK" '.workflow')" "$STAGE"
-  jq -r '
-    (if .prompt != "" then "\n[지시]\n" + .prompt else empty end),
-    (if (.run | length) > 0
-     then "\n[검사] 끝내려 할 때 순서대로 돈다. 전부 exit 0 이면 다음 단계로 넘어간다\n" + (.run | map("  $ " + .) | join("\n"))
-     else "\n[검사] 없음 — 끝내려 하면 다음 단계로 넘어간다" end)' <<<"$sj"
-}
-
 # ── 취소 ─────────────────────────────────────────────────────
 cmd_cancel() {
-  need_task --mutating
+  need_task
   bouncer_state_update "$TASK" --arg n "$(date -u +%FT%TZ)" \
     '.current_stage = "cancelled" | .cancelled_at = $n' \
     || printf '⚠️ state.json 이 손상돼 취소 표시를 남기지 못했다. 잠금은 해제했다.\n' >&2
@@ -230,8 +199,8 @@ cmd_cancel() {
   printf 'CANCELLED\t%s\n' "$TASK"
 }
 
-# ── fresh ────────────────────────────────────────────────────
-# run 스크립트에서 "이 리포트가 지금 코드 기준인가"를 본다. 오래 걸리는 검사는 모델이 직접 돌리고
+# ── 결과가 최신인지 ──────────────────────────────────────────
+# passed 가 "이 결과가 지금 코드 기준인가"를 본다. 오래 걸리는 검사는 모델이 직접 돌리고
 # run 에서는 결과만 확인하는데, 고친 뒤 다시 안 돌린 옛 리포트로 통과하면 안 된다.
 # 리포트가 오래됐다고 보는 경우
 #   - 작업을 시작하기 전에 만든 리포트다 (지난 작업의 결과를 재사용하면 안 된다)
@@ -239,10 +208,8 @@ cmd_cancel() {
 # .ai-bouncer/ (작업 상태·검사 결과)는 비교에서 뺀다. 결과끼리 서로를 낡았다고 판정하면 영영 통과하지 못한다.
 # 기준 작업은 hook 이 넘기는 BOUNCER_TASK_DIR, 없으면(모델이 직접 실행) 이 세션의 작업이다. 그래서 둘의 판정이 같다.
 mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
-cmd_fresh() {
+result_fresh() {
   local rep="${1:-}"
-  [ -n "$rep" ] || die "usage: bouncer fresh <리포트 파일>"
-  [ -f "$rep" ] || { printf '리포트가 없다: %s — 검사를 돌려 만들어라.\n' "$rep"; exit 2; }
   local root task base rt f
   root="$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null)" || return 0
   task="${BOUNCER_TASK_DIR:-}"
@@ -293,7 +260,7 @@ cmd_passed() {
   result_name "$1"
   local f; f="$(result_file "$1")"
   [ -f "$f" ] || { printf '결과가 없다: %s — `bouncer record %s <명령>` 으로 직접 돌려라.\n' "$f" "$1"; exit 2; }
-  ( cmd_fresh "$f" ) || exit 2
+  ( result_fresh "$f" ) || exit 2
   tail -1 "$f" | grep -qx 'exit: 0' && return 0
   printf '검사 %s 가 통과하지 못했다 (%s). 끝부분:\n' "$1" "$(tail -1 "$f")"; tail -n 20 "$f" | sed '$d'
   exit 2
@@ -305,12 +272,9 @@ case "${1:-}" in
   scan)      shift; cmd_scan "$@" ;;
   check)     shift; cmd_check "$@" ;;
   start)     shift; cmd_start "$@" ;;
-  status)    shift; cmd_status "$@" ;;
   cancel)    shift; cmd_cancel "$@" ;;
-  workflows) shift; cmd_workflows "$@" ;;
-  fresh)     shift; cmd_fresh "$@" ;;
   record)    shift; cmd_record "$@" ;;
   passed)    shift; cmd_passed "$@" ;;
-  ""|-h|--help|help) sed -n '3,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  ""|-h|--help|help) sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

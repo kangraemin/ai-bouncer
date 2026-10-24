@@ -26,7 +26,7 @@ CWD="$(bouncer_task_root "$TASK")"   # 보호 경로·설정은 작업을 시작
 # 아래 차단들은 전부 "bouncer cancel / check 로 정리하라"를 안내한다.
 # 그 명령까지 막으면 모델이 빠져나갈 길이 없다 — 엔진 명령은 먼저 통과시킨다.
 # 단 **연산자가 하나도 없는 순수 호출**만. 접두로 인정하면
-# `bouncer status && rm -rf x` 가 통째로 빠져나간다 (감사에서 실제로 뚫렸다).
+# `bouncer scan && rm -rf x` 가 통째로 빠져나간다 (감사에서 실제로 뚫렸다).
 if [ "$TOOL" = "Bash" ]; then
   _C="$(jq -r '.tool_input.command // empty' <<<"$INPUT")"
   _ROOT="$(bouncer_project_root "$CWD")"

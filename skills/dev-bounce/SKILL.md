@@ -25,7 +25,7 @@ CHOICE   <모드> <단계> <id> <방식> <이름>   시작할 때 골라야 할 
 ERROR    <메시지>                          설정 문제 — 사용자에게 그대로 알린다
 ```
 
-- `MINE`이면 이미 진행 중이다. `bouncer status`로 현재 단계의 지시와 검사를 보고 이어서 한다.
+- `MINE`이면 이미 진행 중이다. 출력 맨 끝에 붙은 현재 단계 지시를 따라 이어서 한다.
 - `NONE`이면 Step 2로 간다.
 - `bouncer: command not found`가 나오면 이 컴퓨터에 설치되지 않은 것이다. 사용자에게 알리고 평소대로 작업한다.
 
@@ -71,16 +71,13 @@ bouncer start <모드> "<slug>" --pick <단계>=<id>,<id> [--pick <단계>=…]
 
 | 명령 | 용도 |
 |---|---|
-| `bouncer scan` | 상태·모드·고를 항목 |
+| `bouncer scan` | 상태(이어서 할 작업이면 현재 단계 지시)·모드·고를 항목 |
 | `bouncer start <모드> <slug> --pick …` | 작업 시작 |
-| `bouncer status` | 현재 단계의 지시와 검사 |
 | `bouncer cancel` | 작업 취소 |
-| `bouncer workflows` | 모드 목록 |
 | `bouncer check` | workflow.yaml 검사 |
 | `bouncer record <이름> <명령>` | 검사를 직접 돌리고 결과를 남긴다 (prompt가 시키면 이걸로 돌린다) |
 | `bouncer passed <이름>` | run용: 그 결과가 최신이고 통과했는지 (아니면 exit 2) |
-| `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 (오래됐거나 없으면 exit 2) |
-| `bouncer init [--defaults\|--setup\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않기 |
+| `bouncer init [--defaults\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 켜지 않기 |
 | `bouncer setup` | 레포 설정을 사용자와 대화로 정한다 — 출력된 안내대로 묻고 yaml 을 쓴다 |
 
 ## 사용자가 "앞으로 항상 ~해라"라고 할 때

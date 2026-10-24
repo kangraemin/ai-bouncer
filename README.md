@@ -157,8 +157,6 @@ run: bouncer passed e2e                                                  # hook 
 - 그래서 고친 뒤 다시 돌리지 않은 옛 결과로는 통과하지 못한다.
 - 실수와 오래된 결과를 막는 장치다. 모델이 셸로 결과 파일을 일부러 써 넣는 것까지 막지는 않는다.
 
-결과 파일을 스스로 만드는 테스트는 `bouncer fresh <파일> && <통과 확인>`으로 본다.
-
 금방 끝나는 상태 확인(grep, `git status` 등)은 run에 바로 둬도 된다.
 
 <br>
@@ -167,16 +165,13 @@ run: bouncer passed e2e                                                  # hook 
 
 | 명령 | 용도 |
 |---|---|
-| `bouncer scan` | 이 세션의 작업, 모드, 고를 항목 |
+| `bouncer scan` | 이 세션의 작업(현재 단계 지시 포함), 모드, 고를 항목 |
 | `bouncer start <모드> <slug> [--pick 단계=id,…]` | 작업 시작. 고르는 단계(ask·auto)는 전부 답해야 한다 |
-| `bouncer status` | 현재 단계의 지시와 검사 |
 | `bouncer cancel` | 작업 취소 |
-| `bouncer workflows` | 모드 목록 |
 | `bouncer check` | workflow.yaml 검사 |
 | `bouncer record <이름> <명령>` | prompt용: 검사를 돌리고 결과를 남긴다 |
 | `bouncer passed <이름>` | run용: 그 결과가 최신이고 통과했는지 |
-| `bouncer fresh <파일>` | run용: 결과 파일이 최신인지 |
-| `bouncer init [--defaults\|--setup\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 다음 세션에 대화로 설정 / 켜지 않기 |
+| `bouncer init [--defaults\|--decline]` | 레포에 켜기(빈 설정) / 기본값 써 넣기 / 켜지 않기 |
 | `bouncer setup` | 이 레포 설정을 사용자와 대화로 정하는 안내 (찾은 검사 명령 포함) |
 
 <br>

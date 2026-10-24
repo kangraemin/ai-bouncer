@@ -3,6 +3,7 @@
 # hook과 CLI가 모두 source한다. 런타임 의존성은 jq 와 python3 (컴파일·경로 검사).
 
 set -uo pipefail
+_BOUNCER_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ── 경로 ─────────────────────────────────────────────────────
 # 엔진·훅은 이 컴퓨터에 한 벌(~/.claude/ai-bouncer)이고, 레포에는 설정만 둔다.
@@ -131,6 +132,35 @@ bouncer_stage_view() {
     | (if ($st[0].chain // [] | last) == $s then $last else $tail end) as $t
     | {prompt: (if $p == "" then "" else $p + "\n\n" + $t end),
        run: ($x.run + ([$it[].run[]]))}' "$(bouncer_compiled_file "$1")" 2>/dev/null
+}
+
+# workflow.yaml 이나 참조된 프롬프트 파일이 컴파일 뒤 바뀌었으면 다시 컴파일한다 (SessionStart·start).
+# 해시는 yaml + 프롬프트 파일 전체를 본다. 프롬프트만 고쳐도 반영된다.
+# 실패하면 오류를 출력하고 1 — 기존 compiled.json 은 원자적 교체 덕에 그대로 살아 있다.
+bouncer_compile_if_stale() {
+  local yaml compiled old new
+  yaml="$(bouncer_workflow_yaml "$1")"; compiled="$(bouncer_compiled_file "$1")"
+  [ -f "$yaml" ] || return 0
+  if [ -f "$compiled" ]; then
+    old="$(jq -r '.source_sha256 // empty' "$compiled" 2>/dev/null)"
+    new="$(cd "$(dirname "$yaml")" && jq -r '.sources[]?' "$compiled" 2>/dev/null \
+            | xargs -I{} cat {} 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
+    [ -n "$old" ] && [ "$old" = "$new" ] && return 0
+  fi
+  python3 -B "$_BOUNCER_LIB/../compile.py" "$yaml" "$compiled" 2>&1 >/dev/null
+}
+
+# 이어서 할 작업의 현재 단계 지시. compact·resume 뒤에는 앞서 받은 지시가 컨텍스트에 없어 다시 준다 (scan·SessionStart).
+bouncer_resume_text() {
+  local stage sj
+  stage="$(bouncer_state "$2" '.current_stage')"
+  sj="$(bouncer_stage_view "$1" "$2" "$stage")"
+  if [ -z "$sj" ]; then
+    printf '\n⚠️ 단계 %s 가 workflow.yaml에 없다 (작업 도중 삭제·개명된 것으로 보인다). 되돌리거나 bouncer cancel 로 정리하라.\n' "$stage"
+    return 0
+  fi
+  printf '\n[%s 단계 — 이어서 한다]\n' "$stage"
+  jq -r 'if .prompt != "" then .prompt else "이 단계는 지시가 없다. 마치면 응답을 끝낸다." end' <<<"$sj"
 }
 
 # timeout 명령이 없는 맥에서도 쓸 수 있게 직접 감시한다. 시간을 넘기면 124.

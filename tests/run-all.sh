@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # 전체 테스트 실행. 인자로 케이스 파일을 주면 그것만 돈다.
-# 끝나면 .ai-bouncer/test-result 에 `fail: N` 을 남긴다 — 이 레포의 verify run 이 `bouncer fresh` 로 이 리포트를 확인한다.
-# (결과 파일을 스스로 남기는 테스트라 `bouncer record` 대신 이 방식을 쓴다)
+# 이 레포의 verify 는 `bouncer record test bash tests/run-all.sh` 로 돌리고 run 은 `bouncer passed test` 로 본다.
 ARGS=()
 for a in "$@"; do ARGS+=("$(cd "$(dirname "$a")" 2>/dev/null && pwd)/$(basename "$a")"); done
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
@@ -57,9 +56,5 @@ for t in $ALL; do
   [ "$rc" -eq 0 ] || failed="$failed $name"
 done
 printf '\n════════════════════════════\n총 %d 통과 / %d 실패\n' "$total_p" "$total_f"
-# 전체를 돌렸을 때만 리포트를 남긴다 — 일부만 돌린 결과로 verify 를 통과하면 안 된다.
-if [ "${#ARGS[@]}" -eq 0 ]; then
-  mkdir -p .ai-bouncer && printf 'fail: %d\npass: %d\n' "$([ -z "$failed" ] && echo "$total_f" || echo $((total_f>0?total_f:1)))" "$total_p" > .ai-bouncer/test-result
-fi
 [ -z "$failed" ] && { printf '전부 통과 ✅\n'; exit 0; }
 printf '실패한 테스트:%s\n' "$failed"; exit 1

@@ -38,9 +38,9 @@ blocks Write '{"file_path":"app-link.yaml"}' && ok "파일 링크로 우회 차�
 # 도구 호출 수 — Stop 이 "그 사이 아무것도 안 했다"를 아는 근거
 s0="$(cat "$TD/.tool_seq" 2>/dev/null || echo 0)"; pre Bash '{"command":"ls"}' >/dev/null
 [ "$(cat "$TD/.tool_seq")" -gt "$s0" ] && ok "도구 호출마다 tool_seq 증가" || no "tool_seq"
-s1="$(cat "$TD/.tool_seq")"; pre Bash '{"command":"bouncer status"}' >/dev/null
+s1="$(cat "$TD/.tool_seq")"; pre Bash '{"command":"bouncer scan"}' >/dev/null
 [ "$(cat "$TD/.tool_seq")" = "$s1" ] && ok "순수 bouncer 호출은 세지 않는다(면제)" || no "bouncer 면제"
-s1="$(cat "$TD/.tool_seq")"; pre Bash '{"command":"bouncer status && rm -rf x"}' >/dev/null
+s1="$(cat "$TD/.tool_seq")"; pre Bash '{"command":"bouncer scan && rm -rf x"}' >/dev/null
 [ "$(cat "$TD/.tool_seq")" -gt "$s1" ] && ok "연산자 붙은 bouncer 는 면제 아님" || no "면제 우회"
 
 # 상태·설정이 깨지면 규칙을 알 수 없다 — 막는다

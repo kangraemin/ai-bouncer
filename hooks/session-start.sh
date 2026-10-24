@@ -50,20 +50,8 @@ EOF
 fi
 
 # ── 1. 필요할 때만 재컴파일 ──────────────────────────────────
-# yaml + 참조된 프롬프트 파일 전체의 해시를 비교한다. 프롬프트만 고쳐도 반영된다.
-need_compile=1
-if [ -f "$COMPILED" ]; then
-  old="$(jq -r '.source_sha256 // empty' "$COMPILED" 2>/dev/null)"
-  new="$(cd "$(dirname "$YAML")" && jq -r '.sources[]?' "$COMPILED" 2>/dev/null \
-          | xargs -I{} cat {} 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
-  [ -n "$old" ] && [ "$old" = "$new" ] && need_compile=0
-fi
-if [ "$need_compile" = "1" ]; then
-  ENGINE="$(dirname "$(dirname "${BASH_SOURCE[0]}")")/engine/compile.py"
-  if ! err="$(python3 "$ENGINE" "$YAML" "$COMPILED" 2>&1)"; then
-    # 실패해도 기존 compiled.json은 원자적 교체 덕에 그대로 살아 있다.
-    printf '⚠️ ai-bouncer: workflow.yaml을 컴파일하지 못했다. 이전 설정으로 계속한다.\n%s\n' "$err"
-  fi
+if ! err="$(bouncer_compile_if_stale "$CWD")"; then
+  printf '⚠️ ai-bouncer: workflow.yaml을 컴파일하지 못했다. 이전 설정으로 계속한다.\n%s\n' "$err"
 fi
 
 # ── 2. 시작 전에 알아야 할 것을 주입 ─────────────────────────
@@ -76,7 +64,7 @@ if [ "$COMPILED_OK" = 1 ]; then
     WF="$(bouncer_state "$TASK" '.workflow')"
     printf '\n[ai-bouncer] 이 세션에 진행 중인 작업이 있다: %s\n' "$(bouncer_state "$TASK" '.task_id')"
     printf '  레포 %s / 워크플로우 %s / 현재 단계 %s\n' "$CWD" "$WF" "$(bouncer_state "$TASK" '.current_stage')"
-    printf '  `bouncer status`로 현재 단계의 지시와 검사를 확인하고 이어서 진행해라.\n'
+    bouncer_resume_text "$CWD" "$TASK"
   else
     printf '\n[ai-bouncer] 개발 작업은 /dev-bounce 로 시작한다. 사용 가능한 모드:\n'
     jq -r '.workflows | to_entries[] | "  \(.key) — \(.value.label)"' "$COMPILED"
