@@ -66,7 +66,7 @@ cat <<'EOF'
       - plan + simple + quick — quick 은 검증 항목을 AI 가 고른다
       - 기본값 그대로 — 고르면 `bouncer init --defaults` 하고 끝낸다
    ② 검증 항목 (multiSelect) — 위에서 찾은 명령을 항목으로 낸다. 1분 넘게 걸릴 것(e2e 등)은 그렇다고 적는다.
-   ③ 검증 항목을 고르는 방식
+   ③ 검증 항목을 고르는 방식 (stages.verify.choosable 에 쓴다. 모드마다 다르게 하려면 workflows.<모드>.choosable: {verify: auto})
       - ask (Recommended) — 작업을 시작할 때마다 사용자에게 묻는다
       - auto — AI 가 작업 내용을 보고 고른다
    ④ 마무리

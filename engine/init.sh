@@ -57,6 +57,7 @@ mkdir -p "$DIR" || die "디렉토리 생성 실패: $DIR"
 GI_ADDED="$(cat "$DIR/init.json" "$DIR/manifest.json" 2>/dev/null | jq -r '.gitignore_added // false' 2>/dev/null | grep -m1 true || echo false)"
 CLEANED=0
 LEGACY_HOOKS=0; [ -d "$DIR/hooks" ] && LEGACY_HOOKS=1
+# 아래는 전부 옛 버전(레포마다 엔진을 복사하던 시절)이 설정 디렉토리에 만든 것이다.
 for f in engine hooks bin scripts installed.json manifest.json .update-check .version-checked config.json; do
   [ -e "$DIR/$f" ] && { rm -rf "${DIR:?}/$f"; CLEANED=$((CLEANED+1)); }
 done
@@ -66,11 +67,13 @@ done
 if [ "$LEGACY_HOOKS" = 1 ]; then
   GH="$(cd "$_D/../hooks" && pwd)"
   mkdir -p "$DIR/hooks"
+  # post-tool 은 옛 훅 이름이다. 전역에 없으면 조용히 끝나게 해서, 옛 세션에 훅 오류가 뜨지 않게 한다.
   for h in session-start pre-tool post-tool stop session-end; do
     printf '#!/usr/bin/env bash
 # 옛 로컬 설치본 자리 — 이 경로로 훅을 잡아 둔 세션을 전역 훅으로 넘긴다.
+[ -f "%s/%s.sh" ] || exit 0
 BOUNCER_FORWARDED=1 exec bash "%s/%s.sh" "$@"
-' "$GH" "$h" > "$DIR/hooks/$h.sh"
+' "$GH" "$h" "$GH" "$h" > "$DIR/hooks/$h.sh"
     chmod 755 "$DIR/hooks/$h.sh"
   done
   git -C "$PROJECT" rm -r -q --cached --ignore-unmatch -- .claude/ai-bouncer/hooks >/dev/null 2>&1 || true

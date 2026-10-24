@@ -37,7 +37,7 @@ if [ "$STATE_BROKEN" = 0 ]; then
 fi
 [ "$STAGE" = "cancelled" ] && exit 0
 
-# 끝단이 아닌데 연속으로 이만큼 막았으면 사용자에게 넘긴다.
+# 연속으로 이만큼 막았으면 사용자에게 넘긴다.
 MAX_CONTINUE="${BOUNCER_MAX_CONTINUE:-10}"
 
 emit_context() { jq -n --arg c "$1" '{hookSpecificOutput:{hookEventName:"Stop", additionalContext:$c}}'; exit 0; }
@@ -113,6 +113,7 @@ REPORT=""
 DEADLINE=$(( $(date +%s) + ${BOUNCER_RUN_BUDGET:-1700} ))
 while IFS= read -r CMD; do
   [ -n "$CMD" ] || continue
+  # 예산을 다 써도 남은 명령은 1초로라도 돌려 시간 초과(124)로 보고한다 — 건너뛰면 통과로 보인다.
   LEFT=$(( DEADLINE - $(date +%s) )); [ "$LEFT" -gt 0 ] || LEFT=1
   # run 에서 `bouncer passed`·`bouncer fresh` 같은 엔진 명령을 쓸 수 있게 실행 파일 위치를 PATH 에 넣는다 (hook 의 PATH 에 없을 수 있다).
   OUT="$(cd "$WORK_ROOT" && PATH="$HOME/.local/bin:$PATH" BOUNCER_STAGE="$STAGE" BOUNCER_TASK_DIR="$TASK" \
@@ -120,7 +121,7 @@ while IFS= read -r CMD; do
   [ "$RC" -eq 0 ] && continue
   case "$RC" in
     2)   WHY="아직 통과하지 못했다" ;;
-    124) WHY="시간 초과 (${BOUNCER_RUN_BUDGET:-1700}초 안에 안 끝났다 — 오래 걸리는 검사는 직접 돌리고 run 에서는 결과만 확인하라)" ;;
+    124) WHY="시간 초과 (${BOUNCER_RUN_BUDGET:-1700}초 안에 안 끝났다 — 검사는 prompt 에서 `bouncer record <이름> <명령>` 으로 직접 돌리고, run 에는 `bouncer passed <이름>` 만 둬라)" ;;
     127) WHY="명령을 찾을 수 없다 — 경로·의존성을 확인하라" ;;
     *)   WHY="검사가 실패했다" ;;
   esac

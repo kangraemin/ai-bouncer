@@ -18,6 +18,8 @@ MultiEdit {"file_path":".claude/ai-bouncer/workflow.compiled.json"}
 Write {"file_path":".claude/settings.json"}
 Write {"file_path":"sub/../.claude/ai-bouncer/prompts/plan.md"}
 NotebookEdit {"notebook_path":".ai-bouncer/n.ipynb"}
+Write {"file_path":".AI-BOUNCER/tasks/x/state.json"}
+Write {"file_path":".Claude/ai-bouncer/workflow.yaml"}
 X
 group "일반 파일·남의 경로는 통과" pass <<X
 Write {"file_path":"app.js"}

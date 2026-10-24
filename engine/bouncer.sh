@@ -139,6 +139,7 @@ cmd_start() {
       --pick)
         [ $# -ge 2 ] && [[ "$2" == *=* ]] || die "--pick 은 <단계>=<id>,<id> 형식이다 (아무것도 안 하면 <단계>=)"
         stage="${2%%=*}"; ids="${2#*=}"
+        jq -e --arg s "$stage" 'has($s)' <<<"$picks" >/dev/null && die "--pick $stage 를 두 번 적었다. 한 번에 $stage=<id>,<id> 로 적어라"
         picks="$(jq --arg s "$stage" --arg v "$ids" '.[$s] = ($v | split(",") | map(select(. != "")))' <<<"$picks")"
         shift 2 ;;
       *) die "알 수 없는 인자: $1" ;;
@@ -175,11 +176,12 @@ bouncer scan 의 CHOICE 줄을 보고 정한다 — 방식 ask 는 AskUserQuesti
   task_id="$(date +%Y%m%d-%H%M%S)-$(printf '%s' "$SESSION" | shasum -a 256 | cut -c1-6)-$slug_safe"
   dir="$(bouncer_tasks_dir "$PROJECT")/$task_id"
   mkdir -p "$(dirname "$dir")" && mkdir "$dir" 2>/dev/null || die "태스크 디렉토리를 만들 수 없다: $dir"
+  : > "$dir/.started"   # 작업 시작 시각. fresh 가 지난 작업의 리포트를 걸러 낼 때 쓴다
 
   root="$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null)"; [ -n "$root" ] || root="$PROJECT"
   jq -n --arg id "$task_id" --arg slug "$slug" --arg wf "$wf" --arg stage "$first" \
         --arg sid "$SESSION" --arg root "$root" --arg now "$(date -u +%FT%TZ)" \
-        --arg sha "$(git -C "$root" rev-parse HEAD 2>/dev/null)" \
+        --arg sha "$(git -C "$root" rev-parse --verify -q HEAD 2>/dev/null)" \
         --argjson chain "$chain" --argjson picks "$picks" '{
       task_id:$id, slug:$slug, workflow:$wf, chain:$chain, choices:$picks, current_stage:$stage,
       created_at:$now, session_id:$sid, work_root:$root, base_sha:$sha,
@@ -231,27 +233,37 @@ cmd_cancel() {
 # ── fresh ────────────────────────────────────────────────────
 # run 스크립트에서 "이 리포트가 지금 코드 기준인가"를 본다. 오래 걸리는 검사는 모델이 직접 돌리고
 # run 에서는 결과만 확인하는데, 고친 뒤 다시 안 돌린 옛 리포트로 통과하면 안 된다.
-# 비교 대상: 작업 시작 커밋(base_sha) 이후 바뀐 파일 + 추적 안 되는 새 파일. 리포트 자신은 뺀다.
+# 리포트가 오래됐다고 보는 경우
+#   - 작업을 시작하기 전에 만든 리포트다 (지난 작업의 결과를 재사용하면 안 된다)
+#   - 작업 시작 커밋(base_sha) 이후 바뀐 파일이나 추적 안 되는 새 파일이 리포트보다 새것이다
+# .ai-bouncer/ (작업 상태·검사 결과)는 비교에서 뺀다. 결과끼리 서로를 낡았다고 판정하면 영영 통과하지 못한다.
+# 기준 작업은 hook 이 넘기는 BOUNCER_TASK_DIR, 없으면(모델이 직접 실행) 이 세션의 작업이다. 그래서 둘의 판정이 같다.
 mtime() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null; }
 cmd_fresh() {
   local rep="${1:-}"
   [ -n "$rep" ] || die "usage: bouncer fresh <리포트 파일>"
   [ -f "$rep" ] || { printf '리포트가 없다: %s — 검사를 돌려 만들어라.\n' "$rep"; exit 2; }
-  local root base rt f self
+  local root task base rt f
   root="$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null)" || return 0
-  base=""
-  [ -n "${BOUNCER_TASK_DIR:-}" ] && base="$(bouncer_state "$BOUNCER_TASK_DIR" '.base_sha')"
-  [ -n "$base" ] || base=HEAD
+  task="${BOUNCER_TASK_DIR:-}"
+  [ -n "$task" ] || { [ -n "$SESSION" ] && task="$(bouncer_my_task "$PROJECT" "$SESSION")"; } || task=""
   rt="$(mtime "$rep")"
-  self="$(cd "$(dirname "$rep")" && pwd -P)/$(basename "$rep")"
+  if [ -n "$task" ] && [ -f "$task/.started" ] && [ "$(mtime "$task/.started")" -gt "$rt" ]; then
+    printf '리포트(%s)가 이번 작업을 시작하기 전 것이다 — 검사를 다시 돌려라.\n' "$rep"
+    exit 2
+  fi
+  base=""; [ -n "$task" ] && base="$(bouncer_state "$task" '.base_sha')"
+  [ -n "$base" ] || base="$(git -C "$root" rev-parse --verify -q HEAD 2>/dev/null)"
   while IFS= read -r f; do
     [ -n "$f" ] && [ -f "$root/$f" ] || continue
-    [ "$(cd "$(dirname "$root/$f")" && pwd -P)/$(basename "$f")" = "$self" ] && continue
+    case "$f" in .ai-bouncer/*|*/.ai-bouncer/*) continue ;; esac
     if [ "$(mtime "$root/$f")" -gt "$rt" ]; then
       printf '리포트(%s)가 %s 보다 오래됐다 — 고친 뒤 검사를 다시 돌려라.\n' "$rep" "$f"
       exit 2
     fi
-  done < <(git -C "$root" diff --name-only "$base" 2>/dev/null; git -C "$root" ls-files --others --exclude-standard 2>/dev/null)
+  done < <(if [ -n "$base" ]; then git -C "$root" diff --name-only "$base" 2>/dev/null
+           else git -C "$root" ls-files --cached 2>/dev/null; fi   # 첫 커밋 전 — add 한 파일 전부가 대상
+           git -C "$root" ls-files --others --exclude-standard 2>/dev/null)
   return 0
 }
 
@@ -262,12 +274,16 @@ result_name() { case "$1" in ''|*[!A-Za-z0-9_-]*) die "결과 이름은 영문·
 result_file() {
   printf '%s/.ai-bouncer/results/%s' "$(git -C "$PROJECT" rev-parse --show-toplevel 2>/dev/null || bouncer_project_root "$PROJECT")" "$1"
 }
+# 명령이 인자 하나면 셸 문자열로 돌린다 ('a && b', 파이프 등). 여럿이면 인자 그대로 실행한다 — 이어 붙이면
+# `pytest -k "a or b"` 같은 따옴표 인자가 쪼개진다.
 cmd_record() {
   [ $# -ge 2 ] || die "usage: bouncer record <이름> <명령...>"
   result_name "$1"
   local f rc; f="$(result_file "$1")"; shift
   mkdir -p "$(dirname "$f")"
-  bash -c "$*" 2>&1 | tee "$f"; rc=${PIPESTATUS[0]}
+  if [ $# -eq 1 ]; then bash -c "$1" 2>&1 | tee "$f"; else "$@" 2>&1 | tee "$f"; fi; rc=${PIPESTATUS[0]}
+  # 출력이 개행 없이 끝나도 exit 줄은 따로 한 줄이어야 passed 가 읽는다.
+  [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ] && printf '\n' >> "$f"
   printf 'exit: %s\n' "$rc" >> "$f"
   printf '→ %s (exit: %s)\n' "$f" "$rc"
   return "$rc"

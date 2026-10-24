@@ -9,7 +9,7 @@
 ## 이 하네스가 하는 일
 
 1. config 안에 **모드**를 여러 개 둘 수 있다.
-2. 모드에는 plan 단계가 있는 모드도 있고, 없는 모드도 있다.
+2. 모드마다 단계 순서가 다르다. 예를 들어 plan 모드는 계획부터, simple 모드는 바로 구현부터 시작한다.
 3. 모드의 **마지막 단계까지 오지 않았으면 Stop hook에서 멈출 수 없다.**
 4. 단계마다 할 일(md 파일로도 줄 수 있다)을 수행하고, 다 끝나면 다음 단계로 넘어간다.
 5. 단계에는 **역할(prompt)과 조건(run)** 을 준다.
@@ -32,11 +32,14 @@
 - 아무것도 고르지 않은 단계는 건너뛴다.
 - 모드마다 방식을 덮어쓸 수 있다. 같은 verify를 simple에선 묻고, supersimple에선 AI가 고르게 할 수 있다.
 
-이것 말고는 없다.
-
 <br>
 
 ## 설치
+
+필요한 것
+- git, jq, python3 (pyyaml은 없어도 된다)
+- `~/.local/bin`이 PATH에 있어야 한다. `bouncer` 명령이 여기에 깔린다.
+  - PATH에 없으면 Claude가 "설치 안 됨"으로 보고 게이트 없이 작업한다.
 
 ```bash
 # 설치 — 엔진은 전역 한 벌, 지금 레포에도 켠다
@@ -58,6 +61,11 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
   - 켜지 않는다: `bouncer init --decline`
 - 설정 파일이 비어 있으면 엔진 기본값(plan / simple)으로 돈다. 나중에 바꾸고 싶으면 `bouncer setup`을 다시 돌린다.
 
+첫 작업
+1. 새 Claude Code 세션을 연다.
+2. 평소처럼 "이 버그 고쳐줘"라고 시킨다. Claude가 `/dev-bounce`로 시작하며 모드와 검증 항목을 묻는다.
+3. 그 뒤로는 단계마다 지시가 들어오고, 마지막 단계를 통과해야 끝난다.
+
 <br>
 
 ## 설정 (`.claude/ai-bouncer/workflow.yaml`)
@@ -66,7 +74,7 @@ curl -fsSL https://raw.githubusercontent.com/kangraemin/ai-bouncer/main/get.sh |
 workflows:                         # 모드. 이름·개수는 마음대로 정한다
   plan:
     label: 계획을 세우고 승인받은 뒤 구현
-    stages: [plan, implement, verify, finalize]
+    stages: [plan, implement, verify, finalize]   # plan 단계 지시는 엔진 기본값을 쓴다
   simple:
     stages: [implement, verify, finalize]
   supersimple:
@@ -74,9 +82,7 @@ workflows:                         # 모드. 이름·개수는 마음대로 정�
     choosable: {verify: auto}      # 이 모드에서만 고르는 방식을 덮어쓴다
 
 stages:
-  plan:
-    prompt_file: prompts/plan.md   # 할 일을 md 파일로
-  implement:
+  implement:                       # 할 일은 prompt, 또는 prompt_file: prompts/x.md (이 설정 파일 기준 경로)
     prompt: 계획대로 구현한다.
   verify:
     prompt: 실제로 실행해서 확인한다.
@@ -95,7 +101,7 @@ stages:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.
 ```
 
-엔진 기본값(`config/default.yaml`) 위에 덧붙는다.
+엔진 기본값 위에 덧붙는다. 기본값 파일은 소스에선 `config/default.yaml`, 설치본에선 `~/.claude/ai-bouncer/engine/default.yaml`이다.
 - `workflows`를 적으면 기본 모드 목록을 통째로 대신한다.
 - `stages`는 이름 단위로 교체하거나 추가한다.
 - 단계 안에서는 키 단위로, items는 id 단위로 교체한다.
@@ -147,10 +153,13 @@ run: bouncer passed e2e                                                  # hook 
 `bouncer passed <이름>`
 - 결과가 없거나 마지막 줄이 `exit: 0`이 아니면 exit 2로 실패한다.
 - 작업 시작 뒤 바뀐 파일보다 결과가 오래됐어도 exit 2로 실패한다.
+- 이번 작업을 시작하기 전에 만든 결과도 exit 2로 실패한다.
 - 그래서 고친 뒤 다시 돌리지 않은 옛 결과로는 통과하지 못한다.
+- 실수와 오래된 결과를 막는 장치다. 모델이 셸로 결과 파일을 일부러 써 넣는 것까지 막지는 않는다.
 
 결과 파일을 스스로 만드는 테스트는 `bouncer fresh <파일> && <통과 확인>`으로 본다.
-- 금방 끝나는 상태 확인(grep 등)은 run에 바로 둬도 된다.
+
+금방 끝나는 상태 확인(grep, `git status` 등)은 run에 바로 둬도 된다.
 
 <br>
 
@@ -176,12 +185,12 @@ run: bouncer passed e2e                                                  # hook 
 
 ```
 ~/.claude/ai-bouncer/        전역 엔진 한 벌 (설치·업데이트가 통째로 바꾼다)
-  engine/  bouncer.sh  compile.py  init.sh  setup.sh  default.yaml  prompts/
+  engine/  bouncer.sh  compile.py  init.sh  setup.sh  default.yaml  prompts/   (소스의 config/ 가 여기로 들어간다)
   hooks/   session-start.sh  pre-tool.sh  stop.sh  session-end.sh
 <레포>/.claude/ai-bouncer/
   workflow.yaml              레포 설정 (커밋 대상)
   workflow.compiled.json     기본값과 합친 결과 (세션 시작 때 다시 만든다)
-<레포>/.ai-bouncer/tasks/    작업 상태 (gitignore)
+<레포>/.ai-bouncer/          작업 상태 tasks/, 검사 결과 results/ (gitignore)
 ```
 
 테스트: `bash tests/run-all.sh`

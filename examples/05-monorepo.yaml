@@ -13,8 +13,6 @@ workflows:
     choosable: {verify: auto}
 
 stages:
-  plan:
-    prompt_file: prompts/plan.md
   implement:
     prompt: 계획대로 구현한다.
   verify:

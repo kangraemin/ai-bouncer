@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 전체 테스트 실행. 인자로 케이스 파일을 주면 그것만 돈다.
-# 끝나면 .ai-bouncer/test-result 에 `fail: N` 을 남긴다 — verify run 이 이 리포트를 확인한다.
+# 끝나면 .ai-bouncer/test-result 에 `fail: N` 을 남긴다 — 이 레포의 verify run 이 `bouncer fresh` 로 이 리포트를 확인한다.
+# (결과 파일을 스스로 남기는 테스트라 `bouncer record` 대신 이 방식을 쓴다)
 ARGS=()
 for a in "$@"; do ARGS+=("$(cd "$(dirname "$a")" 2>/dev/null && pwd)/$(basename "$a")"); done
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

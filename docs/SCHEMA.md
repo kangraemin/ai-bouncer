@@ -1,6 +1,7 @@
 # workflow.yaml 스키마
 
-레포 설정 `<레포>/.claude/ai-bouncer/workflow.yaml` 과 엔진 기본값 `config/default.yaml` 은 **같은 형식**이다.
+레포 설정 `<레포>/.claude/ai-bouncer/workflow.yaml` 과 엔진 기본값은 **같은 형식**이다.
+기본값 파일은 소스에선 `config/default.yaml`, 설치본에선 `~/.claude/ai-bouncer/engine/default.yaml`이다.
 레포 설정은 기본값 위에 덧붙는다.
 
 ```yaml
@@ -45,7 +46,7 @@ stages:
 ### run — 조건
 
 - 검증만 한다. 검사(테스트·빌드·e2e)는 prompt에서 모델이 `bouncer record`로 직접 돌리고, run은 `bouncer passed`로 결과만 본다.
-- 모델이 응답을 끝내려 할 때 레포 루트에서 `bash -c`로 돈다.
+- 모델이 응답을 끝내려 할 때, 작업을 시작한 git 저장소 루트에서 `bash -c`로 돈다.
 - 단계 run, 고른 항목들의 run 순서로 돈다.
 - 전부 exit 0이면 다음 단계로 넘어간다.
 - 하나라도 실패하면 출력 끝 30줄과 함께 막는다.
@@ -57,7 +58,10 @@ stages:
 - PATH에 `~/.local/bin`이 들어가 있어서 `bouncer` 명령을 쓸 수 있다.
 - 합계 시간 상한은 `BOUNCER_RUN_BUDGET`(기본 1700초)이다. 검사를 run에서 돌리면 끊긴다.
 - `bouncer record <이름> <명령>`: 명령을 돌려 출력을 `.ai-bouncer/results/<이름>`에 남기고 마지막 줄에 `exit: <코드>`를 적는다.
-- `bouncer passed <이름>`: 결과가 없거나, `exit: 0`이 아니거나, 작업 시작 뒤 바뀐 파일보다 오래됐으면 exit 2로 실패한다.
+- `bouncer passed <이름>`: 결과가 없거나, `exit: 0`이 아니거나, 이번 작업 시작 전 것이거나, 작업 중 바뀐 파일보다 오래됐으면 exit 2로 실패한다.
+  - 결과는 git 저장소 루트의 `.ai-bouncer/results/`에 쌓인다. 하위 폴더에서 돌려도 같다.
+  - 실수와 오래된 결과를 막는 장치다. 셸로 결과 파일을 일부러 써 넣는 것까지 막지는 않는다.
+- `bouncer record`의 명령은 인자 하나면 셸 문자열(`'a && b'`)로, 여럿이면 인자 그대로 실행한다.
 - `bouncer fresh <파일>`: 결과 파일을 스스로 만드는 테스트용. 없거나 오래됐으면 exit 2로 실패한다.
 
 ```yaml
@@ -110,7 +114,9 @@ stages:
 - verify 단계는 `choosable: ask`이고, 항목은 `test`(테스트·빌드·린트)와 `review`(변경분 리뷰)다.
 - 레포의 검사는 `stages.verify.items.<id>`에 둔다. `stages.verify.run`에 넣으면 고를 수 없고 매번 강제로 돈다.
 - 검사는 prompt에서 모델이 `bouncer record`로 돌리고, run은 `bouncer passed`로 결과만 본다. e2e처럼 범위를 고를 수 있으면 영향받는 것만 돌리게 적는다.
-- 기본값은 run이 없다. 이 레포에서 무엇으로 검사할지는 레포 설정에 적는다.
+- 기본값은 run이 없다. 기본 `test`는 명령을 몰라 검사를 강제하지 않는다. 이 레포에서 무엇으로 검사할지는 레포 설정에 적는다.
+
+레포 설정 예:
 
 ```yaml
 stages:

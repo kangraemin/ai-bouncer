@@ -2,7 +2,8 @@
 # 검사는 전부 items 로 두고, 시작할 때 고른다(choosable: ask). 단계 run 에 넣으면 매번 강제로 돈다.
 # prompt: 모델이 `bouncer record <이름> <명령>` 으로 직접 돌린다. 범위(영향받는 spec 등)도 모델이 고른다.
 # run: `bouncer passed <이름>` — 그 결과가 마지막 수정보다 새것이고 exit 0 인지만 본다.
-#   "통과했습니다"라고 말해도, 고친 뒤 다시 안 돌린 옛 결과로도 넘어가지 못한다.
+#   "통과했습니다"라는 말이나, 고친 뒤 다시 안 돌린 옛 결과로는 넘어가지 못한다.
+# plan 단계의 지시는 엔진 기본값을 쓴다. 바꾸려면 stages.plan.prompt_file 로 이 파일 옆의 md 를 가리킨다.
 
 workflows:
   plan:
@@ -14,8 +15,6 @@ workflows:
     choosable: {verify: auto}
 
 stages:
-  plan:
-    prompt_file: prompts/plan.md
   implement:
     prompt: 계획대로 구현한다.
   verify:

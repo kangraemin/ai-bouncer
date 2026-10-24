@@ -10,8 +10,6 @@ workflows:
     stages: [implement, verify, finalize]
 
 stages:
-  plan:
-    prompt_file: prompts/plan.md
   implement:
     prompt: 계획대로 구현한다.
   verify:
@@ -24,6 +22,6 @@ stages:
     prompt: 디버그 출력을 지우고 CHANGELOG 에 변경을 적는다.
     run:                           # 금방 끝나는 상태 확인은 run 에 바로 둬도 된다
       - "! grep -rn 'print(' src/ --include='*.py'"
-      - git diff --name-only HEAD | grep -q CHANGELOG
+      - git status --porcelain | grep -q CHANGELOG   # 새로 만든(추적 안 되는) CHANGELOG 도 본다
   finalize:
     prompt: 변경 파일을 개별 git add 하고 커밋·push 한다.

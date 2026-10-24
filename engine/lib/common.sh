@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ai-bouncer 공용 라이브러리 — 경로 해석, 상태 접근.
-# hook과 CLI가 모두 source한다. 런타임 의존성은 jq 하나.
+# hook과 CLI가 모두 source한다. 런타임 의존성은 jq 와 python3 (컴파일·경로 검사).
 
 set -uo pipefail
 
@@ -11,7 +11,7 @@ set -uo pipefail
 #
 #   ~/.claude/ai-bouncer/            엔진 + 훅 (전역)
 #   <프로젝트>/.claude/ai-bouncer/   설정 (workflow.yaml)
-#   <프로젝트>/.ai-bouncer/          런타임 상태 (state.json, .active)
+#   <프로젝트>/.ai-bouncer/          런타임 상태 (tasks/<id>/state.json·.active, results/<이름> 검사 결과)
 # 설정 지점을 현재 위치에서 위로 올라가며 찾는다. 하위 디렉토리에서 실행해도 같은 작업을 본다.
 bouncer_project_root() {
   local d="${1:-$PWD}"

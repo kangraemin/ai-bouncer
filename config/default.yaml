@@ -31,7 +31,7 @@ stages:
         - 실패한 것을 통과로 보고하지 않는다.
     choosable: ask
     items:
-      test:
+      test:   # 명령을 모르는 기본값이라 run 이 없다. 레포 설정에서 prompt(bouncer record)·run(bouncer passed)으로 덮어쓴다
         label: 테스트·빌드·린트 실행
         prompt: 이 프로젝트의 테스트 / 빌드 / 린트를 직접 실행하고 결과를 확인한다.
       review:

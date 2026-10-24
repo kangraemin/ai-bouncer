@@ -2,7 +2,7 @@
 """workflow.yaml -> workflow.compiled.json
 
 기본값(엔진 소유 default.yaml) + 레포 workflow.yaml 을 병합해 컴파일한다. 둘은 같은 형식이다.
-단계는 prompt(진입 때 주입)와 run(Stop 때 실행, exit 0 이면 통과)만 가진다.
+단계는 prompt(진입 때 주입), run(Stop 때 실행, exit 0 이면 통과), items(세부 항목), choosable(고르는 방식)을 가진다.
 
 hook은 컴파일 결과(json)만 읽는다. yaml 파싱은 여기서 한 번만 일어난다.
 pyyaml이 있으면 쓰고, 없으면 내장 파서로 폴백한다 (macOS 기본 python3엔 pyyaml이 없다).

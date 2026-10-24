@@ -44,6 +44,25 @@ bouncer record t true >/dev/null && bouncer passed t && ok "passed: 통과한 �
 sleep 1; echo again >> app.js
 bouncer passed t >/dev/null; [ $? = 2 ] && ok "passed: 결과 뒤에 고친 파일 있으면 exit 2" || no "passed 낡음"
 says "결과 이름" bouncer record ../x true && ok "record: 경로가 든 이름 거부" || no "record 이름"
+printf 'a b\n' > 'sp ace.txt'
+bouncer record q grep -c "a b" "sp ace.txt" >/dev/null && ok "record: 인자 여럿이면 따옴표 인자를 그대로 넘긴다" || no "record 인자" "$(cat .ai-bouncer/results/q)"
+bouncer record q 'grep -q "a b" "sp ace.txt" && echo yes' | grep -qx yes && ok "record: 인자 하나면 셸 문자열로 돈다" || no "record 셸"
+bouncer record q 'printf no-newline' >/dev/null; [ "$(tail -1 .ai-bouncer/results/q)" = 'exit: 0' ] && bouncer passed q >/dev/null \
+  && ok "record: 개행 없이 끝나는 출력도 exit 줄은 따로" || no "record 개행" "$(cat .ai-bouncer/results/q)"
+cp .gitignore .gi.keep; : > .gitignore   # .ai-bouncer/ 를 ignore 하지 않은 레포
+sleep 1; bouncer record q true >/dev/null; sleep 1; bouncer record q2 true >/dev/null
+bouncer passed q >/dev/null && ok "passed: 다른 결과 파일은 '바뀐 파일'로 치지 않는다 (ignore 안 한 레포)" || no "결과끼리 교착" "$(bouncer passed q)"
+mv .gi.keep .gitignore
+says "작업을 시작하기 전" bouncer passed q && no "옛 결과" || ok "passed: 이번 작업에서 만든 결과는 통과"
 unset BOUNCER_TASK_DIR; b1 cancel >/dev/null
+b1 start main c5 --pick b=x >/dev/null; export BOUNCER_TASK_DIR="$(task_dir)"
+says "시작하기 전" bouncer passed q && ok "passed: 지난 작업의 결과는 재사용하지 않는다" || no "지난 결과 재사용" "$(bouncer passed q)"
+unset BOUNCER_TASK_DIR; b1 cancel >/dev/null
+says "두 번" b1 start main c6 --pick b=x --pick b=y && ok "start: 같은 단계 --pick 두 번은 거부" || no "중복 pick"
+
+# 첫 커밋 전 레포 — add 만 한 파일을 고쳐도 낡았다고 본다
+N="$(mktemp -d)"; ( cd "$N" && git init -q . && echo v1 > a.js && git add a.js \
+  && bouncer record t true >/dev/null && sleep 1 && echo v2 > a.js && bouncer passed t >/dev/null ); rc=$?
+[ "$rc" = 2 ] && ok "passed: 첫 커밋 전 레포에서도 add 한 파일 수정을 본다" || no "커밋 전 레포" "rc=$rc"
 
 cleanup; finish

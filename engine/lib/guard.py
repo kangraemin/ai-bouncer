@@ -63,11 +63,12 @@ def _has(parts, want):
 
 
 def is_engine_path(tok):
-    a = abspath(tok)
+    # 대소문자는 무시하고 본다. macOS 기본 파일시스템에선 `.AI-BOUNCER/` 가 `.ai-bouncer/` 를 연다.
+    a, root = abspath(tok).casefold(), PROJECT.casefold()
     # 프로젝트 밖의 동명 디렉토리까지 막으면 근거 없는 차단이 된다.
-    if not a or not PROJECT or not (a == PROJECT or a.startswith(PROJECT + '/')):
+    if not a or not root or not (a == root or a.startswith(root + '/')):
         return False
-    parts = a[len(PROJECT):].lstrip('/').split('/')
+    parts = a[len(root):].lstrip('/').split('/')
     if tuple(parts[-2:]) == ENGINE_SETTINGS or parts[-1] in ENGINE_FILES:
         return True
     return any(_has(parts, want) for want in ENGINE_DIRS)
