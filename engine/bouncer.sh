@@ -276,5 +276,8 @@ case "${1:-}" in
   record)    shift; cmd_record "$@" ;;
   passed)    shift; cmd_passed "$@" ;;
   ""|-h|--help|help) sed -n '3,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
+  # 없어진 명령 — 옛 안내를 기억한 세션이 길을 잃지 않게 대신 쓸 것을 알려 준다.
+  status|workflows) die "'$1' 은 없어졌다. bouncer scan 이 이어서 할 작업의 현재 단계 지시와 모드 목록을 보여 준다." ;;
+  fresh) die "'fresh' 는 없어졌다. 검사는 bouncer record <이름> <명령> 으로 돌리고 run 은 bouncer passed <이름> 으로 본다." ;;
   *) die "알 수 없는 명령: $1" ;;
 esac

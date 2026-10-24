@@ -6,6 +6,7 @@ setup "$R/tests/fixtures/flow.yaml" "$R/tests/fixtures/prompts" || abort_setup "
 b1 scan | grep -q $'^STATE\tNONE$' && ok "scan: 작업 없음" || no "scan none"
 b1 scan | grep -q $'^WORKFLOW\tmain\t기본$' && ok "scan: 모드 목록" || no "scan workflow"
 bouncer check | grep -q '^OK' && ok "check: 유효" || no "check"
+says "bouncer scan" bouncer status && ok "없어진 명령은 대신 쓸 명령을 알려 준다" || no "없어진 명령 안내"
 says "세션 ID" bouncer start main t --pick b=x && ok "세션 없이 start 거부" || no "세션 없음"
 says "정의되지 않은 모드" b1 start nope t && ok "없는 모드 거부" || no "없는 모드"
 
